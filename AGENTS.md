@@ -82,3 +82,17 @@ bun run db:migrate               # Apply migrations to configured database
 - Regressions write real database rows. Never bypass `scripts/test-guard.ts`, point them at normal app URLs, or manually fake harness markers.
 - Choose filename-prefix suites covering changed behavior; preserve deterministic fixtures and attempt isolation. No numeric coverage threshold is configured.
 - `hooks/verify.ts` verifies a target repository and reports commit-bound evidence; it is not this repository's regression harness. Canary creates a real issue/PR requiring manual closure; deployed ingest smoke scripts also write live events.
+
+## Agent skills
+
+### Issue tracker
+
+Read `docs/agents/issue-tracker.md` before creating or reading tickets/specs; this repo uses local Markdown under `.scratch/`.
+
+### Triage labels
+
+Read `docs/agents/triage-labels.md` before triaging tickets; use the five default roles as local `Status:` values.
+
+### Domain docs
+
+Read `docs/agents/domain.md` before domain exploration; this repo uses single-context domain docs.
