@@ -44,6 +44,7 @@ bun run db:migrate               # Apply migrations to configured database
 - Never edit code or commit directly on `main`, `master`, or any protected branch. Before changing files, check the current branch and existing local/remote branches relevant to the task.
 - Reuse a relevant unprotected task branch when available. Otherwise, create and switch to a new branch named `<type>/<description>`, using a short kebab-case description, for example `feat/job-filter`, `fix/stale-events`, `chore/update-deps`, or `docs/branch-commit-rules`.
 - Always commit completed changes after appropriate verification, before handing work back. Stage only task-related files; never include unrelated user changes. If verification or committing is blocked, report the exact blocker instead of claiming completion.
+- After confirming a successful merge, delete the merged task branch both locally and on the remote. Switch off the task branch before deleting it; never delete `main`, `master`, protected branches, or unrelated branches. If the merge fails or is unconfirmed, keep the branch.
 
 ## Code Conventions & Common Patterns
 
