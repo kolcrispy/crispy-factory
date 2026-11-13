@@ -9,7 +9,7 @@ process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("@factory/storage/client");
 const { auditLog, jobs, runs } = await import("@factory/storage/schema");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 const { archiveRefusal, isArchived, splitArchived } = await import("@factory/core/archive");
 const { archiveJobs, unarchiveJobs } = await import("@factory/core/archive-actions");
 const { inboxItems } = await import("@factory/core/inbox");
@@ -51,12 +51,12 @@ await db.delete(runs).where(like(runs.session_id, "archive-regress-%"));
 await db.delete(jobs).where(like(jobs.key, "ARCH-%"));
 const past = new Date(Date.now() - 60_000);
 await db.insert(jobs).values([
-  linearJob("archive-regress-merged", KEYS.merged, { stage: "merged", stage_at: past, pr_url: "https://github.com/o/r/pull/1" }),
-  linearJob("archive-regress-failed", KEYS.failed, { stage: "failed", stage_at: past }),
-  linearJob("archive-regress-working", KEYS.working, { stage: "implementing", stage_at: past }),
-  linearJob("archive-regress-pr", KEYS.pr, { stage: "pr", stage_at: past, pr_url: "https://github.com/o/r/pull/2" }),
-  linearJob("archive-regress-waiting", KEYS.waiting, { stage: "waiting", stage_at: past, question: "Which one?" }),
-  linearJob("archive-regress-stopping", KEYS.stopping, { stage: "failed", stage_at: past, stop: requestedStop({ at: past, by: OWNER, reason: "r", reopen: false }) }),
+  internalJob("archive-regress-merged", KEYS.merged, { stage: "merged", stage_at: past, pr_url: "https://github.com/o/r/pull/1" }),
+  internalJob("archive-regress-failed", KEYS.failed, { stage: "failed", stage_at: past }),
+  internalJob("archive-regress-working", KEYS.working, { stage: "implementing", stage_at: past }),
+  internalJob("archive-regress-pr", KEYS.pr, { stage: "pr", stage_at: past, pr_url: "https://github.com/o/r/pull/2" }),
+  internalJob("archive-regress-waiting", KEYS.waiting, { stage: "waiting", stage_at: past, question: "Which one?" }),
+  internalJob("archive-regress-stopping", KEYS.stopping, { stage: "failed", stage_at: past, stop: requestedStop({ at: past, by: OWNER, reason: "r", reopen: false }) }),
 ]);
 // A staged run of the failed job, which must not come back as a run the factory never claimed.
 await db.insert(runs).values({ session_id: "archive-regress-run", job_key: KEYS.failed, stage: "failed", started_at: past, last_event_at: past });
@@ -91,7 +91,7 @@ for (const user of [null, { email: "stranger@example.com", emailVerified: true }
 }
 assert.deepEqual(await archiveJobs(deps(), []), { ok: false, message: "Pick at least one job." });
 assert.deepEqual(await archiveJobs(deps(), "nope"), { ok: false, message: "Invalid input: expected array, received string" }, "the ids are validated");
-assert.deepEqual(await archiveJobs(deps(), ["linear:archive-regress-missing"]), { ok: false, message: "No job linear:archive-regress-missing." });
+assert.deepEqual(await archiveJobs(deps(), ["internal:archive-regress-missing"]), { ok: false, message: "No job internal:archive-regress-missing." });
 for (const kind of ["working", "pr", "waiting"] as const) {
   assert.deepEqual(await archiveJobs(deps(), [ids[kind]]), { ok: false, message: `${KEYS[kind]}: Only merged or failed jobs can be archived.` }, `a job in ${kind} is refused`);
 }
@@ -105,7 +105,7 @@ const archivedRows = (await rows()).filter((j) => j.archived_at);
 assert.deepEqual(archivedRows.map((j) => [j.key, j.archived_by, j.stage]).sort(), [[KEYS.failed, OWNER, "failed"], [KEYS.merged, OWNER, "merged"]], "only the archive columns change");
 assert.deepEqual(
   (await audits()).map((a) => [a.action, a.actor, a.target, a.result]).sort(),
-  [["job_archived", OWNER, "https://github.com/o/r/pull/1", "ok"], ["job_archived", OWNER, "u", "ok"]],
+  [["job_archived", OWNER, `/jobs/${KEYS.failed}`, "ok"], ["job_archived", OWNER, "https://github.com/o/r/pull/1", "ok"]],
   "one audit row per job",
 );
 

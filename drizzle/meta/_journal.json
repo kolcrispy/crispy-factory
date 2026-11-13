@@ -288,6 +288,69 @@
       "when": 1794544592899,
       "tag": "0040_concerned_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794550383047,
+      "tag": "0041_common_vampiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794552096736,
+      "tag": "0042_crazy_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794552504314,
+      "tag": "0043_clever_randall_flagg",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794552650748,
+      "tag": "0044_smiling_bloodstorm",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794553504596,
+      "tag": "0045_absent_orphan",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794556548942,
+      "tag": "0046_nasty_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794556628747,
+      "tag": "0047_tired_starhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794557103449,
+      "tag": "0048_lying_sharon_ventura",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794557492164,
+      "tag": "0049_pink_iron_lad",
+      "breakpoints": true
     }
   ]
 }

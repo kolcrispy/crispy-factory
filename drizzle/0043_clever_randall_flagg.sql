@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ALTER COLUMN "source" SET DEFAULT 'internal';

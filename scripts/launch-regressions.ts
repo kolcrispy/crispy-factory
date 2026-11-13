@@ -6,11 +6,10 @@ import type { JobHost } from "@factory/core/host";
 
 const { db } = await import("@factory/storage/client");
 const { jobs } = await import("@factory/storage/schema");
-const { bindThread, claimLaunch, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads } = await import("@factory/runner/ops");
-const { jobId, sourceFor } = await import("@factory/core/sources/index");
-const { linearJob } = await import("./fixtures");
-const { createLinearAdapter } = await import("@factory/integrations/sources/linear");
-const { factorySchema, TEST_MACHINE_ID } = await import("@factory/core/config");
+const { bindThread, claimLaunch, deliverStops, pendingLaunches, releaseLaunch, threads } = await import("@factory/runner/ops");
+const { jobId } = await import("@factory/core/sources/index");
+const { internalJob } = await import("./fixtures");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("@factory/runner/binding");
 const { and, sql } = await import("drizzle-orm");
 const { launchEntries, maybeStarted, MaybeStartedError, parseThreadId, startThread } = await import("@factory/runner/launch");
@@ -24,15 +23,14 @@ const realThreads = { ...threads };
 threads.state = async () => "running";
 threads.send = async (threadId, message) => void sent.push({ threadId, message });
 
-await assert.rejects(sourceFor("linear").ready(), /Linear API was called during a regression run/, "the real Linear client refuses to run in a regression");
 
 const id = `launch-regress-${Date.now()}`;
-const jid = jobId("linear", id);
-await db.insert(jobs).values(linearJob(id, id));
+const jid = jobId("internal", id);
+await db.insert(jobs).values(internalJob(id, id));
 try {
   assert.equal(await claimLaunch(id, "pending:1", slot), true, "the first launch claims the job");
   assert.equal(await claimLaunch(id, "pending:2", slot), false, "a second launch, after a crash or timeout, does not");
-  assert.deepEqual((await pendingLaunches()).find((p) => p.key === id), { key: id, repo: "ski043/factory-demo", marker: "pending:1", branch: `factory/${id}`, stage: "queued", execution: null, sandbox_id: null, codex_slot: null });
+  assert.deepEqual((await pendingLaunches()).find((p) => p.key === id), { key: id, repo: "ski043/factory-demo", marker: "pending:1", branch: `factory/${id}`, stage: "queued" });
   await releaseLaunch(id, "pending:2");
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, id)))[0]!.t3_thread_id, "pending:1", "only the holder's marker is released");
   await releaseLaunch(id, "pending:1");
@@ -79,7 +77,7 @@ try {
   const retryClaim = () =>
     db
       .insert(jobs)
-      .values(linearJob(id, id))
+      .values(internalJob(id, id))
       .onConflictDoUpdate({ target: jobs.id, set: { attempt: sql`${jobs.attempt} + 1` }, setWhere: canReclaimSql })
       .returning({ attempt: jobs.attempt });
   await db.update(jobs).set({ ...stop, t3_thread_id: "pending:8", stop_sent_to: null }).where(eq(jobs.id, jid));
@@ -106,56 +104,6 @@ try {
   assert.equal(canReclaim(cleared!), true, "and a retry may claim");
   assert.deepEqual(await deliverStops(jid), []);
 
-  // Missed stop webhooks: each tick asks Linear about claimed jobs and stops the ones it took away.
-  const node = (over: Record<string, unknown> = {}) => ({
-    id,
-    archivedAt: null,
-    trashed: null,
-    state: { type: "started", name: "In Progress" },
-    labels: { nodes: [{ name: "factory" }] },
-    ...over,
-  });
-  const sourceReading = (issuesByIds: () => Promise<unknown[]>) =>
-    createLinearAdapter(() => ({ client: { issuesByIds } as never, db, limits: factorySchema.parse({}) }));
-  const stops: string[] = [];
-  const recordStop = async (stopped: string, detail: string) => {
-    // Never touch a live job, whatever the scoping above does.
-    assert.equal(stopped, jid, "the regression only stops its own job");
-    stops.push(detail);
-    await db.update(jobs).set({ stage: "failed", stage_event_id: `stop:${id}:x` }).where(eq(jobs.id, jid));
-    return "stopped";
-  };
-  const working = () => db.update(jobs).set({ stage: "implementing", stage_event_id: "e" }).where(eq(jobs.id, jid));
-  const cases = [
-    { name: "still labeled and open", fetch: async () => [node()], stop: undefined },
-    { name: "label removed", fetch: async () => [node({ labels: { nodes: [{ name: "bug" }] } })], stop: "the factory label was removed in Linear" },
-    { name: "canceled", fetch: async () => [node({ state: { type: "canceled", name: "Canceled" } })], stop: "issue moved to Canceled in Linear" },
-    { name: "archived", fetch: async () => [node({ archivedAt: "2026-10-24T00:00:00Z" })], stop: "the issue was archived or deleted in Linear" },
-    { name: "deleted (not returned)", fetch: async () => [], stop: "the issue was deleted in Linear" },
-  ];
-  for (const c of cases) {
-    await working();
-    stops.length = 0;
-    const result = await reconcileStops({ sources: [sourceReading(c.fetch)], stop: recordStop, only: [jid] });
-    assert.deepEqual(stops, c.stop ? [c.stop] : [], `${c.name}: ${JSON.stringify(result)}`);
-    if (c.stop) {
-      await reconcileStops({ sources: [sourceReading(c.fetch)], stop: recordStop, only: [jid] });
-      assert.equal(stops.length, 1, `${c.name}: a repeat tick records no second stop`);
-    }
-  }
-  await working();
-  stops.length = 0;
-  const linearDown = await reconcileStops({
-    sources: [
-      sourceReading(async () => {
-        throw new Error("Linear is down");
-      }),
-    ],
-    stop: recordStop,
-    only: [jid],
-  });
-  assert.deepEqual(linearDown, { unknown: "Linear is down" });
-  assert.deepEqual(stops, [], "a failed Linear fetch stops nothing");
 
   // Every per-job T3 call goes through the job's host, so a fake host sees exactly what T3 would.
   const calls: { command: string; args: string[]; options?: ExecOptions }[] = [];
@@ -239,7 +187,7 @@ try {
   // One failed start does not stop the batch; a clear failure frees its marker, a timeout keeps it.
   const markers = new Map<string, string>();
   const released: string[] = [];
-  const entry = (key: string) => ({ key, sandbox_id: null, attempt: 1, source: "linear" as const, repo: "ski043/factory-demo", branch: `factory/${key}`, threadTitle: key, message: "m", harness, ticket: null });
+  const entry = (key: string) => ({ key, sandbox_id: null, attempt: 1, source: "internal" as const, repo: "ski043/factory-demo", base: "main", branch: `factory/${key}`, threadTitle: key, message: "m", harness, ticket: null });
   const results = await launchEntries([entry("A"), entry("B"), entry("C")], {
     claim: async (key, marker) => (markers.set(key, marker), true),
     start: async ({ key }) => {
@@ -376,6 +324,18 @@ try {
   process.off("unhandledRejection", count);
   assert.deepEqual(lateEvents, ["late:error", "late:late-error"]);
   assert.equal(unhandled, 0, "no unhandled rejection");
+
+  // Shutdown retains ownership until timed-out work actually settles.
+  const draining = serialQueue(() => {}, 10);
+  let finishWork!: () => void;
+  await draining.serial("unfinished", () => new Promise<void>(resolve => { finishWork = resolve; }));
+  let drained = false;
+  const ownershipDrain = draining.drain().then(() => { drained = true; });
+  await Promise.resolve();
+  assert.equal(drained, false, "a queue timeout must not release runner ownership while work runs");
+  finishWork();
+  await ownershipDrain;
+  assert.equal(drained, true);
 
   // The hourly cleanup advances its clock only on success and never overlaps itself.
   let t = 0;

@@ -3,12 +3,12 @@ import { machines } from "@factory/storage/schema";
 import { reportedHarnesses } from "./machine";
 import { readRegistry } from "./repositories";
 import type { NewJobDeps } from "./new-job";
-import { panelSource } from "./sources/index";
+import { fileInternalJob } from "./internal-jobs";
 
-/** How the panel files a job: in its source (lib/sources), as the signed-in owner, with the harnesses the machines report and the registered repos. */
+/** Shared database submission path for authenticated dashboard owners and trusted CLI operators. */
 export const newJobDeps = (user: NewJobDeps["user"]): NewJobDeps => ({
   user,
-  file: (draft) => panelSource().file!(draft),
+  file: (draft, actor) => fileInternalJob(db, draft, actor),
   harnesses: async () => reportedHarnesses(await db.select().from(machines), Date.now()),
   registry: () => readRegistry(db),
 });

@@ -16,14 +16,11 @@ import { Separator } from "../ui/separator";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import type { MachineRow, RepoSettingsRow } from "@factory/storage/schema";
-import { EXECUTIONS, type Execution } from "@factory/core/execution";
 import type { Harness } from "@factory/core/harness";
-import { parseInventory, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, sandboxLogin, UNKNOWN } from "@factory/core/machine";
+import { parseInventory, reportedHarnesses, UNKNOWN } from "@factory/core/machine";
 import { AUTONOMY_LABELS, AUTONOMY_LEVELS, type Autonomy } from "@factory/core/merge-decision";
-import { repoImage } from "@factory/core/onboarding";
 import { displayName } from "@factory/core/repo-name";
 import type { RepoStats } from "@factory/core/repositories";
-import { RUNS_ON_LABELS } from "@factory/core/ticket-overrides";
 import { cn } from "../../lib/utils";
 import { useRowKeys } from "./row-keys";
 import { useFeed, type Feed } from "./sealed";
@@ -50,47 +47,21 @@ const SETTINGS_DEFAULT = "settings-default";
 const itemHref = (repo: string) => `/repositories?${new URLSearchParams({ repo })}`;
 const githubUrl = (repo: string) => `https://github.com/${repo}`;
 
-/**
- * Where a repo's jobs can launch. Modal needs a runner that can launch there and, for an onboarded
- * repo, its warm image, or the base image while the warm one is outdated; a local launch needs a
- * runner's checkout.
- */
-export type Places = { modal: boolean; modalNote: string | null; machines: string[]; rebuild?: string };
+type Places = { machines: string[] };
 
-function placesOf(rows: readonly MachineRow[], now: number, row: RepoSettingsRow): Places {
-  const sandbox = reportedSandbox(rows, now);
-  const drift = sandbox ? reportedDrift(sandbox) : [];
-  const runner = Boolean(sandbox && sandbox.modal && sandbox.image && drift.length === 0 && sandboxLogin(sandbox));
-  const info = sandbox?.imageInfo;
-  const image = repoImage(row, info?.versions ? { versions: info.versions, builtAt: info.builtAt } : null);
-  const machines = rows.filter((m) => parseInventory(m.inventory)?.repos.some((r) => r.origin !== UNKNOWN && r.origin === row.repo)).map((m) => m.name);
-  const modalNote = (() => {
-    switch (image.kind) {
-      case "warm":
-        return "Warm cloud sandbox image ready";
-      case "base":
-        return image.outdated ? "Cloud sandboxes start from the base image until the warm one is rebuilt" : "Cloud sandbox image ready";
-      case "blocked":
-        return null;
-      default: {
-        const never: never = image;
-        throw new Error(`unknown image ${String(never)}`);
-      }
-    }
-  })();
-  return { modal: runner && image.kind !== "blocked", modalNote, machines, ...(drift.length > 0 && { rebuild: rebuildText(drift) }) };
+function placesOf(rows: readonly MachineRow[], row: RepoSettingsRow): Places {
+  return { machines: rows.filter(m => parseInventory(m.inventory)?.repos.some(r => r.origin !== UNKNOWN && r.origin === row.repo)).map(m => m.name) };
 }
 
-function placesLine({ modal, modalNote, machines, rebuild }: Places) {
-  const parts = [modal && modalNote, rebuild, machines.length > 0 && `Local checkout on ${machines.join(", ")}`].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "Neither a cloud sandbox image nor a local checkout";
+function placesLine({ machines }: Places) {
+  return machines.length ? `Local checkout on ${machines.join(", ")}` : "Waiting for the runner to prepare a local checkout";
 }
 
 type Entry = { row: RepoSettingsRow; stats: RepoStats | undefined; places: Places };
 
 function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cursor: boolean; onFocus: () => void }) {
   const { row, stats, places } = entry;
-  const nowhere = !places.modal && places.machines.length === 0;
+  const nowhere = places.machines.length === 0;
   return (
     <div
       className={cn(
@@ -122,7 +93,7 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
             Disabled
           </Badge>
         )}
-        {row.onboarding_state && <OnboardingBadge state={row.onboarding_state} />}
+        <OnboardingBadge state={row.registration_status} />
         <a
           href={githubUrl(row.repo)}
           target="_blank"
@@ -140,23 +111,22 @@ function Row({ entry, open, cursor, onFocus }: { entry: Entry; open: boolean; cu
       <span
         className={cn(
           "hidden w-72 shrink-0 truncate text-xs @3xl:block",
-          nowhere || row.onboarding_state === "failed" || row.onboarding_state === "needs_input" ? "text-warning" : "text-muted-foreground",
+          nowhere || row.registration_status === "failed" ? "text-warning" : "text-muted-foreground",
         )}
       >
-        {row.onboarding_state && row.onboarding_state !== "ready" ? onboardingLine(row) : placesLine(places)}
+        {onboardingLine(row)}
       </span>
       <span className="hidden w-36 shrink-0 truncate text-xs text-muted-foreground @2xl:block">Merging · {AUTONOMY_LABELS[row.autonomy]}</span>
     </div>
   );
 }
 
-function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harnesses: readonly Harness[]; panelTakesSecrets: boolean }) {
+function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harness[] }) {
   const router = useRouter();
   const { row, stats, places } = entry;
   const [name, setName] = useState(displayName(row));
   const [enabled, setEnabled] = useState(row.enabled);
   const [provider, setProvider] = useState(row.provider ?? SETTINGS_DEFAULT);
-  const [execution, setExecution] = useState<Execution | typeof SETTINGS_DEFAULT>(row.execution ?? SETTINGS_DEFAULT);
   const [autonomy, setAutonomy] = useState<Autonomy>(row.autonomy);
   const [requireBugbot, setRequireBugbot] = useState(row.require_bugbot);
   const [failure, setFailure] = useState<string | null>(null);
@@ -170,7 +140,6 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
     // A default harness no machine reports enabled any more still shows, so saving keeps it.
     ...(row.provider && !harnesses.some((h) => h.id === row.provider) ? [{ value: row.provider, label: `${row.provider} (not reported by any runner)` }] : []),
   ];
-  const runsOnItems = [{ value: SETTINGS_DEFAULT, label: "Settings default" }, ...EXECUTIONS.map((e) => ({ value: e, label: RUNS_ON_LABELS[e] }))];
   const autonomyItems = AUTONOMY_LEVELS.map((level) => ({ value: level, label: AUTONOMY_LABELS[level] }));
 
   const run = (action: () => Promise<{ ok: true } | { ok: false; message: string }>) => {
@@ -194,7 +163,6 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
         displayName: name,
         enabled,
         provider: provider === SETTINGS_DEFAULT ? null : provider,
-        execution: execution === SETTINGS_DEFAULT ? null : execution,
         autonomy,
         requireBugbot,
       }),
@@ -228,16 +196,16 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
               <ExternalLinkIcon data-icon="inline-end" />
             </Button>
           </div>
-          <p className={cn("text-sm", !places.modal && places.machines.length === 0 ? "text-warning" : "text-muted-foreground")}>{placesLine(places)}</p>
+          <p className={cn("text-sm", places.machines.length === 0 ? "text-warning" : "text-muted-foreground")}>{placesLine(places)}</p>
         </div>
         <Separator />
-        <OnboardingSection key={`${row.onboarding_state}-${row.onboarding_at?.toISOString()}`} row={row} panelTakesSecrets={panelTakesSecrets} />
+        <OnboardingSection key={row.registration_status} row={row} />
         <Separator />
         <div className="flex flex-col gap-5 px-4.5 py-4">
           <Field>
             <FieldLabel htmlFor={id("name")}>Display name</FieldLabel>
             <Input id={id("name")} value={name} onChange={(e) => setName(e.target.value)} />
-            <FieldDescription>Also the name of its child in the Repository label group in Linear. Run the label sync after a rename.</FieldDescription>
+            <FieldDescription>A dashboard display name for this repository.</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor={id("enabled")}>New jobs</FieldLabel>
@@ -261,7 +229,7 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
             <FieldDescription>
               {row.is_default
                 ? "The default repository always takes new jobs."
-                : "A disabled repository takes no new jobs; an issue labeled with it goes to the default, and the issue is told why."}
+                : "A disabled repository takes no new jobs. Existing jobs keep their repository."}
             </FieldDescription>
           </Field>
           <div className="grid w-full grid-cols-2 gap-4">
@@ -280,28 +248,8 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
                 </SelectPopup>
               </Select>
             </Field>
-            <Field>
-              <FieldLabel htmlFor={id("runs-on")}>Default runs on</FieldLabel>
-              <Select
-                items={runsOnItems}
-                value={execution}
-                onValueChange={(value) => value !== null && setExecution(value === SETTINGS_DEFAULT ? SETTINGS_DEFAULT : (value as Execution))}
-              >
-                <SelectTrigger id={id("runs-on")} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopup>
-                  {runsOnItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
             <p className="col-span-2 text-sm text-muted-foreground">
-              A ticket&apos;s Harness or Runs on label beats these, and these beat Settings. A local run needs a runner&apos;s checkout of the repo;
-              without one the job runs in a cloud sandbox, or waits until it can.
+              Jobs run locally in attempt-isolated worktrees. A job&apos;s selected harness overrides this default.
             </p>
           </div>
           <Field>
@@ -353,21 +301,18 @@ export function Repositories({
   stats,
   machines,
   selected,
-  panelTakesSecrets,
 }: {
   registry: readonly RepoSettingsRow[];
   stats: readonly RepoStats[];
   machines: Feed<MachineRow>;
   selected: string | undefined;
-  /** The panel holds a Modal token, so it takes secret values itself. */
-  panelTakesSecrets: boolean;
 }) {
   useOnboardingRefresh(registry);
   const { rows, status } = useFeed(machines, "/api/live/machines");
   const now = useNow(CLOCK_TICK_MS) ?? 0;
   const harnesses = useMemo(() => (reportedHarnesses(rows, now) ?? []).filter((h) => h.enabled), [rows, now]);
   const entries = useMemo(
-    () => registry.map((row): Entry => ({ row, stats: stats.find((s) => s.repo === row.repo), places: placesOf(rows, now, row) })),
+    () => registry.map((row): Entry => ({ row, stats: stats.find((s) => s.repo === row.repo), places: placesOf(rows, row) })),
     [registry, stats, rows, now],
   );
   const listRef = useRef<HTMLDivElement>(null);
@@ -385,7 +330,7 @@ export function Repositories({
             <EmptyHeader>
               <EmptyTitle>No repository is registered yet</EmptyTitle>
               <EmptyDescription>
-                Add one the GitHub App can reach, or start a runner: it registers the checkouts in its config, and the first one becomes the default.
+                Add a GitHub repository name or URL. The runner checks access using its authenticated gh CLI and prepares a local checkout.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -401,7 +346,7 @@ export function Repositories({
               ))}
             </ul>
           </div>
-          {open && <Detail key={open.row.repo} entry={open} harnesses={harnesses} panelTakesSecrets={panelTakesSecrets} />}
+          {open && <Detail key={open.row.repo} entry={open} harnesses={harnesses} />}
         </div>
       )}
       <PanelFooter

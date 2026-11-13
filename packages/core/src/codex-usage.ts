@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { z } from "zod";
 import type { Usage } from "./events";
 import type { JobHost } from "./host";
@@ -163,31 +164,24 @@ export function codexUsage(rollouts: readonly Rollout[], run: CodexRun): CodexUs
   return main && { main, others: matched.filter((r) => r !== main) };
 }
 
-const RECORD = "\u001e";
-
-// Prints, per rollout written to in the last $2 minutes, a separator with its path, then only the
-// lines the parser needs: the session_meta, the last turn_context, the last turn start or end, and
-// the last running total.
-const READ_SCRIPT = `
-cd "$1" 2>/dev/null || exit 0
-find . -name 'rollout-*.jsonl' -mmin "-$2" | while IFS= read -r f; do
-  printf '${RECORD}%s\\n' "$f"
-  head -n 1 "$f"
-  grep -F '"type":"turn_context"' "$f" | tail -n 1
-  grep -E '"type":"task_(started|complete)"' "$f" | tail -n 1
-  grep -F '"total_token_usage"' "$f" | tail -n 1
-done
-`;
-
-/** Every rollout under codexHome written to since `sinceMs`, read on the host in one command. */
+/** Reads recent rollout files through the native host filesystem, without a shell dependency. */
 export async function readRollouts(host: JobHost, codexHome: string, sinceMs: number, now = Date.now()): Promise<Rollout[]> {
-  const minutes = Math.max(1, Math.ceil((now - sinceMs) / 60_000));
-  const { stdout } = await host.run("sh", ["-c", READ_SCRIPT, "sh", `${codexHome}/sessions`, String(minutes)], { timeoutMs: 60_000, maxBuffer: 64 * 1024 * 1024 });
-  return stdout
-    .split(RECORD)
-    .slice(1)
-    .flatMap((chunk) => {
-      const rollout = parseRollout(chunk.slice(chunk.indexOf("\n") + 1));
-      return rollout ? [rollout] : [];
-    });
+  const cutoff = now - Math.max(60_000, Math.ceil((now - sinceMs) / 60_000) * 60_000);
+  const sessions = join(codexHome, "sessions");
+  if (!(await host.exists(sessions))) return [];
+  const rollouts: Rollout[] = [];
+  async function visit(directory: string, depth: number): Promise<void> {
+    for (const name of await host.list(directory)) {
+      const path = join(directory, name);
+      if (depth < 3 && /^\d+$/.test(name)) {
+        await visit(path, depth + 1);
+      } else if (name.startsWith("rollout-") && name.endsWith(".jsonl") && await host.mtimeMs(path) >= cutoff) {
+        const text = await host.readFile(path);
+        const rollout = text === null ? undefined : parseRollout(text);
+        if (rollout) rollouts.push(rollout);
+      }
+    }
+  }
+  await visit(sessions, 0);
+  return rollouts;
 }

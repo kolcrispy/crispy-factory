@@ -3,9 +3,9 @@ import { db } from "@factory/storage/client";
 import { jobs } from "@factory/storage/schema";
 import type { Stage } from "@factory/core/events";
 import { attemptBranch } from "@factory/core/factory";
-import type { RepoName } from "@factory/integrations/github/app";
+import type { RepoName } from "@factory/integrations/github/gh";
 import { github } from "@factory/integrations/github/pulls";
-import { hosts, isHibernated } from "@factory/core/host";
+import { hosts } from "@factory/core/host";
 import { parseJobs } from "@factory/core/sources/index";
 import type { Job } from "@factory/core/sources/types";
 import { causeOf, runnerEventId } from "@factory/core/stages";
@@ -109,7 +109,7 @@ export async function inferUntracked({ now = Date.now(), only }: { now?: number;
   const done: string[] = [];
   const errors: { key: string; error: string }[] = [];
   for (const job of rows) {
-    if (jobTracked(job, drivers) || bindingOf(job.t3_thread_id) !== "bound" || isHibernated(job)) continue;
+    if (jobTracked(job, drivers) || bindingOf(job.t3_thread_id) !== "bound") continue;
     try {
       const outcome = await inferJob(job, now);
       if (outcome) done.push(`${job.key}:${outcome}`);

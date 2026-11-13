@@ -13,11 +13,7 @@ import { createJob } from "@factory/core/new-job";
 import { readSettings, saveSettings, writeSettings } from "@factory/core/settings";
 import { reportedHarnesses } from "@factory/core/machine";
 import { readRegistry, saveRepository, writeRepository, makeDefaultRepo, writeDefaultRepo } from "@factory/core/repositories";
-import { readNotifications, saveNotifications, requestSlackTest } from "@factory/core/notifications";
-import { installationRepos } from "@factory/integrations/github/installation";
-import { modalEnvConfigured, modalSecretStore } from "@factory/integrations/modal-secrets";
-import { addRepository, listAddable, writeNewRepository, repositoryRequest, retryOnboarding, rebuildRepoImage, writeRepoRequest, saveRepoSecrets, recordSecretNames } from "@factory/core/repo-onboarding";
-import { panelSource } from "@factory/core/sources/index";
+import { requestRepository } from "@factory/core/repository-registration";
 import { parseJobId } from "@factory/core/sources/shapes";
 
 type Result = { ok?: boolean; status?: string | number; [key: string]: unknown };
@@ -29,9 +25,7 @@ export async function operator(resource: string, action: string, raw: unknown, a
   const user = async () => trustedOperator(actor);
   const deps = inboxDeps(user);
   const registry = () => readRegistry(db);
-  const replay = (kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string) => repositoryRequest(db, kind, repo, requestId);
   const harnesses = async () => reportedHarnesses(await db.select().from(machines), Date.now());
-  const notificationDeps = { db, user };
   let result: Result;
   const key = `${resource} ${action}`;
   switch (key) {
@@ -56,17 +50,8 @@ export async function operator(resource: string, action: string, raw: unknown, a
     case "repositories list": result = { repositories: await registry() }; break;
     case "repositories save": result = await saveRepository({ user, registry, harnesses, save: (choice, by) => writeRepository(db, choice, by, new Date()) }, input); break;
     case "repositories default": result = await makeDefaultRepo({ user, registry, save: (repo, by) => writeDefaultRepo(db, repo, by, new Date()) }, input); break;
-    case "repositories addable": result = await listAddable({ user, registry, installable: installationRepos }); break;
-    case "repositories add": result = await addRepository({ user, registry, replay, installable: installationRepos, create: (repo, by, requestId) => writeNewRepository(db, repo, by, new Date(), requestId), syncLabels: groups => panelSource().panelSyncLabelGroups!(groups) }, input); break;
-    case "repositories retry":
-    case "repositories rebuild": {
-      const request = (kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string) => writeRepoRequest(db, kind, repo, new Date(), requestId);
-      result = await (action === "retry" ? retryOnboarding : rebuildRepoImage)({ user, registry, request, replay }, input); break;
-    }
-    case "repositories secrets": result = await saveRepoSecrets({ user, registry, modalConfigured: modalEnvConfigured, upsert: (name, entries) => modalSecretStore().upsert(name, entries), recordNames: (repo, names) => recordSecretNames(db, repo, names, new Date()) }, input); break;
-    case "notifications show": result = { notifications: await readNotifications(db) }; break;
-    case "notifications save": result = await saveNotifications(notificationDeps, input); break;
-    case "notifications test": result = await requestSlackTest(notificationDeps, text(input, "requestId")); break;
+    case "repositories add":
+    case "repositories retry": result = { ok: true, ...await requestRepository(db, input, actor) }; break;
     case "jobs create": result = await createJob(newJobDeps(user), input); break;
     case "jobs archive": result = await archiveJobs(deps, input.jobIds ?? [text(input, "jobId")]); break;
     case "jobs unarchive": result = await unarchiveJobs(deps, input.jobIds ?? [text(input, "jobId")]); break;

@@ -1,6 +1,6 @@
 # Marshal Factory
 
-Marshal Factory turns source issues into agent-built pull requests under human supervision.
+Marshal Factory turns internally managed jobs into agent-built pull requests under human supervision.
 
 ## Language
 
@@ -19,3 +19,23 @@ _Avoid_: dashboard user
 **Audit actor**:
 The identity attributed to a recorded factory action. Historical attribution remains valid independently of the current account's existence or access.
 _Avoid_: current owner
+
+**Job**:
+A factory-owned request to change a registered repository, including its instructions, progress, questions, and outcome.
+_Avoid_: Linear issue, source issue
+
+**Attempt**:
+An isolated execution of a job. Retrying creates a new attempt without replacing the earlier execution's evidence.
+_Avoid_: replacement run
+
+**Repository registration**:
+A request to make a repository available for factory work. Registration becomes ready only after access and local preparation succeed.
+_Avoid_: sandbox onboarding
+
+**Runner**:
+The single active executor responsible for repository preparation, agent execution, recovery, and GitHub actions in an installation.
+_Avoid_: cloud worker
+
+**Intent**:
+A durable request for the runner to perform an action, distinct from confirmation that the action succeeded.
+_Avoid_: completed action

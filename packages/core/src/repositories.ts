@@ -4,18 +4,12 @@ import { z } from "zod";
 import type * as schema from "@factory/storage/schema";
 import { jobs, repoSettings, type RepoSettingsRow } from "@factory/storage/schema";
 import { isOwner, type SessionUser } from "./auth/owner";
-import { executionSchema, type Execution } from "./execution";
 import type { Harness } from "./harness";
 import { autonomySchema } from "./merge-decision";
 import { displayName, REPO_NAME, repoName } from "./repo-name";
 import type { EffectiveHarness, SettingsOutcome } from "./settings";
-import { OVERRIDE_GROUPS, type SourceOverrides } from "./ticket-overrides";
 
-// The repositories the factory works in. An issue picks one with a child of the Repository label
-// group, named by the repo's display name; without one it goes to the default repo. Per repo, a
-// default harness and place sit between the ticket's labels and Settings.
-
-export const REPOSITORY_GROUP = OVERRIDE_GROUPS.repository;
+// Internal submissions select a registered repository directly, falling back to its default.
 
 type Db = NodePgDatabase<typeof schema>;
 export type Registry = readonly RepoSettingsRow[];
@@ -24,61 +18,8 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 export const defaultRepo = (registry: Registry) => registry.find((r) => r.is_default) ?? null;
 
-/** The repos a Repository label names: by display name, else by name part, else by full name. More than one is ambiguous. */
-function labelMatches(registry: Registry, name: string) {
-  for (const key of [displayName, (r: RepoSettingsRow) => repoName(r.repo), (r: RepoSettingsRow) => r.repo]) {
-    const matches = registry.filter((r) => same(key(r), name));
-    if (matches.length > 0) return matches;
-  }
-  return [];
-}
 
-/** The one repo a Repository label names; a name more than one repo answers to names none. */
-export function repoForLabel(registry: Registry, name: string) {
-  const matches = labelMatches(registry, name);
-  return matches.length === 1 ? matches[0] : undefined;
-}
-
-/** The label that names `row`: its display name, or its full name while another repo shares the display name. */
-export function repoLabel(registry: Registry, row: Pick<RepoSettingsRow, "repo" | "display_name">) {
-  const name = displayName(row);
-  return registry.some((r) => r.repo !== row.repo && same(displayName(r), name)) ? row.repo : name;
-}
-
-export type RepoRoute = { repo: string | null; problem?: string };
-
-/** The repo a ticket's overrides pick; one that cannot apply goes to the default and says why. Null only with no default. */
-export function routeRepo(asked: Pick<SourceOverrides, "repository">, registry: Registry): RepoRoute {
-  const fallback = defaultRepo(registry);
-  const repo = fallback?.repo ?? null;
-  const to = fallback ? `the default repository ${fallback.repo}` : "the runner's first repository";
-  const picked = asked.repository;
-  if (picked.length === 0) return { repo };
-  if (picked.length > 1) {
-    return { repo, problem: `The issue has more than one ${REPOSITORY_GROUP} label (${picked.map((name) => `"${name}"`).join(", ")}), so it runs in ${to}.` };
-  }
-  const name = picked[0]!;
-  const matches = labelMatches(registry, name);
-  if (matches.length > 1) {
-    return { repo, problem: `The ${REPOSITORY_GROUP} label "${name}" names more than one repository (${matches.map((r) => r.repo).join(", ")}), so it runs in ${to}.` };
-  }
-  const match = matches[0];
-  if (!match) return { repo, problem: `The ${REPOSITORY_GROUP} label "${name}" names no repository the factory knows, so it runs in ${to}.` };
-  if (!match.enabled) return { repo, problem: `The ${REPOSITORY_GROUP} label "${name}" names ${match.repo}, which is disabled, so it runs in ${to}.` };
-  return { repo: match.repo };
-}
-
-/** One Repository child per enabled repo, by the label that names it alone. */
-export function desiredRepositoryGroup(registry: Registry) {
-  const names: string[] = [];
-  for (const r of registry) {
-    const name = repoLabel(registry, r);
-    if (r.enabled && !names.some((n) => same(n, name))) names.push(name);
-  }
-  return { group: REPOSITORY_GROUP, children: names };
-}
-
-export type LaunchDefaults = { harness: EffectiveHarness; execution: Execution };
+export type LaunchDefaults = { harness: EffectiveHarness };
 
 /**
  * The repo's default harness and place over Settings; the ticket's labels then go over these. A
@@ -93,7 +34,7 @@ export function withRepoDefaults(settings: LaunchDefaults, repo: RepoSettingsRow
     if (model) harness = { provider: repo.provider, model, from: "repo" };
     else problems.push(`${repo.repo} defaults to harness ${repo.provider}, which no runner reports enabled with a model, so its jobs start on the Settings harness.`);
   }
-  return { defaults: { harness, execution: repo?.execution ?? settings.execution }, problems };
+  return { defaults: { harness }, problems };
 }
 
 export const readRegistry = (database: Db): Promise<RepoSettingsRow[]> => database.select().from(repoSettings).orderBy(asc(repoSettings.repo));
@@ -167,7 +108,6 @@ export const repositoryInputSchema = z.object({
   enabled: z.boolean(),
   /** A harness's provider instance id; null means Settings decide. */
   provider: z.string().trim().min(1).nullable(),
-  execution: executionSchema.nullable(),
   autonomy: autonomySchema,
   requireBugbot: z.boolean({ error: "Say whether pull requests wait for Bugbot." }),
 });
@@ -184,7 +124,6 @@ export async function writeRepository(database: Db, choice: RepositoryChoice, by
       display_name: same(choice.displayName, repoName(choice.repo)) ? null : choice.displayName,
       enabled: choice.enabled,
       provider: choice.provider,
-      execution: choice.execution,
       autonomy: choice.autonomy,
       require_bugbot: choice.requireBugbot,
       updated_at: at,

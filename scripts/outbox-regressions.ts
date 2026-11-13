@@ -8,12 +8,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { eq, inArray, like, or } from "drizzle-orm";
 import type { FactoryEvent } from "@factory/core/events";
-import { fake, fakeModal, sandboxes, type FakeSandbox } from "./fake-modal";
 import { serve } from "./serve";
 
 const { db } = await import("@factory/storage/client");
 const { events, jobs, runs } = await import("@factory/storage/schema");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { ingestBodySchema } = await import("@factory/core/events");
@@ -21,14 +20,9 @@ const { ingest } = await import("@factory/core/ingest");
 const { REPORT_STAGE_TOOL } = await import("@factory/core/factory");
 const { appendEvent, flushOutbox, localFs, outboxDir, rejectedDir } = await import("@factory/core/outbox");
 const { mcpIdentity, mcpPosts } = await import("@factory/core/report-identity");
-const { modal, modalHost } = await import("@factory/integrations/modal-host");
 const { boardCards, harnessLine } = await import("../apps/dashboard/components/panel/cards");
-const { config } = await import("@factory/runner/ops");
-const { hibernateIdle, teardownFinished, wakeJob } = await import("@factory/runner/lifecycle");
-const { flushSandboxOutbox, outboxClient, SANDBOX_STATE_DIR } = await import("@factory/runner/outbox");
-const { sandboxRuntime } = await import("@factory/runner/sandbox");
+const { flushLocalOutbox, outboxClient } = await import("@factory/runner/outbox");
 
-modal.api = fakeModal;
 
 const stamp = Date.now() % 1_000_000;
 const key = (name: string) => `OB${name}-${stamp}`;
@@ -41,7 +35,7 @@ const pending = (state: string) => (existsSync(outboxDir(state)) ? readdirSync(o
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   keys.push(k);
-  await db.insert(jobs).values(linearJob(`outbox-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "queued", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
+  await db.insert(jobs).values(internalJob(`outbox-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "queued", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
   return k;
 }
 
@@ -243,98 +237,30 @@ try {
   assert.equal(pending(state).length, 0);
   assert.equal((await row(CLAUDE)).stage, "implementing", "delivered by the next hook");
 
-  // The runner flushes a sandbox's outbox through its host before hibernating or ending it, and on wake.
-  const sandboxOutbox = outboxDir(SANDBOX_STATE_DIR);
-  const slot = mkdtempSync(join(dir, "slot-"));
-  writeFileSync(join(slot, "auth.json"), `{"slot":"x"}`, { mode: 0o600 });
-  const logs: { event: string; detail: Record<string, unknown> }[] = [];
-  Object.assign(sandboxRuntime, {
-    claudeToken: () => undefined,
-    githubToken: async () => "ghs_fake",
-    slots: () => [slot],
-    slotHealthPath: join(dir, "slot-health.json"),
-    log: (event: string, detail: Record<string, unknown>) => void logs.push({ event, detail }),
-  });
-  fake.answer = (sandbox, argv) => {
-    const [command, ...args] = argv;
-    const path = args.at(-1)!;
-    // Sandbox paths are built with path.join, so a Windows checkout reads them with backslashes.
-    const under = (f: string) => f.startsWith(`${path}/`) || f.startsWith(`${path}\\`);
-    if (command === "t3" && args[0] === "thread" && args[1] === "show") return { stdout: JSON.stringify({ thread: { archived: false, worktreePath: null, activeRunId: null, branch: null } }) };
-    if (command === "test" && path.startsWith(SANDBOX_STATE_DIR)) return { code: [...sandbox.files.keys()].some((f) => f === path || under(f)) ? 0 : 1 };
-    if (command === "ls") return { stdout: [...sandbox.files.keys()].filter(under).map((f) => f.slice(path.length + 1)).filter((f) => !/[/\\]/.test(f)).join("\n") };
-    if (command === "rm") sandbox.files.delete(path);
-    return {};
-  };
-  let sandboxIngestDown = false;
-  outboxClient.send = async (batch) => (sandboxIngestDown ? { kind: "failed", reason: "ingest answered 503" } : { kind: "delivered", spend: (await ingest(db, batch)).spend });
-  const sandboxFor = async (k: string) =>
-    (await fakeModal.create({ name: `job-${k}-a1`, tags: { job: k, attempt: "1", label: config.factory.label, machine: TEST_MACHINE_ID }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits: config.factory.sandbox })) as FakeSandbox;
-  const queue = (sandbox: FakeSandbox, event: FactoryEvent, n: number) => sandbox.files.set(join(sandboxOutbox, `${String(n).padStart(15, "0")}-1-000000.json`), JSON.stringify(event));
-  const eventIds = async (ids: string[]) => (await db.select({ id: events.event_id }).from(events).where(inArray(events.event_id, ids))).map((e) => e.id);
-
-  const UP = await insert("UP", {});
-  const sbUp = await sandboxFor(UP);
-  await db.update(jobs).set({ stage: "pr", stage_at: hourAgo, sandbox_id: sbUp.sandboxId, pr_url: `${prUrl}1` }).where(eq(jobs.key, UP));
-  queue(sbUp, stageEvent(UP, `abc${stamp}up`, { stage: "pr", summary: "PR is up.", prUrl: `${prUrl}1`, at: Date.now() - 60_000 }), 1);
-
-  const upDone = await hibernateIdle();
-  assert.ok((Array.isArray(upDone) ? upDone : upDone.done).includes(`${UP}:hibernated`), JSON.stringify(upDone));
-  assert.deepEqual(await eventIds([`abc${stamp}up`]), [`abc${stamp}up`], "delivered before the snapshot");
-  const upOps = fake.ops.filter((o) => o.startsWith(`${sbUp.sandboxId}:`));
-  assert.ok(upOps.findIndex((o) => o.includes(`rm -rf ${sandboxOutbox}/`)) < upOps.findIndex((o) => o.includes("snapshot")), upOps.join(" | "));
-  const upImage = fake.images.get((await row(UP)).sandbox_snapshot!)!;
-  assert.ok(![...upImage.keys()].some((f) => f.startsWith(sandboxOutbox)), "the snapshot holds no delivered event");
-
-  const LATE = await insert("LATE", {});
-  const sbLate = await sandboxFor(LATE);
-  await db.update(jobs).set({ stage: "pr", stage_at: hourAgo, sandbox_id: sbLate.sandboxId, pr_url: `${prUrl}3` }).where(eq(jobs.key, LATE));
-  queue(sbLate, stageEvent(LATE, `abc${stamp}late`, { stage: "pr", summary: "PR is up.", prUrl: `${prUrl}3`, at: Date.now() - 60_000 }), 1);
-  sandboxIngestDown = true;
-  const lateDone = await hibernateIdle();
-  assert.ok((Array.isArray(lateDone) ? lateDone : lateDone.done).includes(`${LATE}:hibernated`), "an ingest outage never holds back hibernation");
-  assert.deepEqual(await eventIds([`abc${stamp}late`]), [], "not delivered");
-  const lateSnapshot = (await row(LATE)).sandbox_snapshot!;
-  assert.ok([...fake.images.get(lateSnapshot)!.keys()].some((f) => f.startsWith(sandboxOutbox)), "the undelivered event sleeps in the snapshot");
-  assert.ok(logs.some((l) => l.event === "outbox:flushed" && l.detail.key === LATE && l.detail.error === "ingest answered 503"), "and the failed flush is logged");
-
-  sandboxIngestDown = false;
-  const host = await wakeJob(await row(LATE));
-  assert.ok(host, "woken");
-  assert.deepEqual(await eventIds([`abc${stamp}late`]), [`abc${stamp}late`], "the wake delivers what the snapshot kept");
-  const woken = sandboxes.get((await row(LATE)).sandbox_id!)!;
-  assert.ok(![...woken.files.keys()].some((f) => f.startsWith(sandboxOutbox)), "and clears it");
-
-  // Teardown: a finished job's last events leave before the sandbox ends.
-  const END = await insert("END", {});
-  const sbEnd = await sandboxFor(END);
-  await db.update(jobs).set({ stage: "failed", sandbox_id: sbEnd.sandboxId }).where(eq(jobs.key, END));
-  queue(sbEnd, { eventId: `abc${stamp}end`, sessionId: `mcp:factory/${END}`, at: Date.now(), kind: "session_end", reason: "other" }, 1);
-  await teardownFinished();
-  assert.ok(sbEnd.terminated);
-  assert.deepEqual(await eventIds([`abc${stamp}end`]), [`abc${stamp}end`], "delivered before teardown");
-  const endOps = fake.ops.filter((o) => o.startsWith(`${sbEnd.sandboxId}:`));
-  assert.ok(endOps.findIndex((o) => o.includes(`rm -rf ${sandboxOutbox}/`)) < endOps.findIndex((o) => o.includes("terminated")), endOps.join(" | "));
-
-  // A sandbox's refused event goes to outbox-rejected, a directory Modal's writeText does not create, and the rest are delivered.
-  const REFUSED = await insert("REFUSED", {});
-  const sbRefused = await sandboxFor(REFUSED);
-  await db.update(jobs).set({ stage: "failed", sandbox_id: sbRefused.sandboxId }).where(eq(jobs.key, REFUSED));
-  queue(sbRefused, stageEvent(REFUSED, `abc${stamp}refused`, { stage: "pr", summary: "PR is up.", prUrl: `${prUrl}5`, at: Date.now() - 60_000 }), 1);
-  queue(sbRefused, { eventId: `abc${stamp}after`, sessionId: `mcp:factory/${REFUSED}`, at: Date.now(), kind: "session_end", reason: "other" }, 2);
+  // Runner reconciliation delivers durable local reports without sandbox lifecycle dependencies.
+  const runnerState = join(dir, "runner-state");
+  const priorState = process.env.FACTORY_STATE_DIR;
+  process.env.FACTORY_STATE_DIR = runnerState;
   const realSend = outboxClient.send;
-  outboxClient.send = async (batch) =>
-    batch.some((e) => e.eventId === `abc${stamp}refused`) ? { kind: "rejected", reason: "ingest answered 400" } : { kind: "delivered", spend: (await ingest(db, batch)).spend };
-  fake.parentsRequired = true;
   try {
-    const refusedFlush = await flushSandboxOutbox(REFUSED, modalHost(sbRefused.sandboxId));
-    assert.deepEqual([refusedFlush?.delivered, refusedFlush?.rejected, refusedFlush?.stuck], [1, [`abc${stamp}refused`], []], JSON.stringify(refusedFlush));
+    const LOCAL = await insert("LOCAL", {});
+    const queued = stageEvent(LOCAL, `abc${stamp}runner`);
+    appendEvent(runnerState, queued);
+    outboxClient.send = async () => ({ kind: "failed", reason: "loopback unavailable" });
+    const offline = await flushLocalOutbox();
+    assert.equal(offline?.left, 1, "an unavailable report endpoint preserves the durable event");
+    assert.equal((await row(LOCAL)).stage, "queued");
+    outboxClient.send = async (batch) => ({ kind: "delivered", spend: (await ingest(db, batch)).spend });
+    const delivered = await flushLocalOutbox();
+    assert.equal(delivered?.delivered, 1);
+    assert.equal((await row(LOCAL)).stage, "implementing", "the next reconciliation delivers the report");
+    assert.deepEqual(pending(runnerState), []);
+    assert.equal((await flushLocalOutbox())?.delivered, 0, "acknowledged reports are never sent again");
   } finally {
-    fake.parentsRequired = false;
     outboxClient.send = realSend;
+    if (priorState === undefined) delete process.env.FACTORY_STATE_DIR;
+    else process.env.FACTORY_STATE_DIR = priorState;
   }
-  assert.deepEqual(await eventIds([`abc${stamp}after`]), [`abc${stamp}after`], "the event after the refused one is delivered");
-  assert.ok([...sbRefused.files.keys()].some((f) => f.startsWith(`${rejectedDir(SANDBOX_STATE_DIR)}/`) || f.startsWith(`${rejectedDir(SANDBOX_STATE_DIR)}\\`)), "and the refused one waits in the sandbox's outbox-rejected");
 
   console.log("outbox regressions passed");
 } catch (error) {
@@ -344,6 +270,6 @@ try {
   await server.close();
   await db.delete(events).where(or(inArray(events.job_key, keys), like(events.session_id, `mcp:factory/OB%-${stamp}`), like(events.session_id, `claude-OB%-${stamp}`)));
   await db.delete(runs).where(or(inArray(runs.job_key, keys), like(runs.session_id, `mcp:factory/OB%-${stamp}`)));
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "outbox-regress-")}%`));
+  await db.delete(jobs).where(like(jobs.id, `${jobId("internal", "outbox-regress-")}%`));
   process.exit(process.exitCode ?? 0);
 }

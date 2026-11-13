@@ -1,27 +1,21 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, sql } from "drizzle-orm";
-import { fakeModal, type FakeSandbox } from "./fake-modal";
 import type { JobHost } from "@factory/core/host";
 import type { InterruptOutcome, SubagentThread } from "@factory/integrations/t3-client";
 import type { ThreadActivity } from "@factory/runner/threads";
 
 const { db } = await import("@factory/storage/client");
 const { jobs } = await import("@factory/storage/schema");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
-const { SOURCES } = await import("@factory/core/sources/index");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
-const { modal } = await import("@factory/integrations/modal-host");
 const { inboxKind, inboxReason } = await import("@factory/core/inbox");
 const { parseStop } = await import("@factory/core/stop");
 const { listSubagents, interruptThread } = await import("@factory/integrations/t3-client");
 const { canReclaim, canReclaimSql, stopping } = await import("@factory/runner/binding");
-const { bindThread, ingestClient, machineInFlight, stopJob, threads, writeBack } = await import("@factory/runner/ops");
+const { bindThread, ingestClient, machineInFlight, stopJob, threads } = await import("@factory/runner/ops");
 const { confirmStops, retryStop } = await import("@factory/runner/stops");
-const { teardownFinished } = await import("@factory/runner/lifecycle");
-
-modal.api = fakeModal;
 
 // --- fakes: the job's threads in T3, the source, ingest
 const activity = new Map<string, ThreadActivity | Error>();
@@ -41,11 +35,6 @@ threads.interrupt = async (threadId, requestId) => (interrupts.push({ threadId, 
 threads.state = async () => "running";
 threads.send = async (threadId) => void sent.push(threadId);
 ingestClient.post = async () => ({ refused: [] });
-const reopened: string[] = [];
-const written: string[] = [];
-SOURCES.linear.confirmStop = async () => ({ stop: true, reopen: true });
-SOURCES.linear.reopen = async (job) => void reopened.push(job.key);
-SOURCES.linear.writeBack = async (job, { stage }) => (written.push(`${job.key}:${stage}`), true);
 
 const stamp = Date.now() % 1_000_000;
 const ids: string[] = [];
@@ -55,7 +44,7 @@ const stopOf = async (k: string) => parseStop((await row(k)).stop)!;
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   ids.push(`stop-regress-${k}`);
-  await db.insert(jobs).values(linearJob(`stop-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "implementing", stage_event_id: `e-${k}`, ...over }));
+  await db.insert(jobs).values(internalJob(`stop-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "implementing", stage_event_id: `e-${k}`, ...over }));
   return k;
 }
 const idOf = async (k: string) => (await row(k)).id;
@@ -90,7 +79,7 @@ try {
         }
         return { stdout: JSON.stringify({ structuredContent: { threadId: toolArgs.threadId, runId: "r", status: "interrupt_requested" } }), stderr: "" };
       },
-      readFile: async (path) => (path === "/root/.t3/userdata/server-runtime.json" ? JSON.stringify({ origin: "http://127.0.0.1:3773" }) : null),
+      readFile: async (path) => (path.replaceAll("\\", "/").endsWith("/server-runtime.json") ? JSON.stringify({ origin: "http://127.0.0.1:3773" }) : null),
       writeFile: async () => {},
       exists: async () => true,
       list: async () => [],
@@ -103,8 +92,8 @@ try {
     const refused = await interruptThread(sandbox, "full-access", "req-2", "stop");
     assert.equal(refused.kind, "refused", "T3's refusal is an outcome, not an error");
     assert.ok(calls.every((c) => !c.args.join(" ").includes("secret-token")), "the token never goes into argv");
-    const scripts = calls.filter((c) => c.command === "node");
-    assert.ok(scripts.length >= 4 && scripts.every((c) => c.input?.includes("secret-token") && c.input.includes("http://127.0.0.1:3773")), "in a sandbox the call runs there with node, token on stdin");
+    const scripts = calls.filter((c) => c.command === process.execPath);
+    assert.ok(scripts.length >= 4 && scripts.every((c) => c.input?.includes("secret-token") && c.input.includes("http://127.0.0.1:3773")), "native MCP calls keep short-lived credentials on stdin");
     const issues = calls.filter((c) => c.args[2] === "issue");
     assert.deepEqual(issues[0]!.args.filter((a, i) => issues[0]!.args[i - 1] === "--scope"), ["orchestration:read"], "a read signs in read-only");
     assert.ok(issues.every((c) => c.args.includes("--ttl") && c.args[c.args.indexOf("--ttl") + 1] === "5m"), "short-lived sessions");
@@ -124,7 +113,6 @@ try {
   assert.equal(await machineInFlight(TEST_MACHINE_ID), inFlightBefore, "it keeps its capacity until confirmed");
   assert.equal(canReclaim(a), false);
   assert.equal(await reclaimSql(A), false, "the SQL rule agrees");
-  assert.equal(reopened.length, 0, "the source hears nothing yet");
   activity.set("thread-A", idle);
   await confirmStops({ only: [a.id], now: t0 + 20 * S });
   assert.ok((await stopOf(A)).quietSince, "quiet is noted");
@@ -133,7 +121,6 @@ try {
   a = await row(A);
   assert.equal(parseStop(a.stop)!.state, "confirmed");
   assert.match(parseStop(a.stop)!.evidence!, /no active run for 35 s, and it has no subagent threads/);
-  assert.deepEqual(reopened, [A], "the source is reopened once the stop is confirmed");
   assert.equal(await machineInFlight(TEST_MACHINE_ID), inFlightBefore - 1, "a confirmed stop frees the capacity");
   assert.equal(canReclaim(a), true);
   assert.equal(await reclaimSql(A), true);
@@ -141,7 +128,7 @@ try {
   // Replays: a second stop intent and more ticks change nothing.
   assert.equal(await stopJob(a.id, "the factory label was removed"), "stopped");
   await confirmStops({ only: [a.id], now: t0 + 400 * S });
-  assert.deepEqual([sent.filter((s) => s === "thread-A").length, reopened.length, (await stopOf(A)).state], [1, 1, "confirmed"], "idempotent across replays");
+  assert.deepEqual([sent.filter((s) => s === "thread-A").length, (await stopOf(A)).state], [1, "confirmed"], "idempotent across replays");
   assert.deepEqual(inboxKind(await row(A)), "failed", "a stopped job shows as failed, as before");
 
   // --- still running after the grace: interrupt the thread and its running subagents, then wait for both
@@ -193,7 +180,6 @@ try {
   assert.match(parseStop(dRow.stop)!.evidence!, /^The thread still runs 5 min after the stop\. T3 refused to interrupt/);
   assert.equal(inboxKind(dRow), "stop_unconfirmed", "the owner gets an inbox item");
   assert.match(inboxReason({ kind: "stop_unconfirmed", job: dRow, decision: null, at: new Date() }), /still runs 5 min/);
-  assert.ok(reopened.includes(D), "an unconfirmed stop settles: the source hears about it");
   assert.equal(stopping(dRow), false, "and the capacity is free");
   assert.deepEqual([canReclaim(dRow), await reclaimSql(D)], [false, false], "but no new attempt while the old thread may run");
   // Retry stop interrupts again at once; once the thread settles it is confirmed.
@@ -211,7 +197,6 @@ try {
   await confirmStops({ only: [d], now: t0 + 380 * S });
   dRow = await row(D);
   assert.equal(parseStop(dRow.stop)!.state, "confirmed");
-  assert.equal(reopened.filter((k) => k === D).length, 1, "the source is reopened once");
   assert.notEqual(inboxKind(dRow), "stop_unconfirmed");
 
   // --- an unconfirmed stop the owner dismisses lets the label retry the job
@@ -243,13 +228,11 @@ try {
   const O = await insert("O", { stage: "queued", machine_id: null, t3_thread_id: null, attempt: 2 });
   assert.deepEqual(await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 1 }), { refused: "The job has moved to another attempt." });
   assert.equal((await row(O)).stage, "queued", "a stale operator request must not stop a newer attempt");
-  SOURCES.linear.confirmStop = async () => ({ stop: false });
   await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 2 });
   assert.equal((await row(O)).stage, "failed", "the current attempt accepts explicit cancellation");
   assert.equal((await stopOf(O)).state, "confirmed", "no thread needs confirmation when cancellation precedes launch");
-  SOURCES.linear.confirmStop = async () => ({ stop: true, reopen: true });
 
-  // --- write-back waits for the stop to settle
+  // A disappeared local thread confirms the stop without source write-back.
   const W = await insert("W", {
     stage: "failed",
     stage_event_id: `stop:W-${stamp}`,
@@ -258,39 +241,15 @@ try {
     stop_sent_to: "thread-W",
     stop: { ...(await stopOf(B)), state: "delivered", reopen: false, thread: "thread-W", checkedAt: null, quietSince: null, settledAt: null, evidence: null },
   });
-  await writeBack();
-  assert.ok(!written.some((w) => w.startsWith(W)), "no write-back while stopping");
   activity.set("thread-W", { state: "gone", activeRunId: null, projectId: null });
   await confirmStops({ only: [await idOf(W)] });
   assert.equal((await stopOf(W)).state, "confirmed", "a thread T3 no longer has is stopped");
-  await writeBack();
-  assert.ok(written.includes(`${W}:failed`), "written back once settled");
-
-  // --- Modal: ending the sandbox confirms the stop, once Modal no longer answers for it
-  const M = await insert("M", { t3_thread_id: "thread-M", execution: "modal" });
-  const sbM = (await fakeModal.create({ name: `job-${M}`, tags: { job: M }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits: { appName: "x", cpu: 1, cpuLimit: 1, memoryMiB: 1, memoryLimitMiB: 1, timeoutMs: 1 } })) as FakeSandbox;
-  const sbStuck = (await fakeModal.create({ name: `job-${M}-stuck`, tags: { job: M }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits: { appName: "x", cpu: 1, cpuLimit: 1, memoryMiB: 1, memoryLimitMiB: 1, timeoutMs: 1 } })) as FakeSandbox;
-  sbStuck.terminate = async () => {};
-  const K = await insert("K", { t3_thread_id: "thread-K", execution: "modal", sandbox_id: sbStuck.sandboxId });
-  await db.update(jobs).set({ sandbox_id: sbM.sandboxId }).where(eq(jobs.key, M));
-  await stopJob(await idOf(M), "the factory label was removed");
-  await stopJob(await idOf(K), "the factory label was removed");
-  assert.equal((await stopOf(M)).state, "delivered", "the sandbox still runs");
-  await teardownFinished();
-  assert.equal(sbM.terminated, true);
-  const m = await row(M);
-  assert.deepEqual([m.sandbox_id, parseStop(m.stop)!.how], [null, "terminate"]);
-  assert.equal((await row(K)).sandbox_id, sbStuck.sandboxId, "a sandbox that still answers keeps its row, and teardown tries again");
-  await confirmStops({ only: [m.id, await idOf(K)] });
-  assert.deepEqual([(await stopOf(M)).state, (await stopOf(M)).evidence], ["confirmed", `Ended cloud sandbox ${sbM.sandboxId}; it no longer runs.`]);
-  assert.equal((await stopOf(K)).state, "delivered", "not confirmed while Modal still answers");
-  assert.equal(interrupts.filter((i) => i.threadId === "thread-M").length, 0, "a sandbox is ended, not interrupted");
 
   console.log("stop regressions passed");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await db.delete(jobs).where(inArray(jobs.id, ids.map((id) => jobId("linear", id))));
+  await db.delete(jobs).where(inArray(jobs.id, ids.map((id) => jobId("internal", id))));
   process.exit(process.exitCode ?? 0);
 }

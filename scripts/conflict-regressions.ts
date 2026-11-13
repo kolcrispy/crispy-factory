@@ -5,7 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 const { db } = await import("@factory/storage/client");
 const { jobs } = await import("@factory/storage/schema");
 const { jobId } = await import("@factory/core/sources/index");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { claimConflict, unclaimedRunsWithPr } = await import("@factory/core/conflicts");
 const { runs } = await import("@factory/storage/schema");
@@ -14,10 +14,10 @@ const { github } = await import("@factory/integrations/github/pulls");
 type PullRequest = Awaited<ReturnType<typeof github.pullRequest>>;
 
 const id = `conflict-regress-${Date.now()}`;
-const jid = jobId("linear", id);
+const jid = jobId("internal", id);
 // Its key sorts first, so the pass meets the bad PR before the conflicting one.
-const bad = { id: jobId("linear", `${id}-bad`), url: "not a pull request url" };
-await db.insert(jobs).values(linearJob(id, id, { stage: "pr", machine_id: TEST_MACHINE_ID }));
+const bad = { id: jobId("internal", `${id}-bad`), url: "not a pull request url" };
+await db.insert(jobs).values(internalJob(id, id, { stage: "pr", machine_id: TEST_MACHINE_ID }));
 try {
   assert.equal(await claimConflict(db, jid, "head-1"), true, "a new conflicting head is sent back");
   assert.equal(await claimConflict(db, jid, "head-1"), false, "the same head is never sent back twice");
@@ -47,15 +47,17 @@ try {
   ours = { ...ours, mergeable: "conflicting" };
   assert.equal(await pullRequestsSettled(), true, "a computed mergeable settles it");
 
-  await db.insert(jobs).values(linearJob(`${id}-bad`, `bad-${id}`, { stage: "pr", pr_url: bad.url, machine_id: TEST_MACHINE_ID }));
+  await db.insert(jobs).values(internalJob(`${id}-bad`, `bad-${id}`, { stage: "pr", pr_url: bad.url, machine_id: TEST_MACHINE_ID }));
 
   const first = await checkPullRequests({ only: [id, `bad-${id}`, `${id}-LOOSE`] });
   assert.deepEqual(sent, ["thread-1"], "a bad PR earlier in the pass does not stop the conflicting one from being sent back");
   assert.equal((await db.select().from(jobs).where(eq(jobs.id, jid)))[0]!.conflict_head, "head-3", "the head is claimed");
   const errorFor = (result: typeof first, key: string) => result.errors.find((e) => e.key === key)?.error;
   assert.match(errorFor(first, `bad-${id}`) ?? "", /not a GitHub pull request URL/, "the bad PR is reported with its error");
-  assert.match(errorFor(first, id) ?? "", /deployed ingest function/, "the sent-back PR then posts implementing");
-  assert.match(errorFor(first, loose.job_key) ?? "", /deployed ingest function/, "and the hand-started runs are still checked for a merge");
+  assert.equal(errorFor(first, id), undefined, "the conflict report reaches local ingest");
+  assert.equal((await db.select().from(jobs).where(eq(jobs.id, jid)))[0]!.stage, "implementing", "the sent-back PR returns to implementation");
+  assert.equal(errorFor(first, loose.job_key), undefined, "unclaimed runs still project their merge");
+  assert.equal((await db.select().from(runs).where(eq(runs.session_id, loose.session_id)))[0]!.stage, "merged", "the hand-started run records its merge");
 
   const second = await checkPullRequests({ only: [id, `bad-${id}`, `${id}-LOOSE`] });
   assert.deepEqual(second.conflicts, [], "a second pass over the same head does nothing");

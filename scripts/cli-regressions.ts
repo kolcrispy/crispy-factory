@@ -1,16 +1,14 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@factory/storage/client";
-import { intents, notificationSettings } from "@factory/storage/schema";
+import { intents, repoSettings } from "@factory/storage/schema";
 
 const id = `cli-regression:${randomUUID()}`;
-const slackRequestId = randomUUID();
-const slackIntentId = `panel:slack_test:${slackRequestId}`;
-const [savedNotifications] = await db.select().from(notificationSettings).where(eq(notificationSettings.id, "factory"));
+const requestId = randomUUID();
+const repo = `regression/cli-${randomUUID()}`;
+let registrationIntentId: string | undefined;
 async function cli(input: object, wait?: string, resource = "requests", action = "show", extra: Record<string, string> = {}) {
   const child = Bun.spawn([process.execPath, "apps/cli/src/index.ts", resource, action, "--actor", "local:cli-regression", "--input", JSON.stringify(input), ...(wait === undefined ? [] : ["--wait", wait])], {
     env: { ...process.env, ...extra },
@@ -22,22 +20,12 @@ async function cli(input: object, wait?: string, resource = "requests", action =
   return { code, value: JSON.parse(out) };
 }
 try {
-  const configured = await cli({ target: "off" }, undefined, "notifications", "save");
-  assert.equal(configured.code, 0);
-  assert.equal(configured.value.ok, true);
-  const configuration = await cli({}, undefined, "notifications", "show");
-  assert.equal(configuration.value.notifications.config.target, "off", "actual CLI persists configuration without a dashboard");
-  assert.equal(configuration.value.notifications.updated_by, "local:cli-regression", "configuration records the trusted operator actor");
-  const missingApp = join(tmpdir(), `missing-app-${randomUUID()}.json`);
-  const addable = await cli({}, undefined, "repositories", "addable", { MARSHAL_FACTORY_GITHUB_APP: missingApp });
-  assert.equal(addable.code, 1, "an absent GitHub App is an actionable refusal, not empty success");
-  assert.match(addable.value.message, /no GitHub App at .*run bun scripts\/setup-github-app\.ts/);
-  const notification = await cli({ requestId: slackRequestId }, undefined, "notifications", "test");
-  assert.equal(notification.code, 0);
-  assert.equal(notification.value.intentId, slackIntentId);
-  assert.equal(notification.value.status, "queued", "offline notification acceptance remains inspectable");
-  const notificationReplay = await cli({ requestId: slackRequestId }, undefined, "notifications", "test");
-  assert.deepEqual(notificationReplay, notification, "actual CLI replays the same notification intent");
+  const registration = await cli({ requestId, repo }, undefined, "repositories", "add");
+  assert.equal(registration.code, 0);
+  assert.equal(registration.value.status, "queued", "offline registration stays inspectable without GitHub credentials");
+  registrationIntentId = registration.value.intentId;
+  assert.equal(typeof registrationIntentId, "string");
+  assert.deepEqual(await cli({ requestId, repo }, undefined, "repositories", "add"), registration, "the CLI replays the durable registration request");
   await db.insert(intents).values({ id, kind: "claim", created_at: new Date() });
   const queued = await cli({ intentId: id });
   assert.equal(queued.code, 0);
@@ -67,8 +55,7 @@ try {
 } finally {
   delete process.env.CLI_REGRESSION_SECRET;
   await db.delete(intents).where(eq(intents.id, id));
-  await db.delete(intents).where(eq(intents.id, slackIntentId));
-  await db.delete(notificationSettings).where(eq(notificationSettings.id, "factory"));
-  if (savedNotifications) await db.insert(notificationSettings).values(savedNotifications);
+  if (registrationIntentId) await db.delete(intents).where(eq(intents.id, registrationIntentId));
+  await db.delete(repoSettings).where(eq(repoSettings.repo, repo));
   await db.$client.end();
 }

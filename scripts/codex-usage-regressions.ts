@@ -1,28 +1,23 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { appendFileSync, cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, inArray, like } from "drizzle-orm";
-import { fake, FakeSandbox, fakeModal, sandboxes } from "./fake-modal";
 
 const { db } = await import("@factory/storage/client");
 const { agents, events, jobs, runs } = await import("@factory/storage/schema");
-const { linearJob, usageRun } = await import("./fixtures");
+const { internalJob, usageRun } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { eventSchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
 const { hosts, localHost } = await import("@factory/core/host");
-const { modal, modalHost } = await import("@factory/integrations/modal-host");
-const { CODEX_HOME } = await import("@factory/core/sandbox");
 const { codexUsage, matchRollouts, parseRollout, readRollouts, ROLLOUT_SLACK_MS } = await import("@factory/core/codex-usage");
 const { costKnown, costUsd, knownCostUsd, priceFor } = await import("@factory/core/pricing");
 const { branchCosts } = await import("@factory/core/spend");
 const ops = await import("@factory/runner/ops");
 const { config, ingestClient, reconcileUsage } = ops;
-const { teardownSandbox } = await import("@factory/runner/lifecycle");
 
 const FIXTURES = join(import.meta.dirname, "fixtures/codex");
 const DAY = join(FIXTURES, "sessions/2026/10/27");
@@ -97,7 +92,6 @@ assert.equal(costKnown([row("gpt-6.1-sol"), row(null)]), false, "one unpriced ro
 assert.equal(costKnown([row(null, tokens(0, 0))]), false, "nothing recorded is unknown");
 
 // --- the runner, against a fake sandbox whose Codex home is a copy of the fixtures
-modal.api = fakeModal;
 const home = mkdtempSync(join(tmpdir(), "codex-usage-"));
 cpSync(FIXTURES, home, { recursive: true });
 const homeRead = await readRollouts(localHost, home, RUN_START - ROLLOUT_SLACK_MS);
@@ -106,20 +100,15 @@ assert.equal(homeRead.find((r) => r.threadId === DONE)!.settled, true, "and keep
 assert.deepEqual(homeRead.find((r) => r.threadId === ROOT)!.usage, root.usage, "and the lines it keeps parse like the whole file");
 assert.deepEqual(await readRollouts(localHost, join(home, "missing"), Date.now() - 60_000), [], "no sessions dir, no rollouts");
 
-fake.answer = (_sandbox, argv) => {
-  if (argv[0] !== "sh") return {};
-  const args = argv.slice(1).map((a) => (a.startsWith(CODEX_HOME) ? home + a.slice(CODEX_HOME.length) : a));
-  const result = spawnSync("sh", args, { encoding: "utf8" });
-  return { code: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
-};
-hosts.sandbox = modalHost;
+const previousCodexHome = process.env.CODEX_HOME;
+process.env.CODEX_HOME = home;
+hosts.forJob = () => localHost;
 ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]);
 
 const stamp = Date.now() % 1_000_000;
 const KEY = `CXU-${stamp}`;
 const OVER = `CXO-${stamp}`;
 const UNPRICED = `CXN-${stamp}`;
-const SANDBOX = `sb-codex-usage-${stamp}`;
 const SESSION = `mcp:factory/${KEY}`;
 const keys = [KEY, OVER, UNPRICED];
 const jobRow = async (k: string) => (await db.select().from(jobs).where(eq(jobs.key, k)))[0]!;
@@ -127,8 +116,7 @@ const runRow = async () => (await db.select().from(runs).where(eq(runs.session_i
 const agentRows = async () => db.select().from(agents).where(eq(agents.session_id, SESSION));
 
 try {
-  sandboxes.set(SANDBOX, new FakeSandbox(SANDBOX));
-  await db.insert(jobs).values(linearJob(`codex-usage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, provider: "codex", model: "gpt-6.1-sol", execution: "modal", stage: "pr", sandbox_id: SANDBOX }));
+  await db.insert(jobs).values(internalJob(`codex-usage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, provider: "codex", model: "gpt-6.1-sol", stage: "pr" }));
   // The MCP server's session_start: the run, its worktree and branch, no usage.
   await ingest(db, [eventSchema.parse({ kind: "session_start", eventId: `mcp-start:${SESSION}`, sessionId: SESSION, at: RUN_START, cwd: WORKTREE, branch: `factory/${KEY}` })]);
   await db.update(runs).set({ last_event_at: new Date() }).where(eq(runs.session_id, SESSION));
@@ -176,23 +164,15 @@ try {
   assert.equal(cost.known, true);
   assert.ok(Math.abs(cost.usd - (8000 * 2 + 2500 * 10 + 21000 * 0.1 + 1000 * 2.5 + 2000 * 0.1 + 400 * 0.5 + 3000 * 0.01 + 1000 * 0.1 + 100 * 0.5) / 1e6) < 1e-12, `the attempt's cost is priced per model: ${cost.usd}`);
 
-  // More work lands after the last pass; the teardown reads it before the sandbox goes.
+  // Late usage remains measurable after the local job finishes.
   const total = { input_tokens: 50_000, cached_input_tokens: 30_000, cache_write_input_tokens: 1000, output_tokens: 4000, reasoning_output_tokens: 2000, total_tokens: 54_000 };
   appendFileSync(rootFile, `${JSON.stringify({ timestamp: "2026-10-27T10:30:00.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: total } } })}\n`);
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, KEY));
-  await teardownSandbox(await jobRow(KEY));
+  await reconcileUsage({ only: [KEY] });
   const final = await runRow();
-  assert.deepEqual([final.input_tokens, final.output_tokens, final.cache_read_tokens], [19_000, 4000, 30_000], "the last usage is recorded before teardown");
-  assert.equal((await jobRow(KEY)).sandbox_id, null, "and the sandbox is gone");
-  assert.deepEqual((await agentRows()).map((a) => a.status), ["completed", "completed"], "no subagent of a torn-down thread is left running");
-  assert.ok(sandboxes.get(SANDBOX)!.terminated);
-
-  // A sandbox that is gone has no rollouts left: the pass skips its run and goes on.
-  await db.update(jobs).set({ sandbox_id: SANDBOX }).where(eq(jobs.key, KEY));
-  assert.deepEqual(await reconcileUsage({ only: [KEY] }), [], "a gone sandbox does not abort the pass");
-
+  assert.deepEqual([final.input_tokens, final.output_tokens, final.cache_read_tokens], [19_000, 4000, 30_000], "late usage is recorded after merge");
   // Spend is measured, never capped: an expensive attempt keeps working and its cost is recorded.
-  for (const k of [OVER, UNPRICED]) await db.insert(jobs).values(linearJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "implementing" }));
+  for (const k of [OVER, UNPRICED]) await db.insert(jobs).values(internalJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "implementing" }));
   await db.insert(runs).values({ ...usageRun(OVER, "gpt-6-astra", { output: 1_000_000 }), session_id: `mcp:factory/${OVER}` });
   await db.insert(runs).values({ ...usageRun(UNPRICED, "gpt-9-nova", { output: 1_000_000 }), session_id: `mcp:factory/${UNPRICED}` });
   assert.ok(!("enforceBudget" in ops), "the runner has no budget pass");
@@ -201,7 +181,6 @@ try {
   assert.equal(spent[`factory/${OVER}`]!.usd.toFixed(2), "50.15", "a $50 attempt's cost is recorded");
   assert.equal(spent[`factory/${UNPRICED}`]?.known, false, "an unpriced model's cost is unknown");
   assert.equal((await jobRow(OVER)).stage, "implementing", "and nothing fails it for what it spent");
-  assert.equal((await jobRow(OVER)).budget_usd, 5, "the unused budget column takes its default");
   config.factory.pricing = { "gpt-9-nova": { input: 1, output: 10, cacheRead: 0.1, cacheWrite: 1 } };
   assert.equal((await branchCosts(db, [`factory/${UNPRICED}`], config.factory.pricing))[`factory/${UNPRICED}`]?.known, true, "factory.pricing prices it");
   config.factory.pricing = {};
@@ -215,7 +194,9 @@ try {
   await db.delete(runs).where(inArray(runs.job_key, keys));
   await db.delete(events).where(inArray(events.job_key, keys));
   await db.delete(events).where(like(events.session_id, `mcp:factory/CX%${stamp}%`));
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "codex-usage-")}%`));
+  await db.delete(jobs).where(like(jobs.id, `${jobId("internal", "codex-usage-")}%`));
   rmSync(home, { recursive: true, force: true });
+  if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = previousCodexHome;
   process.exit(process.exitCode ?? 0);
 }

@@ -10,14 +10,10 @@ import { cn } from "../../lib/utils";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import type { AgentRow, AuditRow, EventRow, JobEvidenceRow, JobRow, MachineRow, RunRow } from "@factory/storage/schema";
-import { sandboxState } from "@factory/core/execution";
-import { harnessLabel, type Harness } from "@factory/core/harness";
 import { parseInventory, t3ThreadLink, UNKNOWN } from "@factory/core/machine";
 import { sourceLink } from "@factory/core/sources/shapes";
 import { parseStop, stopLine, stopView } from "@factory/core/stop";
 import { runFeedPath } from "@factory/core/run-links";
-import { RUNS_ON_LABELS, ticketRecordSchema } from "@factory/core/ticket-overrides";
-import { runsOn } from "./cards";
 import { AgentTree } from "./agent-tree";
 import { useArchiveAction, type ArchiveAction } from "./archive-action";
 import { EventFeed } from "./event-feed";
@@ -28,44 +24,21 @@ import { formatUsd, runCost, runTitle, shortId } from "./format";
 import { MergeButton } from "./merge-button";
 import { MergeDecisionSection } from "./merge-decision";
 import { ModelChip } from "./model-chip";
-import { OpenSandboxT3, useSandboxT3 } from "./open-sandbox-t3";
-import { SandboxSection } from "./sandbox-section";
 import { useFeed, type Feed } from "./sealed";
 import { StageTimeline } from "./stage-timeline";
 import { Time } from "./time";
 import { STAGE_META } from "./stages";
 
-/** The job's audit feed, read once for both the sandbox's last login check and the audit log. */
-function JobRecords({ feed, path, job }: { feed: Feed<AuditRow>; path: string; job: JobRow | undefined }) {
+/** The job's audit feed. */
+function JobRecords({ feed, path }: { feed: Feed<AuditRow>; path: string }) {
   const { rows } = useFeed(feed, path);
   return (
     <>
-      {job && <SandboxSection job={job} audit={rows} />}
       <AuditLog rows={rows} />
     </>
   );
 }
 
-/** What the ticket's override labels chose for this attempt, and what the runner did instead where it could not. */
-function TicketOverrides({ job, harnesses }: { job: JobRow; harnesses: readonly Harness[] }) {
-  const ticket = ticketRecordSchema.safeParse(job.ticket_overrides).data;
-  if (!ticket) return null;
-  const provider = ticket.provider;
-  const chosen = [
-    provider && `Harness ${harnesses.find((h) => h.id === provider)?.name ?? harnessLabel(provider)}`,
-    ticket.execution && `Runs on ${RUNS_ON_LABELS[ticket.execution]}`,
-  ].filter(Boolean);
-  return (
-    <div className="flex flex-col gap-1 text-xs">
-      {chosen.length > 0 && <p className="text-muted-foreground">From the ticket: {chosen.join(" · ")}</p>}
-      {ticket.notes.map((note) => (
-        <p key={note} className="text-warning">
-          {note}
-        </p>
-      ))}
-    </div>
-  );
-}
 
 type MenuLink = { label: string; href: string };
 
@@ -76,8 +49,8 @@ function ActionsMenu({
   archive,
 }: {
   source: MenuLink | null;
-  /** A local thread's link, or what opens a sandbox's pairing dialog. */
-  t3: MenuLink | { label: string; open: () => void } | null;
+  /** The local runner's T3 thread. */
+  t3: MenuLink | null;
   archive: ArchiveAction | null;
 }) {
   if (!source && !t3 && !archive) return null;
@@ -93,18 +66,12 @@ function ActionsMenu({
             Open in {source.label}
           </MenuLinkItem>
         )}
-        {t3 &&
-          ("href" in t3 ? (
-            <MenuLinkItem render={<a href={t3.href} />}>
-              <ExternalLinkIcon />
-              {t3.label}
-            </MenuLinkItem>
-          ) : (
-            <MenuItem onClick={t3.open}>
-              <ExternalLinkIcon />
-              {t3.label}
-            </MenuItem>
-          ))}
+        {t3 && (
+          <MenuLinkItem render={<a href={t3.href} />}>
+            <ExternalLinkIcon />
+            {t3.label}
+          </MenuLinkItem>
+        )}
         {archive && (
           <>
             {(source || t3) && <MenuSeparator />}
@@ -119,16 +86,10 @@ function ActionsMenu({
   );
 }
 
-/** A job's menu: its sandbox pairs with T3 through a dialog that outlives the menu. */
-function JobActions({ job, source, sandboxed, t3Link }: { job: JobRow; source: MenuLink | null; sandboxed: boolean; t3Link: MenuLink | null }) {
-  const pairing = useSandboxT3(job.id);
+/** The job's menu: source, local T3 thread and archive. */
+function JobActions({ job, source, t3Link }: { job: JobRow; source: MenuLink | null; t3Link: MenuLink | null }) {
   const archive = useArchiveAction(job);
-  return (
-    <>
-      <ActionsMenu source={source} t3={sandboxed ? { label: "Open in T3", open: pairing.open } : t3Link} archive={archive} />
-      {sandboxed && pairing.dialog}
-    </>
-  );
+  return <ActionsMenu source={source} t3={t3Link} archive={archive} />;
 }
 
 const STOP_BOX = {
@@ -139,8 +100,7 @@ const STOP_BOX = {
 
 /** Where the job's stop is: what the runner last did, why it counts as stopped, or why it could not tell. */
 function StopBanner({ job, t3Href }: { job: JobRow; t3Href: string | null }) {
-  const sandboxed = runsOn(job)?.kind === "modal";
-  const view = stopView(job.stop, sandboxed);
+  const view = stopView(job.stop);
   const stop = parseStop(job.stop);
   if (!view || !stop) return null;
   const detail = view.kind === "stopping" ? stop.step : view.kind === "confirmed" ? view.evidence : view.reason;
@@ -155,15 +115,11 @@ function StopBanner({ job, t3Href }: { job: JobRow; t3Href: string | null }) {
       </p>
       {view.kind === "unconfirmed" && (
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          {sandboxed ? (
-            <OpenSandboxT3 jobId={job.id} />
-          ) : (
-            t3Href && (
-              <Button render={<a href={t3Href} />} variant="outline" size="sm">
-                Open in T3
-                <ExternalLinkIcon data-icon="inline-end" />
-              </Button>
-            )
+          {t3Href && (
+            <Button render={<a href={t3Href} />} variant="outline" size="sm">
+              Open in T3
+              <ExternalLinkIcon data-icon="inline-end" />
+            </Button>
           )}
           <span className="text-muted-foreground">Retry stop or dismiss it in the inbox once the thread has stopped.</span>
         </div>
@@ -182,12 +138,10 @@ export function RunDetail({
   evidence,
   job,
   machine,
-  harnesses,
   jobSpend,
   closeHref,
   fullView,
 }: {
-  harnesses: readonly Harness[];
   /** Where the close button goes: the page the run opened on. */
   closeHref: string;
   /** Whether the run fills the page, and the link back to the side panel or out to full view. */
@@ -211,11 +165,9 @@ export function RunDetail({
   const machineName = machine?.name ?? job?.machine_id ?? null;
   const t3 = machine && parseInventory(machine.inventory)?.t3;
   const environmentId = t3 && t3 !== UNKNOWN ? t3.environmentId : null;
-  const sandboxed = job ? sandboxState(job) !== null : false;
-  const where = job && runsOn(job);
   const stopThread = job && (parseStop(job.stop)?.thread ?? job.t3_thread_id);
 
-  const place = machineName && (where?.kind === "modal" ? `Cloud sandbox via ${machineName}` : `Local · ${machineName}`);
+  const place = machineName && `Local · ${machineName}`;
   const spend = jobSpend ? (
     <span title={jobSpend.attempt > 1 ? "Spend of this attempt" : "Spend"}>
       {jobSpend.attempt > 1 && `attempt ${jobSpend.attempt} · `}
@@ -225,7 +177,7 @@ export function RunDetail({
     formatUsd(runCost(run, agentRows))
   );
   const t3Link =
-    !sandboxed && run.t3_thread_id
+    run.t3_thread_id
       ? { label: machineName ? `Open in T3 on ${machineName}` : "Open in T3", href: t3ThreadLink(run.t3_thread_id, environmentId) }
       : null;
 
@@ -265,7 +217,7 @@ export function RunDetail({
               </Button>
             )}
             {job ? (
-              <JobActions job={job} source={link ?? null} sandboxed={sandboxed} t3Link={t3Link} />
+              <JobActions job={job} source={link ?? null} t3Link={t3Link} />
             ) : (
               <ActionsMenu source={null} t3={t3Link} archive={null} />
             )}
@@ -281,7 +233,6 @@ export function RunDetail({
           {place && <span>{place}</span>}
           <span className="font-mono">{spend}</span>
         </p>
-        {job && <TicketOverrides job={job} harnesses={harnesses} />}
       </div>
       {job && <StopBanner job={job} t3Href={stopThread ? t3ThreadLink(stopThread, environmentId) : null} />}
       {job?.nudged_at && job.nudged_stage === job.stage && (
@@ -327,7 +278,7 @@ export function RunDetail({
       <StageTimeline events={stageRows} />
     </section>
   );
-  const records = audit ? <JobRecords feed={audit.feed} path={audit.path} job={job} /> : job && <SandboxSection job={job} audit={[]} />;
+  const records = audit && <JobRecords feed={audit.feed} path={audit.path} />;
   const activity = (
     <>
       <Separator />

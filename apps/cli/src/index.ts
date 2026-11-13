@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { hostname, userInfo } from "node:os";
 import { randomUUID } from "node:crypto";
 import { db } from "@factory/storage/client";
-import { redact, secretValues } from "@factory/core/slack";
+import { redact, secretValues } from "@factory/core/secrets";
 import { redact as redactDiagnostic } from "@factory/core/recipe";
 import { ownerCommand } from "./owners";
 
@@ -20,23 +20,21 @@ Resources:
   evidence list
   inbox list
   settings show|save
-  repositories list|addable|add|save|default|retry|rebuild|secrets
-  notifications show|save|test
+  repositories list|add|save|default|retry
   requests show
   owners create|reset|disable (email input; passwords prompted in terminal)
 
 Input is a JSON object. Use --stdin for secrets; secret values in argv are forbidden.
 Job actions require jobId. Durable actions accept requestId (UUID); retain it for replay.
 Use --wait SECONDS for an accepted intent; timeout leaves accepted work queued.
-Configuration: .env.local or exported environment, DATABASE_URL, integration credentials.
+Configuration: .env.local or exported environment, DATABASE_URL. Runner uses its own gh login.
 `;
 
 const COMMANDS = new Set([
   ..."list show create answer changes stop approve close dismiss retry retry-stop archive unarchive follow-up".split(" ").map(action => `jobs ${action}`),
   "machines list", "evidence list", "inbox list", "requests show",
   ..."show save".split(" ").map(action => `settings ${action}`),
-  ..."list addable add save default retry rebuild secrets".split(" ").map(action => `repositories ${action}`),
-  ..."show save test".split(" ").map(action => `notifications ${action}`),
+  ..."list add save default retry".split(" ").map(action => `repositories ${action}`),
   "owners create", "owners reset", "owners disable",
 ]);
 
@@ -49,7 +47,6 @@ export async function main(argv: string[]) {
   if (!action || positionals.length !== 2) throw new InputError("Provide a resource and action. Use --help.");
   if (!COMMANDS.has(`${resource} ${action}`)) throw new InputError("Unknown command. Use --help.");
   if (values.input && values.stdin) throw new InputError("Choose --input or --stdin.");
-  if (resource === "repositories" && action === "secrets" && !values.stdin) throw new InputError("Secret provisioning requires --stdin; values must not appear in process arguments.");
   const wait = values.wait === undefined ? undefined : Number(values.wait);
   if (wait !== undefined && (!Number.isFinite(wait) || wait < 0)) throw new InputError("--wait must be a nonnegative number of seconds.");
   let input: Record<string, unknown>;

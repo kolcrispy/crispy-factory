@@ -1,16 +1,15 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpus, hostname, loadavg, totalmem } from "node:os";
+import { cpus, freemem, hostname, loadavg, totalmem } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { statfs } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { machines } from "@factory/storage/schema";
 import { loadConfig } from "@factory/core/config";
 import { UNKNOWN, type Heartbeat, type Inventory } from "@factory/core/machine";
-import { sandboxReadiness } from "@factory/core/sandbox";
 import { connectStatus, readHarnesses, readProjects, readT3Runtime } from "@factory/integrations/t3-state";
-import { baseImageBuild } from "./base-image";
 import { message, withTimeout } from "./queue";
 
 const run = promisify(execFile);
@@ -18,17 +17,12 @@ const RUNNER_DIR = join(import.meta.dirname, "../../..");
 const text = async (cmd: string, args: string[], cwd?: string) =>
   (await run(cmd, args, { cwd, timeout: 5_000, maxBuffer: 1024 * 1024 })).stdout;
 
-export type Machine = { id: string; name: string; idFrom: "config" | "ioreg" | "hostname" };
+export type Machine = { id: string; name: string; idFrom: "config" | "hostname" };
 
-/** Falls back to the host name when ioreg fails, so the runner starts instead of crash-looping under launchd. */
+/** A configured id is stable across hostname changes; otherwise use the native hostname. */
 export async function identify(override?: string): Promise<Machine> {
-  const name = (await text("scutil", ["--get", "ComputerName"]).then((out) => out.trim(), () => "")) || hostname();
-  if (override) return { id: override, name, idFrom: "config" };
-  const uuid = await text("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"]).then(
-    (out) => /"IOPlatformUUID" = "([^"]+)"/.exec(out)?.[1],
-    () => undefined,
-  );
-  return uuid ? { id: uuid, name, idFrom: "ioreg" } : { id: `hostname:${hostname()}`, name, idFrom: "hostname" };
+  const name = hostname();
+  return { id: override ?? `hostname:${name}`, name, idFrom: override ? "config" : "hostname" };
 }
 
 let machine: Promise<Machine> | undefined;
@@ -67,8 +61,8 @@ const settle = <T>(collect: () => Promise<T>) => collect().catch((): typeof UNKN
 export function systemCollectors(capacity: () => Promise<Heartbeat["capacity"]>): HeartbeatCollectors {
   return {
     cpu: async () => ({ load1: loadavg()[0]!, cores: cpus().length }),
-    memory: async () => parseVmStat(await text("vm_stat", []), totalmem()),
-    disk: async () => parseDf(await text("df", ["-k", "/System/Volumes/Data"])),
+    memory: async () => ({ usedBytes: totalmem() - freemem(), totalBytes: totalmem() }),
+    disk: async () => { const disk = await statfs(RUNNER_DIR); return { freeBytes: disk.bavail * disk.bsize, totalBytes: disk.blocks * disk.bsize }; },
     capacity,
   };
 }
@@ -102,26 +96,19 @@ export function inventoryCollectors(): InventoryCollectors {
         })),
       ),
     harnesses: async () => readHarnesses(),
-    sandbox: async () => {
-      const imageBuild = baseImageBuild();
-      return { ...sandboxReadiness(factory.sandbox), ...(imageBuild && { imageBuild }) };
-    },
-    slack: async () => ({ configured: Boolean(process.env.SLACK_BOT_TOKEN?.trim()), owner: Boolean(process.env.SLACK_OWNER_USER_ID?.trim()) }),
   };
 }
 
 export async function collectInventory(collectors: InventoryCollectors): Promise<Inventory> {
-  const [runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack] = await Promise.all([
+  const [runnerSha, t3, connect, projects, repos, harnesses] = await Promise.all([
     settle(collectors.runnerSha),
     settle(collectors.t3),
     settle(collectors.connect),
     collectors.projects().catch((): Inventory["projects"] => ({ source: UNKNOWN })),
     collectors.repos().catch((): Inventory["repos"] => []),
     settle(collectors.harnesses),
-    settle(collectors.sandbox),
-    settle(collectors.slack),
   ]);
-  return { runnerSha, t3, connect, projects, repos, harnesses, sandbox, slack };
+  return { runnerSha, t3, connect, projects, repos, harnesses };
 }
 
 export async function writeHeartbeat(machine: Machine, heartbeat: Heartbeat, now: Date) {

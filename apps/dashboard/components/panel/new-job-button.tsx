@@ -22,11 +22,9 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
-import { EXECUTIONS, executionSchema } from "@factory/core/execution";
 import type { RepoSettingsRow } from "@factory/storage/schema";
 import type { Harness } from "@factory/core/harness";
 import { displayName } from "@factory/core/repo-name";
-import { RUNS_ON_LABELS } from "@factory/core/ticket-overrides";
 import { cn } from "../../lib/utils";
 import { JOB_IMAGE_TYPES, MAX_JOB_IMAGE_BYTES, newJobSchema, type ImageUploadOutcome, type NewJob, type NewJobOutcome } from "@factory/core/new-job-schema";
 
@@ -52,12 +50,8 @@ async function uploadImage(file: File): Promise<ImageUploadOutcome> {
 
 const SETTINGS_DEFAULT = "settings-default";
 
-const runsOnItems = [
-  { value: SETTINGS_DEFAULT, label: "Settings default" },
-  ...EXECUTIONS.map((e) => ({ value: e, label: RUNS_ON_LABELS[e] })),
-];
 
-/** Starts a job by filing it in Linear, where the factory picks it up like any labeled issue. */
+/** Persists an internal job for the local runner. */
 export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness[]; repos: readonly Pick<RepoSettingsRow, "repo" | "display_name" | "enabled" | "is_default">[] }) {
   const [open, setOpen] = useState(false);
   const [created, setCreated] = useState<Extract<NewJobOutcome, { ok: true }> | null>(null);
@@ -82,7 +76,7 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
     });
   };
 
-  // Each image goes to Linear as it is added; its markdown joins the description, as Linear's editor would write it.
+  // Shared image storage keeps drafts accessible to the dashboard and local runner.
   const addImages = (files: File[]) => {
     const draft = form.getValues("requestId");
     for (const file of files) {
@@ -150,14 +144,14 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
         {created ? (
           <>
             <DialogHeader>
-              <DialogTitle>{created.identifier} is filed</DialogTitle>
+              <DialogTitle>{created.identifier} is queued</DialogTitle>
               <DialogDescription>
-                The factory picks it up within a few seconds and it appears on the board in Queued.
+                The job is saved. It starts when the local runner is online and has capacity.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" render={<a href={created.url} target="_blank" rel="noreferrer" />}>
-                Open in Linear
+                Open job
                 <ExternalLinkIcon data-icon="inline-end" />
               </Button>
               <Button onClick={reset}>Start another</Button>
@@ -168,8 +162,7 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
             <DialogHeader>
               <DialogTitle>New job</DialogTitle>
               <DialogDescription>
-                Files a Linear issue with the factory label. Questions and answers then happen on that issue. A harness or
-                place other than the Settings default goes on the issue as its Harness or Runs on label.
+                Queues work for the local runner. Progress, questions, and answers stay in this dashboard.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submit} className="contents">
@@ -232,12 +225,12 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                             ))}
                           </SelectPopup>
                         </Select>
-                        <FieldDescription>Goes on the issue as its Repository label, the default one included.</FieldDescription>
+                        <FieldDescription>The local runner uses this registered repository.</FieldDescription>
                       </Field>
                     )}
                   />
                 )}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-4">
                   <Controller
                     name="provider"
                     control={form.control}
@@ -254,31 +247,6 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                           </SelectTrigger>
                           <SelectPopup>
                             {harnessItems.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectPopup>
-                        </Select>
-                      </Field>
-                    )}
-                  />
-                  <Controller
-                    name="execution"
-                    control={form.control}
-                    render={({ field }) => (
-                      <Field>
-                        <FieldLabel htmlFor="new-job-runs-on">Runs on</FieldLabel>
-                        <Select
-                          items={runsOnItems}
-                          value={field.value ?? SETTINGS_DEFAULT}
-                          onValueChange={(v) => field.onChange(v === null || v === SETTINGS_DEFAULT ? undefined : executionSchema.parse(v))}
-                        >
-                          <SelectTrigger id="new-job-runs-on" className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectPopup>
-                            {runsOnItems.map((item) => (
                               <SelectItem key={item.value} value={item.value}>
                                 {item.label}
                               </SelectItem>

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { JobRow } from "@factory/storage/schema";
 import { planCleanup, type BranchState } from "./cleanup";
 import { attemptBranch, parseBranch } from "./factory";
-import type { RepoName } from "@factory/integrations/github/app";
+import type { RepoName } from "@factory/integrations/github/gh";
 import { github } from "@factory/integrations/github/pulls";
 import { localHost, type JobHost } from "./host";
 import { listThreads, showThread } from "@factory/integrations/t3-client";

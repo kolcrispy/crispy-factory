@@ -11,7 +11,7 @@ import type { DecisionInput } from "@factory/core/merge-decision";
 
 const { db } = await import("@factory/storage/client");
 const { events, jobs, jobScreenshots, runs } = await import("@factory/storage/schema");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { attemptBranch } = await import("@factory/core/factory");
 const { eventSchema, stageReportSchema } = await import("@factory/core/events");
@@ -101,7 +101,7 @@ try {
   }
 
   // --- ingest stores the bytes once, and the panel serves the current report's images
-  await db.insert(jobs).values(linearJob(`screenshot-regress-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, stage: "verifying", attempt: 1 }));
+  await db.insert(jobs).values(internalJob(`screenshot-regress-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, stage: "verifying", attempt: 1 }));
   const stage: FactoryEvent = { eventId: stageEventId, sessionId, at: Date.now(), kind: "stage", ...pr, stage: "pr", assessment: assessment({ screenshots: shots }), jobKey: KEY, branch: attemptBranch(KEY, 1) };
   const first = await ingest(db, [...images, stage]);
   assert.equal(first.inserted, 3);

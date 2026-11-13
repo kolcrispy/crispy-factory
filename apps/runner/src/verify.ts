@@ -3,47 +3,43 @@ import type { ExecError } from "@factory/platform/exec";
 import { eventSchema, type FactoryEvent } from "@factory/core/events";
 import { combined, planChecks, runChecks, type CheckRunner } from "@factory/core/evidence";
 import { attemptBranch } from "@factory/core/factory";
-import { ensureAwake, HostAsleepError, HostGoneError, WakeDeferredError, type HostedJob, type JobHost } from "@factory/core/host";
+import { hosts, type HostedJob, type JobHost } from "@factory/core/host";
 import type { MergeDecision, RepoPolicy, RunnerVerification } from "@factory/core/merge-decision";
 import { parseRecipe, RECIPE_PATH, type Recipe } from "@factory/core/recipe";
-import { REPO_DIR } from "@factory/core/sandbox";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { factoryCheckouts } from "./ops";
 
-// The runner's own proof for a Modal job's PR head: in the job's sandbox it checks out exactly
-// that commit in a fresh worktree, runs the recipe's setup and checks, and posts the result as
-// evidence, so a merge never rests on the agent's word alone. It runs only when the repo merges
-// on its own (auto) and verification at the head is the one thing left before a merge, at most
-// once per head, one per job (a new head waits for the old head's run) and MAX_RUNNER_VERIFICATIONS
-// at a time. A hibernated sandbox is woken for it.
+// The runner checks the exact PR head in a fresh local worktree, independent of agent
+// claims. Auto-merge waits for commit-bound evidence. Verification is limited per job
+// and globally, and shutdown waits for every active verification to settle.
 // Runs happen in the background; the decision stays pending until the evidence lands.
 
 export const MAX_RUNNER_VERIFICATIONS = 2;
 /** A run recorded on the decision that this runner doesn't know of (it restarted) is retried after this. */
 export const VERIFY_RETRY_MS = 10 * 60_000;
 
-/** Where the sandbox keeps the repo and the verification worktrees; regressions point them at temp dirs. */
-export const verifyRuntime = { repoDir: REPO_DIR, workDir: "/work/verify" };
+/** Temporary verification worktrees; regressions use isolated directories. */
+export const verifyRuntime = { workDir: join(tmpdir(), "marshal-factory-verify") };
 
-type VerifyJob = HostedJob & { attempt: number; repo: string; execution: string | null };
+type VerifyJob = HostedJob & { attempt: number; repo: string };
 type Flight = { sha: string; finished: boolean; failed?: string; done: Promise<void> };
 const flights = new Map<string, Flight>();
 
 const message = (error: unknown) => (error instanceof Error ? error.message.split("\n")[0]! : String(error));
 
-/** Jobs whose sandbox is busy with a verification, which hibernation leaves alone. */
+/** Jobs currently running a verification. */
 export const verifyingKeys = () => new Set([...flights].filter(([, f]) => !f.finished).map(([key]) => key));
 
-/** Every verification this runner started, settled; for regressions. */
+/** Waits for every verification before runner ownership can be released. */
 export const verificationsSettled = async () => void (await Promise.all([...flights.values()].map((f) => f.done)));
 export const forgetVerifications = () => flights.clear();
 
 /** Whether the runner can run the checks at `sha` for this job: may start, running, tried and couldn't, or can't. */
 export function runnerVerification(job: VerifyJob, sha: string, policy: RepoPolicy, previous: MergeDecision | null, now: number): RunnerVerification {
   if (policy.autonomy !== "auto") return { kind: "unavailable", reason: "the factory runs the checks itself only when the repo merges on its own" };
-  if (!job.sandbox_id && !job.sandbox_snapshot) {
-    return { kind: "unavailable", reason: job.execution === "modal" ? "the job has no sandbox left to run them in" : "the run isn't in a cloud sandbox, so the factory can't run them itself" };
-  }
   const flight = flights.get(job.key);
-  // A run for an older head still holds the sandbox; this head waits for it to end.
+  // A run for an older head still occupies the runner; this head waits for it to end.
   if (flight && !flight.finished) return { kind: "running" };
   if (flight?.sha === sha) return { kind: "failed", reason: flight.failed ?? "its run didn't prove the commit" };
   const record = previous?.verification;
@@ -56,7 +52,7 @@ export function runnerVerification(job: VerifyJob, sha: string, policy: RepoPoli
 
 const git = (host: JobHost, dir: string, args: string[], timeoutMs = 60_000) => host.run("git", ["-C", dir, ...args], { timeoutMs });
 
-/** Runs a check with bash in `dir` on the host; only an unreachable host throws. */
+/** Runs a recipe command in the local worktree. */
 const hostRunner =
   (host: JobHost, dir: string): CheckRunner =>
   async (command, timeoutMs) => {
@@ -64,7 +60,6 @@ const hostRunner =
       const { stdout, stderr } = await host.run("bash", ["-c", combined(command)], { cwd: dir, timeoutMs, maxBuffer: 64 * 1024 * 1024 });
       return { exitCode: 0, output: `${stdout}${stderr}` };
     } catch (error) {
-      if (error instanceof HostGoneError || error instanceof HostAsleepError) throw error;
       const failed = error as ExecError;
       return { exitCode: typeof failed.code === "number" ? failed.code : null, output: `${failed.stdout ?? ""}${failed.stderr ?? ""}` || failed.message };
     }
@@ -76,9 +71,10 @@ const hostRunner =
  * in the commit; without either, package.json scripts are the checks.
  */
 export async function verifyAtHead(host: JobHost, job: { key: string; attempt: number; repo: string }, sha: string, recipe: Recipe | null, now = Date.now): Promise<FactoryEvent> {
-  const { repoDir, workDir } = verifyRuntime;
+  const repoDir = (await factoryCheckouts()).get(job.repo);
+  if (!repoDir) throw new Error(`No prepared checkout for ${job.repo}.`);
   const branch = attemptBranch(job.key, job.attempt);
-  const dir = `${workDir}/${sha.slice(0, 12)}-${randomBytes(4).toString("hex")}`;
+  const dir = join(verifyRuntime.workDir, `${sha.slice(0, 12)}-${randomBytes(4).toString("hex")}`);
   await git(host, repoDir, ["fetch", "--quiet", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], 180_000);
   try {
     await git(host, repoDir, ["worktree", "add", "--force", "--detach", dir, sha], 120_000);
@@ -113,9 +109,8 @@ export async function verifyAtHead(host: JobHost, job: { key: string; attempt: n
 }
 
 /**
- * Starts the runner's verification of `sha` in the background, waking a hibernated sandbox; false
- * when the job's sandbox is running one already, at any head, or MAX_RUNNER_VERIFICATIONS are
- * running. `post` delivers the evidence to ingest.
+ * Starts background verification of `sha`, limited to one per job and
+ * MAX_RUNNER_VERIFICATIONS globally. `post` persists commit-bound evidence.
  */
 export function startVerification(job: VerifyJob, sha: string, recipe: Recipe | null, post: (event: FactoryEvent) => Promise<unknown>): boolean {
   const verifying = verifyingKeys();
@@ -123,12 +118,10 @@ export function startVerification(job: VerifyJob, sha: string, recipe: Recipe | 
   const flight: Flight = { sha, finished: false, done: Promise.resolve() };
   flight.done = (async () => {
     try {
-      const host = await ensureAwake(job);
+      const host = hosts.forJob(job);
       await post(await verifyAtHead(host, job, sha, recipe));
     } catch (error) {
-      // No room to wake the sandbox: no run happened, so the head is tried again once the decision's retry comes round.
-      if (error instanceof WakeDeferredError) flights.delete(job.key);
-      else flight.failed = error instanceof HostGoneError ? "the job's sandbox is gone" : message(error);
+      flight.failed = message(error);
     } finally {
       flight.finished = true;
     }

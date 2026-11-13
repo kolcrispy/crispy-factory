@@ -3,19 +3,18 @@ import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
 import type { MergeAssessment } from "@factory/core/assessment";
 import type { DecisionInput, PrFacts } from "@factory/core/merge-decision";
+import { githubRequest } from "./github-request";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("@factory/storage/client");
 const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import("@factory/storage/schema");
-const { linearJob, usageRun } = await import("./fixtures");
+const { internalJob, usageRun } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
-const { SOURCES } = await import("@factory/core/sources/index");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { eventSchema, stageReportSchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
-const { hosts } = await import("@factory/core/host");
 const { github, bugbotFindingsOf, checkStateOf, pullsClient } = await import("@factory/integrations/github/pulls");
 const { parseAssessment } = await import("@factory/core/assessment");
 const { decideMerge, DEFAULT_POLICY, noCiReason } = await import("@factory/core/merge-decision");
@@ -304,7 +303,7 @@ const stub = await serve(0, async (request) => {
   return Response.json({ message: "Not Found" }, { status: 404 });
 });
 try {
-  const client = pullsClient({ api: `http://localhost:${stub.port}`, tokens: { get: async () => "ghs_stub", evict: () => {} } });
+  const client = pullsClient({ request: githubRequest(stub.port) });
   assert.deepEqual(await client.pullDetail("https://github.com/o/r/pull/9"), { state: "open", mergeable: "mergeable", headSha: "h9", baseRef: "main" });
   const files = await client.pullFiles("https://github.com/o/r/pull/9");
   assert.equal(files.length, 103, "files page until a short page");
@@ -337,7 +336,7 @@ const prUrl = (n: number) => `https://github.com/${REPO}/pull/${stamp}${n}`;
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = `MD${name}-${stamp}`;
   keys.push(k);
-  await db.insert(jobs).values(linearJob(`merge-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, repo: REPO, provider: "claudeAgent", ...over }));
+  await db.insert(jobs).values(internalJob(`merge-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, repo: REPO, provider: "claudeAgent", ...over }));
   return k;
 }
 const auditsOf = async (k: string) => db.select().from(auditLog).where(eq(auditLog.job_id, (await row(k)).id));
@@ -377,10 +376,7 @@ try {
   await ingest(db, [stage(8, { stage: "implementing", summary: "again" }), stage(9, { ...prReport, prUrl: prUrl(0) })]);
   assert.equal((await row(INGEST)).merge_assessment, null, "a pr report without one clears it");
 
-  // The runner pass, against stubbed GitHub and Linear.
-  hosts.wake = async (job) => {
-    throw new Error(`woke ${job.key}`);
-  };
+  // Runner decisions against isolated GitHub responses and internal jobs.
   const heads = new Map<string, string>();
   const calls: string[] = [];
   github.pullDetail = async (url) => (calls.push(`detail ${url}`), { state: "open", mergeable: "mergeable", headSha: heads.get(url) ?? "h1", baseRef: "main" });
@@ -388,26 +384,22 @@ try {
   let checks: "success" | "pending" = "success";
   github.checkState = async () => (calls.push("checks"), { checks, bugbot: { state: "reviewed" as const } });
   github.bugbotFindings = async () => (calls.push("bugbot"), []);
-  const labels = new Map<string, string[]>();
-  SOURCES.linear.labels = async (job) => (calls.push(`labels ${job.key}`), labels.get(job.key) ?? ["factory"]);
   const commented: string[] = [];
   github.upsertComment = async (url) => (commented.push(`pr ${url}`), "created");
-  SOURCES.linear.note = async (job) => void commented.push(`note ${job.key}`);
   // auto-merge-regressions covers the merge itself; here the head always moves away first.
   github.mergeCandidate = async () => ({ state: "open", headSha: "moved", baseRef: "main", title: "t", number: 1, commits: 1, mergeCommitSha: null, mergedByBot: false });
 
   const at = (minutes: number) => NOW + minutes * 60_000;
   const prEvent = (k: string) => `merge-regress-pr-${k}`;
   const GOOD = await insert("GOOD", { stage: "pr", pr_url: prUrl(1), stage_event_id: prEvent("GOOD"), merge_assessment: assessment() });
-  const ASLEEP = await insert("ASLEEP", { stage: "pr", pr_url: prUrl(2), sandbox_id: null, sandbox_snapshot: "im-snap-merge", merge_assessment: assessment() });
-  const LABELED = await insert("LABELED", { stage: "pr", pr_url: prUrl(3), merge_assessment: assessment() });
+  const ASLEEP = await insert("ASLEEP", { stage: "pr", pr_url: prUrl(2), merge_assessment: assessment() });
+  const LABELED = await insert("HANDOVER", { stage: "pr", pr_url: prUrl(3), merge_assessment: unsure("Owner review required.") });
   const OFF = await insert("OFF", { stage: "pr", pr_url: prUrl(4), repo: OFF_REPO });
   const CODEX = await insert("CODEX", { stage: "pr", pr_url: prUrl(5), provider: "codex", merge_assessment: assessment() });
   const WORKING = await insert("WORKING", { stage: "implementing", pr_url: prUrl(6) });
   const UNCOUNTED = await insert("UNCOUNTED", { stage: "pr", pr_url: prUrl(7), provider: "codex", merge_assessment: assessment() });
   const UNPRICED = await insert("UNPRICED", { stage: "pr", pr_url: prUrl(8), provider: "codex", merge_assessment: assessment() });
   const PRICEY = await insert("PRICEY", { stage: "pr", pr_url: prUrl(9), provider: "codex", merge_assessment: assessment() });
-  labels.set(LABELED, ["factory", "review"]);
   for (const k of [GOOD, ASLEEP, LABELED, CODEX, UNCOUNTED, UNPRICED, PRICEY]) await verified(k, "h1");
   for (const k of [GOOD, ASLEEP, LABELED]) await db.insert(runs).values(usageRun(k));
   await db.insert(runs).values(usageRun(CODEX, "gpt-6.1-sol"));
@@ -442,10 +434,9 @@ try {
       },
     },
   );
-  assert.deepEqual((await row(ASLEEP)).sandbox_snapshot, "im-snap-merge", "a hibernated job is decided on GitHub alone and stays asleep");
-  assert.deepEqual((await row(LABELED)).merge_decision!.reasons, ['The issue has the "review" label.']);
+  assert.deepEqual((await row(LABELED)).merge_decision!.reasons, ["The agent isn't confident: Owner review required."]);
   assert.deepEqual((await row(OFF)).merge_decision, { outcome: "handover", reasons: [], autonomy: "off", headSha: null, headSeenAt: null, stageEventId: null, evaluatedAt: new Date(at(0)).toISOString() });
-  assert.ok(!calls.some((c) => c.includes(prUrl(4)) || c.includes(OFF)), "an off repo asks neither GitHub nor Linear");
+  assert.ok(!calls.some((c) => c.includes(prUrl(4)) || c.includes(OFF)), "an off repo asks neither GitHub nor a source");
   assert.deepEqual((await row(CODEX)).merge_decision!.reasons, [], "a Codex run merges like Claude");
   assert.deepEqual((await row(UNCOUNTED)).merge_decision!.reasons, [], "a Codex run with no usage recorded merges: cost is measured, not a limit");
   assert.deepEqual((await row(UNPRICED)).merge_decision!.reasons, [], "and so does one on a model with no price");
@@ -483,7 +474,7 @@ try {
   // Autonomy and a new report both force a fresh decision.
   checks = "success";
   await writeRepoAutonomy(db, { repo: REPO, autonomy: "auto" }, OWNER, new Date());
-  assert.deepEqual(await decideMerges({ only: [LABELED], now: at(40) }), [`${LABELED}:handover`], "the review label still holds under auto");
+  assert.deepEqual(await decideMerges({ only: [LABELED], now: at(40) }), [`${LABELED}:handover`], "explicit handover still holds under auto");
   assert.equal((await row(LABELED)).merge_decision!.autonomy, "auto");
   await db.update(jobs).set({ stage_event_id: "merge-regress-new-report" }).where(eq(jobs.key, GOOD));
   assert.deepEqual(await decideMerges({ only: [GOOD], now: t1 + 62 * 60_000 }), [`${GOOD}:merge`]);
@@ -503,12 +494,12 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("linear", "merge-regress-")}%`))).map((j) => j.id);
+  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("internal", "merge-regress-")}%`))).map((j) => j.id);
   if (ids.length > 0) await db.delete(auditLog).where(inArray(auditLog.job_id, ids));
   if (keys.length > 0) await db.delete(events).where(inArray(events.job_key, keys));
   if (keys.length > 0) await db.delete(jobEvidence).where(inArray(jobEvidence.job_key, keys));
   if (keys.length > 0) await db.delete(runs).where(inArray(runs.job_key, keys));
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "merge-regress-")}%`));
+  await db.delete(jobs).where(like(jobs.id, `${jobId("internal", "merge-regress-")}%`));
   await db.delete(repoSettings).where(inArray(repoSettings.repo, [REPO, OFF_REPO]));
   process.exit(process.exitCode ?? 0);
 }

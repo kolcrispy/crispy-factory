@@ -1,8 +1,6 @@
 import { z } from "zod";
-import { executionSchema } from "./execution";
 
-// Shared by the new-job form and the server action; kept apart from lib/new-job.ts so the form
-// does not bundle the Linear client.
+// Shared validation stays separate from database-backed job creation for browser use.
 
 export const newJobSchema = z.object({
   title: z.string().trim().min(3, "Give the job a title of at least 3 characters.").max(200, "Keep the title under 200 characters."),
@@ -11,8 +9,6 @@ export const newJobSchema = z.object({
   requestId: z.uuid(),
   /** A harness's provider instance id; unset files the issue without a Harness label, so Settings decide. */
   provider: z.string().trim().min(1).optional(),
-  /** Unset files the issue without a Runs on label. */
-  execution: executionSchema.optional(),
   /** The repo's full name; unset means the default repo. Either way the issue gets its Repository label. */
   repo: z.string().trim().min(1).optional(),
 });

@@ -1,51 +1,15 @@
 import type { JobRow } from "@factory/storage/schema";
-import { linear } from "@factory/integrations/sources/linear";
-import { isRegisteredSource, jobId, SOURCE_SHAPES, type SourceShape } from "./shapes";
-import type { Job, JobSource, SourceAdapter } from "./types";
+import { isRegisteredSource, jobId, SOURCE_SHAPES } from "./shapes";
+import type { Job } from "./types";
 
 export { jobId } from "./shapes";
-
-// The runner, the panel and the ingest function reach a source only through its adapter, by the
-// job's `source`. Adding a source is an adapter and a shape here; nothing outside lib/sources changes.
-
-export const SOURCES: { [S in JobSource]: SourceAdapter<S> } = { linear };
-
-export const sourceFor = <S extends JobSource>(source: S): SourceAdapter<S> => {
-  const adapter = SOURCES[source];
-  if (!adapter) throw new Error(`no source adapter for ${source}`);
-  return adapter;
-};
-
-export const isJobSource = (name: string): name is JobSource => Object.hasOwn(SOURCES, name);
-
-/** Every registered source, for the work a runner does across them: claiming, stop checks, label sync. */
-export const allSources = (): SourceAdapter<JobSource>[] => Object.values(SOURCES);
-
-/** Where the panel files new jobs and uploads their images, and whose override labels it adds. */
-const PANEL_SOURCE: JobSource = "linear";
-export const panelSource = () => sourceFor(PANEL_SOURCE);
-
-/**
- * Adds a source beside the shipped ones. Only regressions call it, with a fake source that proves
- * the runner needs nothing source-specific; a real source is added to SOURCES and SOURCE_SHAPES.
- */
-export function registerSource(shape: SourceShape, adapter: Omit<SourceAdapter<JobSource>, "source"> & { source: string }) {
-  if (isRegisteredSource(adapter.source)) throw new Error(`source ${adapter.source} is registered already`);
-  Object.assign(SOURCE_SHAPES, { [adapter.source]: shape });
-  Object.assign(SOURCES, { [adapter.source]: adapter });
-}
+export const isJobSource = isRegisteredSource;
 
 export function parseJob(row: JobRow): Job {
-  if (!isJobSource(row.source)) throw new Error(`jobs row ${row.id} has unknown source ${row.source}`);
-  const shapes = SOURCE_SHAPES[row.source];
+  if (!isRegisteredSource(row.source)) throw new Error(`Unsupported job source ${row.source}; use a fresh internal factory database.`);
+  const shape = SOURCE_SHAPES[row.source];
   const id = jobId(row.source, row.external_id);
-  if (row.id !== id) throw new Error(`jobs row ${row.id} should have id ${id}`);
-  return {
-    ...row,
-    id,
-    writeback: shapes.writeback.parse(row.writeback),
-    source_state: shapes.sourceState.parse(row.source_state),
-  };
+  if (row.id !== id) throw new Error(`Job ${row.key} has an invalid identity.`);
+  return { ...row, id, writeback: shape.writeback.parse(row.writeback), source_state: shape.sourceState.parse(row.source_state) };
 }
-
 export const parseJobs = (rows: readonly JobRow[]) => rows.map(parseJob);

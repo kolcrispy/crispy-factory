@@ -26,7 +26,7 @@ export const INBOX_LABELS: Record<InboxKind, string> = {
 /** Questions, failed reverts and agents that may still run block work or main, so they come first; failures last. */
 const RANK: Record<InboxKind, number> = { question: 0, revert_failed: 0, stop_unconfirmed: 0, handover: 1, failed: 2 };
 
-export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop" | "execution">;
+export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop">;
 
 export type InboxItem<J extends InboxJob = InboxJob> = { kind: InboxKind; job: J; decision: MergeDecision | null; at: Date };
 
@@ -103,12 +103,12 @@ export function inboxReason(item: InboxItem<InboxJob & Pick<JobRow, "question" |
       if (decision?.outcome === "merge" && decision.autonomy === "trial") return "Would merge (trial)";
       return decision?.reasons[0] ?? "Ready for your review";
     case "failed": {
-      const stop = stopView(job.stop, job.execution === "modal");
+      const stop = stopView(job.stop);
       const summary = job.stage_summary ?? "The job failed.";
       return stop?.kind === "stopping" ? `${stopLine(stop)} · ${summary}` : summary;
     }
     case "stop_unconfirmed": {
-      const stop = stopView(job.stop, job.execution === "modal");
+      const stop = stopView(job.stop);
       return stop?.kind === "unconfirmed" ? stop.reason : "The runner could not confirm that the work stopped.";
     }
     default: {

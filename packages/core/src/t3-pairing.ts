@@ -7,10 +7,8 @@ import { intents, jobs } from "@factory/storage/schema";
 import { isOwner, type SessionUser } from "./auth/owner";
 import type { JobId } from "./sources/shapes";
 
-// Opening a sandboxed job's T3 from the panel. The owner asks for a pairing link; the panel
-// records an open_t3 intent, the job's runner mints a one-time T3 pairing token inside the sandbox
-// and stores the link on the tunnel URL as the intent's result. The panel takes it once: reading
-// it replaces the stored link, and the runner clears any link left unread after the token's TTL.
+// The owner requests a pairing link from the local runner. The panel takes the result
+// once, replacing the stored link; unread links are cleared after the token's TTL.
 // The link appears in no log, event or live feed.
 
 export const PAIRING_TTL_MINUTES = 15;
@@ -27,8 +25,6 @@ export const pairingResultSchema = z.union([
 ]);
 export type PairingResult = z.infer<typeof pairingResultSchema>;
 
-export const HIBERNATED_MESSAGE =
-  "This job's sandbox is hibernated while it waits. It wakes on its own when the job needs it again, such as an answer or a conflict to fix; open it in T3 then.";
 
 export type PairingDeps = {
   db: NodePgDatabase<typeof schema>;
@@ -43,15 +39,14 @@ export type PairingTake =
   | { status: "ready"; pairUrl: string; expiresAt: string }
   | { status: "failed"; message: string };
 
-const OWNER_ONLY = "Only the factory owner can open a sandbox in T3.";
+const OWNER_ONLY = "Only the factory owner can open T3.";
 
-/** Records the intent the job's runner answers with a pairing link; refused for a job with no running sandbox. */
+/** Records a pairing request for the local runner that owns this thread. */
 export async function requestPairing(deps: PairingDeps, jobId: JobId): Promise<PairingRequest> {
   if (!isOwner(await deps.user())) return { ok: false, message: OWNER_ONLY };
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job) return { ok: false, message: `No job ${jobId}.` };
-  if (!job.sandbox_id && job.sandbox_snapshot) return { ok: false, message: HIBERNATED_MESSAGE };
-  if (!job.sandbox_id) return { ok: false, message: "This job does not run in a cloud sandbox." };
+  if (!job.t3_thread_id || job.t3_thread_id.startsWith("pending:") || !job.machine_id) return { ok: false, message: "This job has no running T3 thread." };
   const id = `panel:open_t3:${randomUUID()}`;
   await deps.db.insert(intents).values({ id, kind: "open_t3", job_id: job.id, created_at: (deps.now ?? (() => new Date()))() });
   return { ok: true, intentId: id };

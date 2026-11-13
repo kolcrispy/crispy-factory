@@ -7,7 +7,6 @@ const ACTION: Record<AuditRow["action"], { label: string; tone: string }> = {
   merge_requested: { label: "Merge requested", tone: "text-foreground" },
   merge_succeeded: { label: "Merged", tone: "text-success" },
   merge_failed: { label: "Merge failed", tone: "text-destructive" },
-  sandbox_login_failed: { label: "Sandbox login failed", tone: "text-destructive" },
   merge_decided: { label: "Merge decision", tone: "text-foreground" },
   override_fallback: { label: "Ticket override not applied", tone: "text-warning" },
   follow_up_filed: { label: "Follow-up filed", tone: "text-foreground" },

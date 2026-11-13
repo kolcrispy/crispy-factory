@@ -4,7 +4,6 @@ import { z } from "zod";
 import * as schema from "@factory/storage/schema";
 import { repoSettings, settings, type RepoSettingsRow, type SettingsRow } from "@factory/storage/schema";
 import { isOwner, type SessionUser } from "./auth/owner";
-import { DEFAULT_EXECUTION, executionSchema, type Execution } from "./execution";
 import type { Harness } from "./harness";
 import { autonomySchema, DEFAULT_POLICY, type Autonomy, type RepoPolicy } from "./merge-decision";
 
@@ -19,14 +18,13 @@ type Db = NodePgDatabase<typeof schema>;
 export const settingsInputSchema = z.object({
   provider: z.string().trim().min(1, "Pick a harness."),
   model: z.string().trim().min(1, "Pick a model."),
-  execution: executionSchema.default(DEFAULT_EXECUTION),
 });
 export type SettingsInput = z.input<typeof settingsInputSchema>;
 
 export type HarnessChoice = { provider: string; model: string };
 /** Where the harness came from: the panel's Settings, the runner config, or the job's repo default. */
 export type EffectiveHarness = HarnessChoice & { from: "settings" | "config" | "repo" };
-export type SettingsChoice = HarnessChoice & { execution?: Execution };
+export type SettingsChoice = HarnessChoice;
 
 export async function readSettings(database: Db): Promise<SettingsRow | null> {
   const [row] = await database.select().from(settings).where(eq(settings.id, SETTINGS_ID));
@@ -37,7 +35,6 @@ export async function writeSettings(database: Db, choice: SettingsChoice, by: st
   const values = {
     provider: choice.provider,
     model: choice.model,
-    ...(choice.execution && { execution: choice.execution }),
     updated_at: at,
     updated_by: by,
   };
@@ -49,8 +46,6 @@ export async function writeSettings(database: Db, choice: SettingsChoice, by: st
 
 export const resolveHarness = (saved: SettingsRow | null, fallback: HarnessChoice): EffectiveHarness =>
   saved ? { provider: saved.provider, model: saved.model, from: "settings" } : { provider: fallback.provider, model: fallback.model, from: "config" };
-
-export const resolveExecution = (saved: SettingsRow | null): Execution => saved?.execution ?? DEFAULT_EXECUTION;
 
 export type SettingsDeps = {
   user: () => Promise<SessionUser | null | undefined>;
@@ -86,7 +81,7 @@ export async function saveSettings(deps: SettingsDeps, input: unknown): Promise<
   if (!user || !isOwner(user)) return { ok: false, status: 403, message: "Only the factory owner can change settings." };
   const parsed = settingsInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: parsed.error.issues[0]?.message ?? "The settings are not valid." };
-  const { provider, model, execution } = parsed.data;
+  const { provider, model } = parsed.data;
   const harnesses = await deps.harnesses();
   if (harnesses) {
     const harness = harnesses.find((h) => h.id === provider && h.enabled);
@@ -94,7 +89,7 @@ export async function saveSettings(deps: SettingsDeps, input: unknown): Promise<
     if (!harness.models.some((m) => m.slug === model)) return { ok: false, status: 400, message: `${harness.name} has no model ${model}.` };
   }
   try {
-    await deps.save({ provider, model, execution }, user.email);
+    await deps.save({ provider, model }, user.email);
     return { ok: true };
   } catch (error) {
     return { ok: false, status: 502, message: `Could not save the settings: ${error instanceof Error ? error.message : String(error)}` };

@@ -3,14 +3,12 @@ import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
 
 const { db } = await import("@factory/storage/client");
-const { events, jobs, runs } = await import("@factory/storage/schema");
-const { linearJob } = await import("./fixtures");
+const { events, intents, jobs, runs } = await import("@factory/storage/schema");
+const { internalJob } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
-const { SOURCES } = await import("@factory/core/sources/index");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { eventSchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
-const { hosts } = await import("@factory/core/host");
 const { github } = await import("@factory/integrations/github/pulls");
 const { checkPullRequests, config, ingestClient, resumeAnswered, threads } = await import("@factory/runner/ops");
 const { inferUntracked, questionFrom } = await import("@factory/runner/untracked");
@@ -27,7 +25,7 @@ const prUrl = (n: number) => `https://github.com/ski043/factory-demo/pull/${stam
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   keys.push(k);
-  await db.insert(jobs).values(linearJob(`untracked-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "queued", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
+  await db.insert(jobs).values(internalJob(`untracked-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "queued", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
   return k;
 }
 
@@ -47,9 +45,6 @@ const read: string[] = [];
 threads.read = async (threadId) => (read.push(threadId!), shown.get(threadId!) ?? { state: "running", status: "running", lastMessage: null });
 const sent: { threadId: string; message: string }[] = [];
 threads.send = async (threadId, message) => void sent.push({ threadId, message });
-hosts.wake = async (job) => {
-  throw new Error(`woke ${job.key}`);
-};
 const eventsOf = async (k: string) => (await db.select().from(events).where(eq(events.job_key, k))).map((e) => e.event_id).sort();
 
 try {
@@ -59,7 +54,6 @@ try {
   const FRESH = await insert("FRESH", { stage: "triage", stage_at: new Date() });
   const FAILED = await insert("FAILED", { stage: "implementing", stage_at: hourAgo });
   const TRACKED = await insert("TRACKED", { provider: "claudeAgent", stage_at: hourAgo });
-  const ASLEEP = await insert("ASLEEP", { stage_at: hourAgo, sandbox_snapshot: "im-snap-asleep" });
   const only = { only: keys.slice() };
   prs.set(`factory/${PR}`, { url: prUrl(1), state: "open" });
   prs.set(`factory/${MERGED}`, { url: prUrl(2), state: "merged" });
@@ -67,7 +61,6 @@ try {
   shown.set(`thread-${DONE}`, { state: "stopped", status: "completed", lastMessage: "Done. The token ghs_abcdefghijklmnopqrstuvwxyz0123 did not work, so no PR. Should I use the v2 API?" });
   shown.set(`thread-${FRESH}`, { state: "stopped", status: "completed", lastMessage: "finished" });
   shown.set(`thread-${FAILED}`, { state: "stopped", status: "failed", lastMessage: "crashed" });
-  shown.set(`thread-${ASLEEP}`, { state: "stopped", status: "completed", lastMessage: "x" });
 
   // A pass whose events cannot post changes nothing, and the next one posts them once.
   ingestDown = true;
@@ -95,9 +88,6 @@ try {
   assert.match(failed.stage_event_id!, /^watchdog:/);
   assert.equal((await row(TRACKED)).stage, "queued", "a tracked harness reports its own stages");
   assert.ok(!lookedUp.includes(`factory/${TRACKED}`) && !read.includes(`thread-${TRACKED}`), "and is not looked up");
-  const asleep = await row(ASLEEP);
-  assert.deepEqual([asleep.stage, asleep.sandbox_snapshot], ["queued", "im-snap-asleep"], "a hibernated job is left asleep");
-  assert.ok(!read.includes(`thread-${ASLEEP}`) && !lookedUp.includes(`factory/${ASLEEP}`), "and never read");
 
   const before = await Promise.all([PR, MERGED, DONE, FAILED].map(eventsOf));
   assert.deepEqual(before.map((ids) => ids.length), [1, 1, 1, 1], "one event per job");
@@ -127,9 +117,8 @@ try {
   assert.ok(!lookedUp.includes(`factory/${CONFLICT}`), "a job with a PR is not looked up again");
 
   // The owner answers: the thread gets the answer, and a second settle without a PR asks again.
-  SOURCES.linear.replies = async (job) =>
-    job.key === DONE ? { kind: "resume", question: job.question!, replies: [{ id: `reply-${DONE}`, body: "Yes", createdAt: new Date().toISOString() }], answer: "Yes" } : { kind: "wait" };
-  SOURCES.linear.acknowledgeReplies = async () => {};
+  const waiting = await row(DONE);
+  await db.insert(intents).values({ id: `reply-${DONE}`, kind: "answer", job_id: waiting.id, created_at: new Date(), detail: JSON.stringify({ body: "Yes", attempt: waiting.attempt, questionEventId: waiting.stage_event_id }) });
   const resumed = await resumeAnswered();
   assert.ok(resumed.includes(`${DONE}:sent`), JSON.stringify(resumed));
   assert.equal((await row(DONE)).stage, "queued");
@@ -176,6 +165,6 @@ try {
     await db.delete(events).where(inArray(events.job_key, keys));
     await db.delete(runs).where(inArray(runs.job_key, keys));
   }
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "untracked-regress-")}%`));
+  await db.delete(jobs).where(like(jobs.id, `${jobId("internal", "untracked-regress-")}%`));
   process.exit(process.exitCode ?? 0);
 }

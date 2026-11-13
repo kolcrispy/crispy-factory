@@ -2,26 +2,25 @@ import type { jobs, runs } from "@factory/storage/schema";
 import { attemptBranch } from "@factory/core/factory";
 import { jobId } from "@factory/core/sources/shapes";
 
-export function linearJob(
+export function internalJob(
   externalId: string,
   key: string,
-  overrides: Partial<typeof jobs.$inferInsert> & { state?: string | null; factoryCommentIds?: string[] } = {},
+  overrides: Partial<typeof jobs.$inferInsert> = {},
 ): typeof jobs.$inferInsert {
-  const { state = null, factoryCommentIds = [], ...row } = overrides;
   const now = new Date();
   return {
-    id: jobId("linear", externalId),
-    source: "linear",
+    id: jobId("internal", externalId),
+    source: "internal",
     external_id: externalId,
     key,
     title: "t",
-    url: "u",
+    url: `/jobs/${key}`,
     repo: "ski043/factory-demo",
-    writeback: { kind: "linear", issueId: externalId },
-    source_state: { state, labels: [], factoryCommentIds },
+    writeback: {},
+    source_state: { actor: "owner@example.com" },
     claimed_at: now,
     updated_at: now,
-    ...row,
+    ...overrides,
   };
 }
 

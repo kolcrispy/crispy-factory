@@ -10,11 +10,11 @@ process.env.FACTORY_OWNER_EMAILS = OWNER;
 const { db } = await import("@factory/storage/client");
 const { jobs, settings } = await import("@factory/storage/schema");
 const { DEFAULT_MODEL, DEFAULT_PROVIDER } = await import("@factory/core/harness");
-const { imageOutdated, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, sandboxLogin } = await import("@factory/core/machine");
+const { reportedHarnesses } = await import("@factory/core/machine");
 const { readSettings, saveSettings, SETTINGS_ID, writeSettings } = await import("@factory/core/settings");
 const { readHarnesses } = await import("@factory/integrations/t3-state");
 const { claimLaunch, effectiveHarness, releaseLaunch } = await import("@factory/runner/ops");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 
 const fixtures = join(import.meta.dirname, "fixtures/harness");
 
@@ -93,64 +93,14 @@ assert.deepEqual(
   "one harness per id, from an online machine first and an enabled entry over a disabled one",
 );
 
-const sandbox = (t3Version: string, claude: boolean) => ({
-  modal: true,
-  claude,
-  codexSlots: 1,
-  image: true,
-  imageInfo: { t3Version, builtAt: "2026-10-26T10:00:00.000Z", factoryCommit: "abc1234" },
-  pinnedT3Version: "0.1.4",
-});
-const outdatedImage = sandbox("0.1.3", true);
-const currentImage = sandbox("0.1.4", false);
-assert.equal(imageOutdated(outdatedImage), true, "an older runner that reports only T3 is compared on T3");
-assert.equal(imageOutdated(currentImage), false);
-const pinned = { t3: "0.1.4", claudeCode: "2.1.310", codex: "0.164.0", playwrightMcp: "0.0.83", pstack: "0.9.69@614d2f9791dd" };
-const pinnedRunner = (versions: Record<string, string> | undefined) => ({
-  ...sandbox("0.1.4", true),
-  imageInfo: { t3Version: "0.1.4", builtAt: "2026-10-27T10:00:00.000Z", factoryCommit: "abc1234", versions },
-  pinnedVersions: pinned,
-});
-assert.deepEqual(reportedDrift(pinnedRunner(pinned)), [], "an image with every pin is current");
-for (const component of ["claudeCode", "codex", "pstack"] as const) {
-  const drift = reportedDrift(pinnedRunner({ ...pinned, [component]: "old" }));
-  assert.deepEqual(drift, [{ component, built: "old", pinned: pinned[component] }], `${component} alone makes the image outdated`);
-}
-assert.equal(
-  rebuildText(reportedDrift(pinnedRunner({ ...pinned, claudeCode: "2.1.309" }))),
-  "Rebuild the sandbox image: Claude Code 2.1.309 → 2.1.310",
-  "the panel names the outdated component",
-);
-assert.equal(
-  rebuildText(reportedDrift(pinnedRunner(undefined))),
-  "Rebuild the sandbox image: Claude Code missing → 2.1.310, Codex missing → 0.164.0, Playwright MCP missing → 0.0.83, PStack missing → 0.9.69@614d2f9791dd",
-  "an image built before the other pins lists every one it lacks",
-);
-assert.deepEqual(
-  reportedSandbox(
-    [outdatedImage, currentImage].map((s) => ({ last_seen_at: online, inventory: { ...inventory(undefined), sandbox: s } })),
-    now,
-  ),
-  currentImage,
-  "an image with the pinned T3 outranks an outdated one, even when the outdated runner has a Claude token",
-);
-const claudeOnly = { ...currentImage, claude: true, codexSlots: 0 };
-const noLogin = { ...currentImage, claude: false, codexSlots: 0 };
-assert.equal(sandboxLogin(claudeOnly), true, "a Claude token alone makes the cloud ready, with no Codex login slot");
-assert.equal(sandboxLogin(noLogin), false, "with neither, nothing can log in");
-assert.deepEqual(
-  reportedSandbox([noLogin, claudeOnly].map((s) => ({ last_seen_at: online, inventory: { ...inventory(undefined), sandbox: s } })), now),
-  claudeOnly,
-  "a runner that can log in outranks one that cannot",
-);
 
 const owner = { email: OWNER, emailVerified: true };
 const reported = [harness("claudeAgent", true, ["model-a"]), harness("codex", true, ["codex-one"]), harness("cursor", false)];
-const choices: { provider: string; model: string; execution: string; by: string }[] = [];
+const choices: { provider: string; model: string; by: string }[] = [];
 const deps = (user: { email: string; emailVerified: boolean } | null, harnesses: Harness[] | null = reported) => ({
   user: async () => user,
   harnesses: async () => harnesses,
-  save: async (choice: { provider: string; model: string; execution: string }, by: string) => void choices.push({ ...choice, by }),
+  save: async (choice: { provider: string; model: string }, by: string) => void choices.push({ ...choice, by }),
 });
 
 for (const user of [null, { email: "someone@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
@@ -164,7 +114,6 @@ for (const [input, why] of [
   [{ provider: "nope", model: "codex-one" }, "a harness no machine reports"],
   [{ provider: "cursor", model: "m1" }, "a disabled harness"],
   [{ provider: "codex", model: "model-a" }, "another harness's model"],
-  [{ provider: "codex", model: "codex-one", execution: "cloud" }, "an unknown execution"],
 ] as const) {
   const outcome = await saveSettings(deps(owner), input);
   assert.equal(!outcome.ok && outcome.status, 400, `${why} is refused`);
@@ -172,15 +121,15 @@ for (const [input, why] of [
 assert.deepEqual(choices, [], "and nothing is saved");
 assert.deepEqual(await saveSettings(deps(owner), { provider: " codex ", model: "codex-one" }), { ok: true }, "the owner saves a reported pair");
 assert.deepEqual(await saveSettings(deps(owner, null), { provider: "anything", model: "goes" }), { ok: true }, "before any machine reports harnesses, any pair is taken");
-assert.deepEqual(await saveSettings(deps(owner), { provider: "codex", model: "codex-one", execution: "modal" }), { ok: true }, "the owner moves jobs to Modal");
+assert.deepEqual(await saveSettings(deps(owner), { provider: "codex", model: "codex-one" }), { ok: true }, "the owner saves again");
 assert.deepEqual(
   choices,
   [
-    { provider: "codex", model: "codex-one", execution: "local", by: OWNER },
-    { provider: "anything", model: "goes", execution: "local", by: OWNER },
-    { provider: "codex", model: "codex-one", execution: "modal", by: OWNER },
+    { provider: "codex", model: "codex-one", by: OWNER },
+    { provider: "anything", model: "goes", by: OWNER },
+    { provider: "codex", model: "codex-one", by: OWNER },
   ],
-  "trimmed, local unless chosen, and recorded under the owner's email",
+  "trimmed and recorded under the owner's email",
 );
 const failing = await saveSettings({ ...deps(owner), save: async () => Promise.reject(new Error("db down")) }, { provider: "codex", model: "codex-one" });
 assert.equal(!failing.ok && failing.status, 502, "a failed write is reported");
@@ -203,11 +152,11 @@ try {
   assert.equal(rows.length, 1, "saving again updates the one row");
   assert.deepEqual(
     { ...rows[0]!, updated_at: rows[0]!.updated_at.toISOString() },
-    { id: SETTINGS_ID, provider: "antigravity", model: "grav-1", execution: "local", updated_by: "second@example.com", updated_at: "2026-10-26T11:00:00.000Z" },
+    { id: SETTINGS_ID, provider: "antigravity", model: "grav-1", updated_by: "second@example.com", updated_at: "2026-10-26T11:00:00.000Z" },
   );
   assert.deepEqual(await effectiveHarness(), { provider: "antigravity", model: "grav-1", from: "settings" }, "a saved choice wins over the config");
 
-  await db.insert(jobs).values(linearJob(externalId, key));
+  await db.insert(jobs).values(internalJob(externalId, key));
   const slot = { id: "test-machine", repos: ["ski043/factory-demo"], maxInFlight: 1000 };
   assert.equal(await claimLaunch(key, "pending:1", slot, { provider: "antigravity", model: "grav-1" }), true);
   const [claimed] = await db.select().from(jobs).where(eq(jobs.key, key));

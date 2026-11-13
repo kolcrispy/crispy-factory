@@ -1,50 +1,42 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
-import { SandboxTimeoutError } from "modal";
-import { fake, fakeModal, type FakeSandbox } from "./fake-modal";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
 const { db } = await import("@factory/storage/client");
 const { intents, jobs } = await import("@factory/storage/schema");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
-const { modal } = await import("@factory/integrations/modal-host");
-const { HIBERNATED_MESSAGE, requestPairing, takePairing } = await import("@factory/core/t3-pairing");
-const { config } = await import("@factory/runner/config");
-const { openT3 } = await import("@factory/runner/lifecycle");
+const { localHost } = await import("@factory/core/host");
+const { requestPairing, takePairing } = await import("@factory/core/t3-pairing");
+const { openT3 } = await import("@factory/runner/pairing");
 const { expirePairings, INTENT_ATTEMPTS, INTENT_ROUTES, loggable } = await import("@factory/runner/intents");
 
-modal.api = fakeModal;
 
 const stamp = Date.now() % 1_000_000;
-const limits = config.factory.sandbox;
 const TOKEN = "pairing-secret-token";
 const owner = { email: OWNER, emailVerified: true };
 const deps = (user: typeof owner | null = owner, now?: () => Date) => ({ db, user: async () => user, ...(now && { now }) });
 
 const pairingCalls: string[][] = [];
 let pairingReply: { code?: number; stdout?: string; stderr?: string } | undefined;
-fake.answer = (_sandbox, argv) => {
-  if (argv.slice(0, 4).join(" ") !== "t3 auth pairing create") return {};
+localHost.run = async (_command, argv) => {
   pairingCalls.push(argv);
-  const base = argv[argv.indexOf("--base-url") + 1];
-  return pairingReply ?? { stdout: JSON.stringify({ id: "p1", credential: TOKEN, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), pairUrl: `${base}/pair#token=${TOKEN}` }) };
+  return {
+    stdout: pairingReply?.stdout ?? JSON.stringify({ expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), pairUrl: `http://localhost:3773/pair#token=${TOKEN}` }),
+    stderr: pairingReply?.stderr ?? "",
+  };
 };
-
-async function sandbox(k: string, ports: number[]) {
-  return (await fakeModal.create({ name: `job-${k}-a1`, tags: { job: k }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: ports, limits })) as FakeSandbox;
-}
 
 const ids: ReturnType<typeof jobId>[] = [];
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = `PAIR${name}-${stamp}`;
-  const id = jobId("linear", `pairing-regress-${k}`);
+  const id = jobId("internal", `pairing-regress-${k}`);
   ids.push(id);
-  await db.insert(jobs).values(linearJob(`pairing-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "implementing", ...over }));
+  await db.insert(jobs).values(internalJob(`pairing-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "implementing", ...over }));
   return id;
 }
 
@@ -56,15 +48,13 @@ async function answer(intentId: string, result: unknown, handledAt = new Date())
 const stored = async (intentId: string) => (await db.select().from(intents).where(eq(intents.id, intentId)))[0]!.result ?? "";
 
 try {
-  assert.equal(INTENT_ROUTES.open_t3, "owner", "only the job's runner can reach its sandbox");
+  assert.equal(INTENT_ROUTES.open_t3, "owner", "only the job's runner can reach its thread");
   assert.equal(INTENT_ATTEMPTS.open_t3, 1, "a failed pairing is not retried for a day");
 
-  // A running sandbox with T3's tunnel: the link is built on the tunnel and minted with a 15 minute TTL.
-  const sbRun = await sandbox("RUN", [3773]);
-  const RUN = await insert("RUN", { sandbox_id: sbRun.sandboxId, t3_thread_id: "thread-RUN" });
+  const RUN = await insert("RUN", { t3_thread_id: "thread-RUN" });
   const minted = await openT3(RUN);
   assert.ok("pairUrl" in minted, JSON.stringify(minted));
-  assert.equal(minted.pairUrl, `https://${sbRun.sandboxId}-3773.fake.modal.host/pair#token=${TOKEN}`);
+  assert.equal(minted.pairUrl, `http://localhost:3773/pair#token=${TOKEN}`);
   const call = pairingCalls.at(-1)!;
   assert.deepEqual(call.slice(call.indexOf("--ttl"), call.indexOf("--ttl") + 2), ["--ttl", "15m"]);
   assert.ok(call.includes("--json"), "asks for JSON");
@@ -74,32 +64,18 @@ try {
   assert.ok(!logged.includes(TOKEN) && !logged.includes("pairUrl"), logged);
   assert.deepEqual(loggable("claim", { claimed: 1 }), { claimed: 1 });
 
-  // A hibernated job is not woken; a sandbox without the tunnel or one that is gone is refused.
-  const HIB = await insert("HIB", { stage: "pr", sandbox_snapshot: "im-snap-x" });
-  assert.deepEqual(await openT3(HIB), { refused: HIBERNATED_MESSAGE });
-  assert.equal(fake.created, 1, "no sandbox was started for the hibernated job");
-  const sbOld = await sandbox("OLD", []);
-  const OLD = await insert("OLD", { sandbox_id: sbOld.sandboxId });
-  assert.match((await openT3(OLD) as { refused: string }).refused, /hibernates and wakes again/);
-  const sbSlow = await sandbox("SLOW", [3773]);
-  sbSlow.tunnels = async () => {
-    throw new SandboxTimeoutError("Timed out waiting for tunnels");
-  };
-  const SLOW = await insert("SLOW", { sandbox_id: sbSlow.sandboxId });
-  assert.deepEqual(await openT3(SLOW), { refused: "The sandbox's T3 isn't reachable yet; try again in a moment." }, "a slow tunnel is worth retrying");
-  const GONE = await insert("GONE", { sandbox_id: "sb-never-existed" });
-  assert.match((await openT3(GONE) as { refused: string }).refused, /sandbox is gone/);
   const LOCAL = await insert("LOCAL", {});
-  assert.match((await openT3(LOCAL) as { refused: string }).refused, /does not run in a cloud sandbox/);
+  assert.deepEqual(await openT3(LOCAL), { refused: "This job has no running T3 thread." });
+  const PENDING = await insert("PENDING", { t3_thread_id: "pending:launch" });
+  assert.deepEqual(await openT3(PENDING), { refused: "This job has no running T3 thread." });
+  assert.deepEqual(await requestPairing(deps(), PENDING), { ok: false, message: "This job has no running T3 thread." });
 
   // Output the CLI did not mean as JSON is never quoted back, since it may hold the token.
   pairingReply = { stdout: `Pairing token: ${TOKEN}` };
-  await assert.rejects(openT3(RUN), (error: Error) => !error.message.includes(TOKEN) && /printed no JSON/.test(error.message));
+  await assert.rejects(openT3(RUN), (error: Error) => !error.message.includes(TOKEN) && /no pairing response/.test(error.message));
   pairingReply = undefined;
 
-  // The panel: only the owner asks, and only for a running sandbox.
-  assert.deepEqual(await requestPairing(deps(null), RUN), { ok: false, message: "Only the factory owner can open a sandbox in T3." });
-  assert.deepEqual(await requestPairing(deps(), HIB), { ok: false, message: HIBERNATED_MESSAGE });
+  assert.deepEqual(await requestPairing(deps(null), RUN), { ok: false, message: "Only the factory owner can open T3." });
   assert.equal((await requestPairing(deps(), LOCAL)).ok, false);
   const asked = await requestPairing(deps(), RUN);
   assert.ok(asked.ok);
@@ -109,7 +85,7 @@ try {
 
   // Taken once: the stored link is replaced in the same read, and a second read gets nothing.
   await answer(asked.intentId, minted);
-  assert.deepEqual(await takePairing(deps(null), asked.intentId), { status: "failed", message: "Only the factory owner can open a sandbox in T3." });
+  assert.deepEqual(await takePairing(deps(null), asked.intentId), { status: "failed", message: "Only the factory owner can open T3." });
   assert.ok((await stored(asked.intentId)).includes(TOKEN), "a non-owner's read leaves the link for the owner");
   assert.deepEqual(await takePairing(deps(), asked.intentId), { status: "ready", pairUrl: minted.pairUrl, expiresAt: minted.expiresAt });
   assert.ok(!(await stored(asked.intentId)).includes(TOKEN), "the link is gone from the row once shown");
@@ -135,8 +111,8 @@ try {
   // Refusals and errors reach the panel as messages.
   const refused = await requestPairing(deps(), RUN);
   assert.ok(refused.ok);
-  await answer(refused.intentId, { refused: HIBERNATED_MESSAGE });
-  assert.deepEqual(await takePairing(deps(), refused.intentId), { status: "failed", message: HIBERNATED_MESSAGE });
+  await answer(refused.intentId, { refused: "T3 is unavailable." });
+  assert.deepEqual(await takePairing(deps(), refused.intentId), { status: "failed", message: "T3 is unavailable." });
   const failed = await requestPairing(deps(), RUN);
   assert.ok(failed.ok);
   await answer(failed.intentId, { error: "Error: sandbox exec timed out" });

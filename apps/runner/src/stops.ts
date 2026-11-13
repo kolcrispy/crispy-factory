@@ -2,7 +2,6 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { jobs, type JobRow } from "@factory/storage/schema";
 import { hosts } from "@factory/core/host";
-import { parseJob, sourceFor } from "@factory/core/sources/index";
 import type { JobId } from "@factory/core/sources/shapes";
 import { parseStop, stopSchema, type StopRecord, type StopTimings } from "@factory/core/stop";
 import { bindingOf, stoppingSql } from "./binding";
@@ -12,14 +11,12 @@ import { ACTIVE_RUN_STATUSES, threads, type InterruptOutcome, type SubagentThrea
 
 // Drives a recorded stop to a verified end; the states are in lib/stop.ts. Every step is a
 // compare-and-set on the stop record, so a replayed tick, a restart or a second pass changes
-// nothing twice. Only the job's own thread, its subagent threads and its sandbox are touched.
+// nothing twice. Only the job's own thread and its subagent threads are touched.
 //
 //   local thread    the stop message goes first (ops.deliverStops). Each tick then reads the
 //                   thread and its subagent threads; after interruptAfter, whatever still runs is
 //                   interrupted through T3; once nothing has run for settle, the stop is confirmed;
 //                   still running, or unreadable, after giveUpAfter, it is unconfirmed
-//   Modal sandbox   teardown ends the sandbox and checks Modal no longer answers for it, which
-//                   confirms the stop (runner/lifecycle.ts)
 //   no thread       nothing ran; confirmed at once
 
 export const stopTimings = (): StopTimings => ({
@@ -57,7 +54,6 @@ async function advance(id: JobId, from: StopRecord, next: StopRecord) {
  * failure is written back.
  */
 async function settle(row: JobRow, stop: StopRecord, state: "confirmed" | "unconfirmed", evidence: string, now: number) {
-  if (stop.reopen) await sourceFor(row.source).reopen(parseJob(row));
   const iso = new Date(now).toISOString();
   return advance(row.id, stop, { ...stop, state, reopen: false, checkedAt: iso, settledAt: iso, evidence, step: evidence });
 }
@@ -166,11 +162,8 @@ async function step(row: JobRow, me: string, timings: StopTimings, now: number) 
   const binding = bindingOf(row.t3_thread_id);
   // A job no machine holds has no thread; any machine may settle it. Anything else is its machine's.
   if (row.machine_id !== me && !(row.machine_id === null && binding === "none")) return undefined;
-  if (row.sandbox_id || row.sandbox_snapshot) return undefined; // teardown ends the sandbox and records it
-  if (stop.how === "terminate") return (await settle(row, stop, "confirmed", stop.step ?? "Ended the job's sandbox.", now)) && "confirmed";
   if (binding === "none") return (await settle(row, stop, "confirmed", "No thread was started, so nothing ran.", now)) && "confirmed";
   if (binding === "pending") return undefined; // the launch binds it, and bindThread delivers the stop
-  if (row.execution === "modal") return (await settle(row, stop, "confirmed", "The job's sandbox is gone, and its thread with it.", now)) && "confirmed";
   const threadId = row.t3_thread_id!;
   if (row.stop_sent_to !== threadId) return undefined; // still owed; deliverStops sends it
   if (stop.checkedAt && now - ms(stop.checkedAt) < timings.checkMs) return undefined;

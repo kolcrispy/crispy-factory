@@ -31,12 +31,18 @@ export const message = (error: unknown) => (error instanceof Error ? error.messa
  */
 export function serialQueue(log: (event: string, detail: Record<string, unknown>) => void, timeoutMs = 300_000) {
   let chain: Promise<unknown> = Promise.resolve();
+  const running = new Set<Promise<unknown>>();
 
   function serial<T>(name: string, step: () => Promise<T>): Promise<T | undefined> {
     const next = chain.then(async () => {
       const started = Date.now();
       try {
-        const result = await withTimeout(step, timeoutMs, (error) => log(`${name}:late-error`, { error: message(error) }));
+        const result = await withTimeout(() => {
+          const work = Promise.resolve().then(step);
+          running.add(work);
+          void work.then(() => running.delete(work), () => running.delete(work));
+          return work;
+        }, timeoutMs, (error) => log(`${name}:late-error`, { error: message(error) }));
         log(name, { ms: Date.now() - started, result });
         return result;
       } catch (error) {
@@ -48,7 +54,14 @@ export function serialQueue(log: (event: string, detail: Record<string, unknown>
     return next;
   }
 
-  return { serial, idle: () => chain };
+  return {
+    serial,
+    idle: () => chain,
+    async drain() {
+      await chain;
+      await Promise.allSettled([...running]);
+    },
+  };
 }
 
 /**

@@ -13,8 +13,7 @@
     "@factory/storage": "workspace:*",
     "@factory/integrations": "workspace:*",
     "zod": "^4.6.7",
-    "@factory/platform": "workspace:*",
-    "modal": "0.11.1"
+    "@factory/platform": "workspace:*"
   },
   "exports": {
     "./*": "./src/*.ts"

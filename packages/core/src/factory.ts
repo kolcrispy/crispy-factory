@@ -3,9 +3,9 @@ export const REPORT_TOOL = "report_stage";
 /** The name Claude Code gives the tool; hook payloads and PostToolUse matchers use it. */
 export const REPORT_STAGE_TOOL = `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
 
-// A job key names a job in every source and is its branch name: `<PREFIX>-<n>` or
-// `<PREFIX>-<scope>-<n>`. PREFIX names the source's namespace (a Linear team key such as FAC; GH
-// for GitHub issues), scope is an optional lowercase slug (a repo name) and n the source's number.
+// A job key is its branch identity: `<PREFIX>-<n>` or `<PREFIX>-<scope>-<n>`.
+// Internal jobs use JOB-n. The parser also accepts prior namespaces so existing
+// attempt evidence and historical branches retain their identities.
 // A key always ends in digits, so the attempt suffix `-a<n>` never reads as part of one.
 const KEY = "[A-Za-z][A-Za-z0-9]*(?:-[a-z0-9]+)*-\\d+";
 const KEY_PATTERN = new RegExp(`^${KEY}$`);

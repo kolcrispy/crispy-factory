@@ -3,11 +3,12 @@ import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { auditLog, jobs, type AuditRow } from "@factory/storage/schema";
 import { parseAssessment } from "@factory/core/assessment";
-import type { RepoName } from "@factory/integrations/github/app";
+import type { RepoName } from "@factory/integrations/github/gh";
 import { github, type MergeCandidate } from "@factory/integrations/github/pulls";
 import { DECISION_MARKER, fingerprint, prCommentBody, sourceCommentBody } from "@factory/core/merge-comments";
 import { blockedReason, mergeDecisionSchema, type MergeDecision, type MergeMethod, type MergeVia } from "@factory/core/merge-decision";
-import { parseJobs, sourceFor } from "@factory/core/sources/index";
+import { parseJobs } from "@factory/core/sources/index";
+import { recordJobNote } from "@factory/core/job-notes";
 import type { Job } from "@factory/core/sources/types";
 import { runnerEventId } from "@factory/core/stages";
 import { config } from "./config";
@@ -83,7 +84,7 @@ export async function syncComments(job: Job, decision: MergeDecision): Promise<M
     comments.pr = fingerprint(prBody);
   }
   if (sourceBody && fingerprint(sourceBody) !== comments.source) {
-    await sourceFor(job.source).note(job, `decision:${fingerprint(sourceBody)}:${decision.evaluatedAt}`, sourceBody);
+    await recordJobNote(job, `decision:${fingerprint(sourceBody)}:${decision.evaluatedAt}`, sourceBody);
     comments.source = fingerprint(sourceBody);
   }
   if (comments.pr === decision.comments?.pr && comments.source === decision.comments?.source) return decision;

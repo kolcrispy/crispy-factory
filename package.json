@@ -11,11 +11,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/migrate-guard.ts && drizzle-kit migrate",
     "cli": "bun apps/cli/src/index.ts",
-    "build:backend": "bun run --filter @factory/runner --filter @factory/cli --filter @factory/gateway build"
+    "build:backend": "bun run --filter @factory/runner --filter @factory/cli build"
   },
   "devDependencies": {
     "@factory/core": "workspace:*",
-    "@factory/gateway": "workspace:*",
     "@factory/integrations": "workspace:*",
     "@factory/platform": "workspace:*",
     "@factory/reporting": "workspace:*",
@@ -30,7 +29,6 @@
     "drizzle-orm": "0.45.4",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
-    "modal": "0.11.1",
     "next": "16.4.2",
     "pg": "^8.23.1",
     "tsx": "^4.23.15",

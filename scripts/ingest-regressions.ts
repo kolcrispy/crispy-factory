@@ -6,7 +6,7 @@ const { db } = await import("@factory/storage/client");
 const { agents, events, jobs, runs } = await import("@factory/storage/schema");
 const { ingest } = await import("@factory/core/ingest");
 const { eventSchema } = await import("@factory/core/events");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 
 const run = `regress-${Date.now()}`;
 // Keys no real job can have: a regression must never touch a live job or its runs.
@@ -18,7 +18,7 @@ const ev = (n: number, body: Record<string, unknown>) =>
   eventSchema.parse({ sessionId: run, eventId: `${run}-${n}`, ...body });
 
 const jobKey = `REG-${Date.now()}`;
-await db.insert(jobs).values(linearJob(run, jobKey, { claimed_at: new Date(t0), updated_at: new Date(t0) }));
+await db.insert(jobs).values(internalJob(run, jobKey, { claimed_at: new Date(t0), updated_at: new Date(t0) }));
 const jobRow = async () => (await db.select().from(jobs).where(eq(jobs.key, jobKey)))[0]!;
 const runRow = async () => (await db.select().from(runs).where(eq(runs.session_id, run)))[0]!;
 const eventRow = async (id: number | string) =>

@@ -97,7 +97,7 @@ function Why({ item }: { item: Item }) {
     case "question":
       return <p className="whitespace-pre-wrap">{job.question ?? job.stage_summary}</p>;
     case "failed": {
-      const stop = stopView(job.stop, job.execution === "modal");
+      const stop = stopView(job.stop);
       return (
         <div className="flex flex-col gap-1">
           <p className="whitespace-pre-wrap">{job.stage_summary ?? "The job failed without a summary."}</p>

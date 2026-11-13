@@ -9,7 +9,6 @@ import type { AgentRow, AuditRow, EventRow, JobEvidenceRow, JobRow, MachineRow, 
 import { Board } from "./board";
 import { panelCards } from "./cards";
 import { splitArchived } from "@factory/core/archive";
-import { sandboxState } from "@factory/core/execution";
 import { attemptBranch } from "@factory/core/factory";
 import { inboxItems } from "@factory/core/inbox";
 import { reportedHarnesses } from "@factory/core/machine";
@@ -196,13 +195,6 @@ export function LivePanel({
     const claimed = new Set(jobRows.map((j) => j.key));
     return runRows.filter((r) => r.stage === null && !(r.job_key && claimed.has(r.job_key)));
   }, [jobRows, runRows]);
-  const sandboxNote = useMemo(() => {
-    const states = jobRows.map(sandboxState);
-    const running = states.filter((s) => s === "running").length;
-    const hibernated = states.filter((s) => s === "hibernated").length;
-    if (running + hibernated === 0) return null;
-    return `${running} in sandboxes${hibernated > 0 ? `, ${hibernated} hibernated` : ""}`;
-  }, [jobRows]);
   const startOfToday = useAfterHydration(() => new Date().setHours(0, 0, 0, 0), 0);
   const selectedRun = detail && runRows.find((r) => r.session_id === detail.sessionId);
   const selectedJob = selectedRun?.job_key
@@ -319,8 +311,7 @@ export function LivePanel({
                 fullView={fullView}
                 job={selectedJob}
                 machine={selectedJob?.machine_id ? machineById.get(selectedJob.machine_id) : undefined}
-                harnesses={harnesses}
-                jobSpend={
+                        jobSpend={
                   selectedJob
                     ? {
                         usd: spendOf(
@@ -338,7 +329,7 @@ export function LivePanel({
       </div>
       <PanelFooter
         status={status}
-        note={[`${active} active`, sandboxNote].filter(Boolean).join(" · ")}
+        note={`${active} active`}
         summary={showArchive ? plural(shownCards.length, "archived job", "archived jobs") : footerSummary(view, { jobs: shownCards.length, sessions: unstaged.length, inbox: shownInbox })}
         keys={
           fullView.full && (selectedRun || inboxOpen)

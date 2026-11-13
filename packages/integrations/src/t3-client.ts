@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ExecOptions } from "@factory/platform/exec";
 import { localHost, type JobHost } from "@factory/core/host";
-import { SANDBOX_HOME } from "@factory/core/sandbox";
 import { forbidInTest } from "@factory/core/test-mode";
 
 // The factory's one way into a job's T3, on whichever host runs it. Starting, messaging, showing
@@ -90,15 +89,14 @@ const toolResult = z.object({
   content: z.array(z.object({ text: z.string().optional() })).optional(),
 });
 
-function userdataDir(host: JobHost) {
-  if (host !== localHost) return `${SANDBOX_HOME}/.t3/userdata`;
+function userdataDir() {
   return join(process.env.T3CODE_HOME ?? join(homedir(), ".t3"), "userdata");
 }
 
 /** Signs in to the host's T3 for the length of `work`, then revokes the session. */
 async function withMcp<T>(host: JobHost, scopes: readonly Scope[], work: (call: (tool: string, args: Record<string, unknown>) => Promise<unknown>) => Promise<T>) {
   if (host === localHost) forbidInTest("T3's MCP endpoint");
-  const runtime = await host.readFile(`${userdataDir(host)}/server-runtime.json`);
+  const runtime = await host.readFile(`${userdataDir()}/server-runtime.json`);
   if (runtime === null) throw new Error("T3 is not running on the job's host");
   const { origin } = runtimeFile.parse(JSON.parse(runtime));
   const { stdout } = await host.run(
@@ -113,7 +111,7 @@ async function withMcp<T>(host: JobHost, scopes: readonly Scope[], work: (call: 
     // A parse error can quote its input, which holds the token.
     throw new Error("`t3 auth session issue --json` printed something other than a session");
   }
-  const runner = host === localHost ? process.execPath : "node";
+  const runner = process.execPath;
   try {
     return await work(async (tool, args) => {
       const { stdout: out } = await host.run(runner, ["-e", CALL_SCRIPT], { input: JSON.stringify({ origin, token: session.token, tool, args }), ...CLI });

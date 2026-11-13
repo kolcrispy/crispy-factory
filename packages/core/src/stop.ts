@@ -18,8 +18,8 @@ export const STOP_STATES = ["requested", "delivered", "escalated", "confirmed", 
 export type StopState = (typeof STOP_STATES)[number];
 export const PENDING_STOP_STATES = ["requested", "delivered", "escalated"] as const satisfies readonly StopState[];
 
-/** How the stop last reached the work: the polite message, T3's interrupt, or ending the sandbox. */
-export const STOP_HOWS = ["message", "interrupt", "terminate"] as const;
+/** How the stop last reached the work: the polite message or T3's interrupt. */
+export const STOP_HOWS = ["message", "interrupt"] as const;
 export type StopHow = (typeof STOP_HOWS)[number];
 
 const at = z.string();
@@ -69,19 +69,18 @@ export function requestedStop({ at, by, reason, reopen }: { at: Date; by: string
 export type StopTimings = { checkMs: number; settleMs: number; interruptAfterMs: number; giveUpAfterMs: number };
 
 export type StopView =
-  | { kind: "stopping"; step: "sending the stop" | "asked the agent" | "interrupting" | "ending the sandbox" | "waiting to confirm" }
+  | { kind: "stopping"; step: "sending the stop" | "asked the agent" | "interrupting" | "waiting to confirm" }
   | { kind: "confirmed"; evidence: string }
   | { kind: "unconfirmed"; reason: string };
 
-/** What the panel says about a job's stop; null when it has none. `sandboxed` jobs are stopped by ending their sandbox. */
-export function stopView(value: unknown, sandboxed: boolean): StopView | null {
+/** What the panel says about a job's stop; null when it has none. */
+export function stopView(value: unknown): StopView | null {
   const stop = parseStop(value);
   if (!stop) return null;
   switch (stop.state) {
     case "requested":
-      return { kind: "stopping", step: sandboxed ? "ending the sandbox" : "sending the stop" };
+      return { kind: "stopping", step: "sending the stop" };
     case "delivered":
-      if (sandboxed) return { kind: "stopping", step: "ending the sandbox" };
       return { kind: "stopping", step: stop.quietSince ? "waiting to confirm" : "asked the agent" };
     case "escalated":
       return { kind: "stopping", step: stop.quietSince ? "waiting to confirm" : "interrupting" };

@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
+import { runT3, t3Command } from "@factory/platform/t3";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { promisify } from "node:util";
 import { Database } from "bun:sqlite";
 import { z } from "zod";
 import { harnessLabel, type Harness } from "@factory/core/harness";
@@ -11,8 +10,7 @@ import { forbidInTest } from "@factory/core/test-mode";
 
 // Runner only: bun:sqlite does not exist under Next.
 
-const run = promisify(execFile);
-const T3 = () => process.env.T3CODE_CLI_PATH ?? "t3";
+const T3 = t3Command;
 const CLI_TIMEOUT_MS = 5_000;
 
 export const t3Home = () => process.env.T3CODE_HOME ?? join(homedir(), ".t3");
@@ -38,7 +36,7 @@ function readProjectsFromSqlite(statePath: string): T3Project[] {
 
 export async function probeProject(path: string) {
   forbidInTest("t3 thread list");
-  await run(T3(), ["thread", "list", "--project", path, "--json"], { timeout: CLI_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+  await runT3(T3(), ["thread", "list", "--project", path, "--json"], { timeoutMs: CLI_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
 }
 
 export async function readProjects({
@@ -153,6 +151,6 @@ export function parseConnectStatus(stdout: string): ConnectState {
 
 export async function connectStatus(): Promise<ConnectState> {
   forbidInTest("t3 connect status");
-  const { stdout } = await run(T3(), ["connect", "status", "--json"], { timeout: CLI_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
+  const { stdout } = await runT3(T3(), ["connect", "status", "--json"], { timeoutMs: CLI_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
   return parseConnectStatus(stdout);
 }

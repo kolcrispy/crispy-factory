@@ -4,11 +4,10 @@ import { db } from "@factory/storage/client";
 import { auditLog, jobEvidence, jobs, type AuditRow, type RepoSettingsRow } from "@factory/storage/schema";
 import { parseAssessment } from "@factory/core/assessment";
 import { headEvidence, type EvidenceRow, type HeadEvidence, type PlannedCheck } from "@factory/core/evidence";
-import { parseDetail } from "@factory/core/onboarding";
 import { CHECKS, type Recipe } from "@factory/core/recipe";
 import { scriptsOf, trustedEdits } from "@factory/core/trusted-checks";
 import type { ApproveDetail } from "@factory/core/inbox";
-import type { RepoName } from "@factory/integrations/github/app";
+import type { RepoName } from "@factory/integrations/github/gh";
 import { github } from "@factory/integrations/github/pulls";
 import {
   approvalBlockers,
@@ -25,7 +24,7 @@ import {
   type RunnerVerificationRecord,
 } from "@factory/core/merge-decision";
 import { readRepoSettings, resolvePolicy } from "@factory/core/settings";
-import { parseJob, parseJobs, sourceFor } from "@factory/core/sources/index";
+import { parseJob, parseJobs } from "@factory/core/sources/index";
 import type { Job, JobId } from "@factory/core/sources/types";
 import { thisMachine } from "./heartbeat";
 import { mergeNow, recoverMerges, storeDecision, storedDecision, syncComments } from "./merge-service";
@@ -34,7 +33,7 @@ import { ingestClient } from "./ops";
 import { runnerVerification, startVerification } from "./verify";
 
 // The timer's pass over this machine's jobs in pr: decides whether each PR merges on its own and
-// stores the decision on the job. GitHub and the source only; a hibernated sandbox stays asleep.
+// stores the decision on the job. GitHub and the source only.
 // A settled decision is read again when the head, the report or the autonomy changes, or after
 // RECHECK_MS; a pending one, and a merge under auto, every pass. The audit log gets a row only
 // when the decision changes. Under auto a merge decision merges at once, on facts read in the
@@ -42,7 +41,7 @@ import { runnerVerification, startVerification } from "./verify";
 // head. The owner's approval, from the inbox or run detail, merges through the same service.
 // Each pass also reads the attempt's evidence (job_evidence) for the PR head: no merge without
 // checks passed at exactly that commit. Under auto, when that is all that is missing, the runner
-// verifies the head itself in the job's sandbox (runner/verify.ts) and the decision waits for it.
+// verifies the head itself in a local worktree (runner/verify.ts) and the decision waits for it.
 
 export const RECHECK_MS = 15 * 60_000;
 
@@ -62,7 +61,7 @@ type Evaluated =
 
 /** The checks, with their commands, a repo's recorded recipe requires; null when the factory knows no recipe for it. */
 export function requiredChecks(rows: readonly RepoSettingsRow[], repo: string): { recipe: Recipe | null; required: PlannedCheck[] | null } {
-  const recipe = parseDetail(rows.find((r) => r.repo === repo)?.onboarding_detail).recipe ?? null;
+  const recipe = rows.find((r) => r.repo === repo)?.recipe ?? null;
   return { recipe, required: recipe ? CHECKS.flatMap((name) => (recipe.checks[name] ? [{ name, command: recipe.checks[name] }] : [])) : null };
 }
 
@@ -104,7 +103,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
   const headSeenAt = sameHead && previous.headSeenAt ? Date.parse(previous.headSeenAt) : now;
   const [pr, labels] = await Promise.all([
     prFacts(job.pr_url!, job.repo as RepoName, detail.headSha, detail.baseRef, detail.mergeable, headSeenAt),
-    sourceFor(job.source).labels(job),
+    Promise.resolve<string[]>([]),
   ]);
   const decision = decideMerge({
     policy,
@@ -115,7 +114,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
     now,
     evidence,
     runner,
-    browser: job.execution === "modal",
+    browser: false,
     trustEdits: await changedTrust(job, detail, pr, required),
   });
   return { decision, headSha: detail.headSha, headSeenAt, review: reviewSummary(pr), evidence, runner };

@@ -4,7 +4,7 @@ import { CHECKS, redact, type Recipe } from "./recipe";
 // Proof tied to a commit: which checks ran at one exact revision, what each exited with, and
 // whether the tree held that commit and nothing else. The agent's stage says what it reports; this
 // says what was run. `hooks/verify.ts` (factory-verify) produces it wherever an agent works, and the
-// runner produces it itself in a job's sandbox (runner/verify.ts). Ingest keeps the latest record
+// runner produces it itself in the job's checkout (runner/verify.ts). Ingest keeps the latest record
 // per job and commit in job_evidence, and the merge decision reads the one for the PR's head.
 
 export const EVIDENCE_CHECKS = [...CHECKS, "custom"] as const;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ReviewComment } from "@factory/core/inbox";
 import { DEFAULT_NO_CI_GRACE_MS, type BugbotFinding, type BugbotReview, type ChangedFile, type CheckState, type MergeMethod } from "@factory/core/merge-decision";
-import { GITHUB_API, GitHubError, githubRequest, installationTokens, type RepoName, type TokenSource } from "./app";
+import { GitHubError, ghRequest, type GithubRequest, type RepoName } from "./gh";
 
 export type PullState = "open" | "closed" | "merged";
 export type Mergeable = "mergeable" | "conflicting" | "unknown";
@@ -191,19 +191,8 @@ const THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
 const FILE_PAGES = 30;
 const CHECK_PAGES = 10;
 
-export function pullsClient({ api, tokens }: { api: string; tokens: TokenSource }) {
-  // A cached token GitHub stops accepting (revoked, or the installation changed) is dropped and
-  // minted again once; a second 401 is a real failure.
-  async function request(repo: RepoName, method: string, path: string, options?: Parameters<typeof githubRequest>[4]) {
-    const token = await tokens.get(repo);
-    try {
-      return await githubRequest(api, token, method, path, options);
-    } catch (error) {
-      if (!(error instanceof GitHubError && error.status === 401)) throw error;
-      tokens.evict(repo, token);
-      return githubRequest(api, await tokens.get(repo), method, path, options);
-    }
-  }
+export function pullsClient({ request: transport = ghRequest }: { request?: GithubRequest } = {}) {
+  const request = (_repo: RepoName, method: string, path: string, options?: Parameters<GithubRequest>[2]) => transport(method, path, options);
 
   /** Pages a commit list until it holds `total_count` items; `complete` is false when it never got there. */
   async function pages<T>(repo: RepoName, path: string, parse: (json: unknown) => { total: number; items: T[] }) {
@@ -459,4 +448,4 @@ export function pullsClient({ api, tokens }: { api: string; tokens: TokenSource 
 
 export type PullsClient = ReturnType<typeof pullsClient>;
 
-export const github: PullsClient = pullsClient({ api: GITHUB_API, tokens: installationTokens });
+export const github: PullsClient = pullsClient();

@@ -10,7 +10,6 @@ import { PAIRING_TTL_MINUTES, type PairingResult } from "@factory/core/t3-pairin
 //   any        one machine, whichever leases it first; a claim ends in claimLaunch's compare-and-set
 //   owner      the job's machine; a job no machine holds yet goes to any machine
 //   broadcast  every machine once, each recording its own intent_receipts row
-//   slack      one machine with a Slack token; the others leave it alone
 export const INTENT_ROUTES = {
   claim: "any",
   stop: "owner",
@@ -22,12 +21,9 @@ export const INTENT_ROUTES = {
   request_changes: "owner",
   close_job: "owner",
   onboard_repo: "any",
-  rebuild_repo_image: "any",
-  repo_push: "any",
   retry_stop: "owner",
   retry_job: "any",
-  slack_test: "slack",
-} as const satisfies Record<IntentKind, "any" | "owner" | "broadcast" | "slack">;
+} as const satisfies Record<IntentKind, "any" | "owner" | "broadcast">;
 
 /**
  * How often a failing intent is tried before it is closed with its error. A pairing link is asked
@@ -45,16 +41,12 @@ export const INTENT_ATTEMPTS = {
   approve_merge: 3,
   request_changes: 60,
   close_job: 50,
-  // Each try may start an onboarding sandbox; a repo that keeps failing shows why on its row.
+  // Registration retries preserve the failure on the repository row.
   onboard_repo: 10,
-  rebuild_repo_image: 10,
-  repo_push: 20,
   // The owner sees the error on the inbox item and can retry again.
   retry_stop: 3,
   // The owner sees the error on the inbox item and can retry again.
   retry_job: 3,
-  // The owner watches Settings for the outcome and can send another.
-  slack_test: 1,
 } as const satisfies Record<IntentKind, number>;
 
 /** An intent's result as the runner logs it: a pairing link only ever goes to the intent row. */
@@ -81,7 +73,7 @@ export async function expirePairings() {
 
 export type Delivery = "lease" | "receipt" | "skip";
 
-export function deliveryFor(kind: IntentKind, owner: string | null, me: string, hasSlack = false): Delivery {
+export function deliveryFor(kind: IntentKind, owner: string | null, me: string): Delivery {
   const route = INTENT_ROUTES[kind];
   switch (route) {
     case "any":
@@ -90,8 +82,6 @@ export function deliveryFor(kind: IntentKind, owner: string | null, me: string, 
       return owner === null || owner === me ? "lease" : "skip";
     case "broadcast":
       return "receipt";
-    case "slack":
-      return hasSlack ? "lease" : "skip";
     default: {
       const unhandled: never = route;
       throw new Error(`no delivery for route ${String(unhandled)}`);

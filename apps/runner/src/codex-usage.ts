@@ -5,8 +5,7 @@ import { db } from "@factory/storage/client";
 import { agents, runs, type RunRow } from "@factory/storage/schema";
 import { codexUsage, readRollouts, ROLLOUT_SLACK_MS } from "@factory/core/codex-usage";
 import type { Usage } from "@factory/core/events";
-import { HostAsleepError, HostGoneError, localHost, type JobHost } from "@factory/core/host";
-import { CODEX_HOME } from "@factory/core/sandbox";
+import type { JobHost } from "@factory/core/host";
 import { postEvent } from "./ingest-client";
 
 // Codex has no hooks, so its usage is read from its rollout files on the job's host (see
@@ -14,8 +13,8 @@ import { postEvent } from "./ingest-client";
 // newest root thread is the run's usage, every other thread of it a subagent row. Ingest keeps the
 // greatest totals, so a replay or an older read never lowers them.
 
-/** Where Codex writes its sessions on the host: the sandbox's CODEX_HOME, or this machine's. */
-export const codexHomeOf = (host: JobHost) => (host === localHost ? (process.env.CODEX_HOME ?? join(homedir(), ".codex")) : CODEX_HOME);
+/** Native Codex state directory shared by local provider sessions. */
+export const codexHomeOf = () => process.env.CODEX_HOME ?? join(homedir(), ".codex");
 
 type Row = Pick<RunRow, "input_tokens" | "output_tokens" | "cache_read_tokens" | "cache_write_tokens" | "model">;
 const lags = (u: Usage, row: Row | undefined) =>
@@ -41,7 +40,7 @@ const fingerprintOf = (u: Usage) => `${u.input}.${u.output}.${u.cacheRead}.${u.c
  */
 export async function recordCodexUsage(run: RunRow, host: JobHost, { final = false }: { final?: boolean } = {}) {
   const startedAt = run.started_at.getTime();
-  const rollouts = await readRollouts(host, codexHomeOf(host), startedAt - ROLLOUT_SLACK_MS);
+  const rollouts = await readRollouts(host, codexHomeOf(), startedAt - ROLLOUT_SLACK_MS);
   const usage = codexUsage(rollouts, { cwd: run.cwd, branch: run.branch, startedAt });
   const main = usage && withModel(usage.main.usage, run.model);
   if (!usage || !main) return false;
@@ -82,7 +81,7 @@ export async function recordCodexUsage(run: RunRow, host: JobHost, { final = fal
 }
 
 /**
- * Records the job's Codex usage before its sandbox ends or sleeps, since its rollouts go with it.
+ * Records the job's Codex usage from its local rollout files.
  * A failure is logged and never holds up the teardown or the hibernate.
  */
 export async function recordJobCodexUsage(key: string, host: JobHost) {
@@ -91,7 +90,7 @@ export async function recordJobCodexUsage(key: string, host: JobHost) {
     // The thread is settled or about to end, so no subagent of it runs any more.
     for (const run of codexRuns) await recordCodexUsage(run, host, { final: true });
   } catch (error) {
-    const reason = error instanceof HostGoneError || error instanceof HostAsleepError ? error.message : String(error);
+    const reason = error instanceof Error ? error.message : String(error);
     console.log(JSON.stringify({ at: new Date().toISOString(), event: "codex-usage:skipped", key, reason }));
   }
 }

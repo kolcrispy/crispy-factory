@@ -1,7 +1,6 @@
 import type { JobRow, MachineRow, RunRow } from "@factory/storage/schema";
 import { splitArchived } from "@factory/core/archive";
 import type { Stage } from "@factory/core/events";
-import { sandboxState, type SandboxState } from "@factory/core/execution";
 import { evidenceLine, parseSummary, type EvidenceLine } from "@factory/core/evidence";
 import { attemptBranch, isMcpSession } from "@factory/core/factory";
 import { harnessLabel, isTracked, type Harness, type Tracking } from "@factory/core/harness";
@@ -59,25 +58,14 @@ export function t3EnvironmentId(machine: Pick<MachineRow, "inventory"> | undefin
 /** What the card can show of the harness's run: a Codex job whose report server posted has stages, and its cost once the runner read a priced usage. */
 export type CardHarness = { name: string; tracking: Tracking };
 
-export type RunsOn = { kind: "modal"; sandbox: SandboxState | null } | { kind: "local"; machineId: string };
+export type RunsOn = { machineId: string };
 
-export function runsOn(job: Pick<JobRow, "execution" | "machine_id" | "sandbox_id" | "sandbox_snapshot">): RunsOn | null {
-  const sandbox = sandboxState(job);
-  if (job.execution === "modal" || sandbox) return { kind: "modal", sandbox };
-  return job.machine_id ? { kind: "local", machineId: job.machine_id } : null;
+export function runsOn(job: Pick<JobRow, "machine_id">): RunsOn | null {
+  return job.machine_id ? { machineId: job.machine_id } : null;
 }
 
 export function whereLine(where: RunsOn, machineName: string | null) {
-  switch (where.kind) {
-    case "modal":
-      return "Cloud sandbox";
-    case "local":
-      return `Local · ${machineName ?? where.machineId}`;
-    default: {
-      const never: never = where;
-      throw new Error(`unknown place ${String(never)}`);
-    }
-  }
+  return `Local · ${machineName ?? where.machineId}`;
 }
 
 export function harnessLine(harness: CardHarness) {
@@ -114,7 +102,7 @@ export function jobEvidenceLine(job: Pick<JobRow, "evidence" | "attempt" | "stag
 const stagedAt = (run: RunRow) => run.stage_at?.getTime() ?? 0;
 
 function cardStop(job: JobRow): BoardCard["stop"] {
-  const view = stopView(job.stop, runsOn(job)?.kind === "modal");
+  const view = stopView(job.stop);
   return view && { view, thread: parseStop(job.stop)?.thread ?? job.t3_thread_id };
 }
 

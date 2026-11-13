@@ -37,7 +37,6 @@ try {
     assert.equal(result.stderr, "", `${tool} gets no message`);
   }
 
-  assert.equal(factorySchema.parse({ budgetUsd: 5 }).teamKey, "FAC", "a config that still sets budgetUsd parses");
   assert.ok(!("budgetUsd" in factorySchema.parse({ budgetUsd: 5 })), "and the key is ignored");
 
   const root = "/opt/marshal-factory";

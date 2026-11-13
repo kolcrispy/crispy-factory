@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { jobs } from "@factory/storage/schema";
-import { installationTokens, type RepoName } from "@factory/integrations/github/app";
+import type { RepoName } from "@factory/integrations/github/gh";
 import { github, parsePullUrl } from "@factory/integrations/github/pulls";
 import { localHost, type JobHost } from "@factory/core/host";
 import type { FactoryMerge, MergeDecision, MergeWatch } from "@factory/core/merge-decision";
@@ -20,22 +20,18 @@ import { factoryCheckouts } from "./ops";
 // machine's checkout. Each watch ends in one state and is never retried: a failed revert stops
 // there, for the owner to finish.
 
-/** Where reverts run; regressions swap in a fake host, token and checkout. */
+/** Where reverts run; regressions inject the host and checkout. */
 export const revertDeps: {
   host: JobHost;
-  token: (repo: RepoName) => Promise<string>;
   checkout: (repo: RepoName) => Promise<string | null>;
   dir: string;
 } = {
   host: localHost,
-  token: (repo) => installationTokens.get(repo),
   checkout: async (repo) => (await factoryCheckouts()).get(repo) ?? null,
   dir: tmpdir(),
 };
 
-const TOKEN_ENV = "FACTORY_GIT_TOKEN";
-/** git asks this helper for the password, so the token lives in the environment and never in argv or a URL. */
-const CREDENTIALS = ["-c", "credential.helper=", "-c", `credential.helper=!f() { test "$1" = get && printf 'username=x-access-token\\npassword=%s\\n' "$${TOKEN_ENV}"; }; f`];
+const CREDENTIALS = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"];
 const IDENTITY = ["-c", "user.name=marshal-factory", "-c", "user.email=marshal-factory@users.noreply.github.com"];
 const KEEP_MS = 2 * 86_400_000;
 
@@ -77,8 +73,7 @@ export async function revertMerge(prUrl: string, merged: FactoryMerge, failed: r
       return { ok: false, reason: `git revert failed: ${firstLine(error)}`, url };
     }
     const head = await git(["rev-parse", "HEAD"]);
-    const token = await revertDeps.token(repo);
-    await git([...CREDENTIALS, "push", "--force", `https://github.com/${repo}.git`, `HEAD:refs/heads/${branch}`], dir, { [TOKEN_ENV]: token, GIT_TERMINAL_PROMPT: "0" });
+    await git([...CREDENTIALS, "push", "--force", `https://github.com/${repo}.git`, `HEAD:refs/heads/${branch}`], dir, { GIT_TERMINAL_PROMPT: "0" });
     const title = `Revert "${merged.title}" (#${number})`;
     url ??= (
       await github.createPull(repo, {

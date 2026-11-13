@@ -3,13 +3,15 @@ import { db } from "@factory/storage/client";
 import { auditLog, intents, jobs, type IntentRow } from "@factory/storage/schema";
 import { attemptBranch, parseBranch } from "@factory/core/factory";
 import { github } from "@factory/integrations/github/pulls";
-import { ensureAwake } from "@factory/core/host";
+import { hosts } from "@factory/core/host";
 import { changesMessage, type CloseDetail, type FeedbackDetail, type RetryDetail, type ReviewComment } from "@factory/core/inbox";
-import { parseJob, sourceFor } from "@factory/core/sources/index";
+import { parseJob } from "@factory/core/sources/index";
+import { recordJobNote } from "@factory/core/job-notes";
+import { canReclaimSql } from "./binding";
 import type { Job, JobId } from "@factory/core/sources/types";
 import { canTransition, runnerEventId } from "@factory/core/stages";
 import { requestedStop } from "@factory/core/stop";
-import { claim, finishStop, IN_FLIGHT, postEvent, threads } from "./ops";
+import { finishStop, IN_FLIGHT, postEvent, threads } from "./ops";
 
 // The inbox's actions on the job's own machine. Requested changes reach the thread once per
 // feedback id: the id is claimed on the job before the send and given back if the send fails, as
@@ -44,7 +46,7 @@ async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResul
   const comments: ReviewComment[] = feedback.from === "github" ? await github.reviewComments(job.pr_url, feedback.reviewId) : [];
   if (!feedback.body.trim() && comments.length === 0) return { skipped: "the review has no text" };
 
-  const host = await ensureAwake(job);
+  const host = hosts.forJob(job);
   if ((await threads.state(job.t3_thread_id, host)) === "gone") {
     return { refused: "The job's thread is gone, so it can't take the feedback. Close the job, or retry the issue as a new attempt." };
   }
@@ -106,7 +108,7 @@ async function reviewedJob(intent: ReviewIntent, feedback: GithubFeedback) {
 
 /**
  * Forwards a person's GitHub review. Reviews keep coming once a PR is up, so one can land before
- * its job records the PR, while it waits on a question, or while its sandbox fails to wake; those
+ * its job records the PR or while it waits on a question; those
  * leave the intent open (the result is a waiting reason) and every retry looks the job up again.
  * A finished job, a review already sent or one that is no factory job's closes it. After
  * REVIEW_WAIT_MS of waiting the review is dropped with an audit row.
@@ -188,32 +190,25 @@ export async function closeJob(id: JobId, { actor, reason }: CloseDetail, now = 
 
 export type RetryResult = { started: number } | { refused: string };
 
-/**
- * Starts the next attempt of a failed job the way the label does: the source shows the issue as
- * ready again and the usual claim bumps the attempt. The note is stored under the attempt it is
- * for before anything else, and the source's comment is keyed by attempt, so a replay repeats
- * nothing. A replay after the new attempt exists finds it and says so.
- */
-export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail, claimReady: () => Promise<unknown> = claim): Promise<RetryResult> {
+/** Atomically creates the next attempt only after prior execution and stop ownership are settled. */
+export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail): Promise<RetryResult> {
   const job = await readJob(id);
   if (!job) return { refused: `No job ${id}.` };
   if (job.attempt > attempt) return { started: job.attempt };
-  if (job.stage !== "failed") return { refused: `The job is ${job.stage}, not failed; there is nothing to retry.` };
-  // Until the failure is written back, that write-back would take the label away again after requeue.
-  if (job.synced_event_id !== job.stage_event_id) return { refused: "The failure is still being written back to the issue. Retry again in a minute." };
-  const next = job.attempt + 1;
-  const text = note.trim();
-  if (text) {
-    await db
-      .update(jobs)
-      .set({ attempt_note: { attempt: next, text }, updated_at: new Date() })
-      .where(and(eq(jobs.id, job.id), eq(jobs.stage, "failed"), eq(jobs.attempt, job.attempt)));
-  }
-  const source = sourceFor(job.source);
-  await source.requeue(job);
-  if (text) await source.note(job, `retry-${next}`, `**Note from ${actor} for attempt ${next}**\n\n${text}`);
-  await claimReady();
-  const after = await readJob(id);
-  if (after && after.attempt > job.attempt) return { started: after.attempt };
-  return { refused: "The factory can't start another attempt yet, for example while the failed one is still stopping. The factory label is back on the issue, so the next attempt starts as soon as it can." };
+  if (job.attempt !== attempt || job.stage !== "failed") return { refused: "The job is no longer the failed attempt you reviewed." };
+  const next = attempt + 1;
+  const [started] = await db.update(jobs).set({
+    attempt: next, previous_failure: job.stage_summary, stage: "queued", stage_at: null,
+    stage_summary: null, question: null, pr_url: null, stage_event_id: null, synced_event_id: null,
+    t3_thread_id: null, machine_id: null, provider: null, model: null,
+    session_id: null, nudged_at: null, nudged_stage: null,
+    conflict_head: null, resume_context: null, stop_sent_to: null, stop_event_id: null, stop: null,
+    answered_at: null, answer: null, delivered_reply_ids: [], delivered_feedback_ids: [],
+    merge_assessment: null, assessment_event_id: null, merge_decision: null, github_snapshot: null,
+    evidence: null, dismissed_at: null, attempt_note: note.trim() ? { attempt: next, text: note.trim() } : null,
+    claimed_at: new Date(), updated_at: new Date(),
+  }).where(and(eq(jobs.id, id), eq(jobs.attempt, attempt), canReclaimSql)).returning();
+  if (!started) return { refused: "The previous attempt still owns execution or an unsettled stop." };
+  await recordJobNote(parseJob(started), `retry-${next}`, `Retry requested by ${actor}${note.trim() ? `: ${note.trim()}` : "."}`);
+  return { started: next };
 }

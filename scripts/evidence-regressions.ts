@@ -11,9 +11,8 @@ import type { FactoryEvent } from "@factory/core/events";
 
 const { db } = await import("@factory/storage/client");
 const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import("@factory/storage/schema");
-const { linearJob, usageRun } = await import("./fixtures");
+const { internalJob, usageRun } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
-const { SOURCES } = await import("@factory/core/sources/index");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { eventSchema, ingestBodySchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
@@ -38,7 +37,7 @@ const evidenceRows = async (k: string) => db.select().from(jobEvidence).where(eq
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert> = {}) {
   const k = `EV${name}-${stamp}`;
   keys.push(k);
-  await db.insert(jobs).values(linearJob(`evidence-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, repo: REPO, provider: "claudeAgent", ...over }));
+  await db.insert(jobs).values(internalJob(`evidence-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, repo: REPO, provider: "claudeAgent", ...over }));
   await db.insert(runs).values(usageRun(k));
   return k;
 }
@@ -142,7 +141,7 @@ assert.deepEqual(
   { state: "failed", sha: SHA_A, failed: ["setup", "test"], passed: 0, total: 2 },
   "a failed setup is named setup",
 );
-const rows = [{ repo: REPO, onboarding_detail: { recipe } }] as unknown as Parameters<typeof requiredChecks>[0];
+const rows = [{ repo: REPO, recipe }] as unknown as Parameters<typeof requiredChecks>[0];
 assert.deepEqual(requiredChecks(rows, REPO).required, [{ name: "test", command: "bun test" }, { name: "build", command: "bun run build" }], "required comes from the recorded recipe, commands included");
 assert.equal(requiredChecks(rows, "other/repo").required, null, "no recipe, no required list");
 
@@ -315,7 +314,7 @@ try {
   };
   const sandboxRepo = join(dir, "sandbox-repo");
   execFileSync("git", ["clone", "-q", origin, sandboxRepo]);
-  verifyRuntime.repoDir = sandboxRepo;
+  await db.update(repoSettings).set({ registration_status: "ready", checkout_path: sandboxRepo }).where(inArray(repoSettings.repo, [REPO, TRIAL_REPO]));
   verifyRuntime.workDir = join(dir, "verify");
 
   const RUNNER = await insert("RUNNER");
@@ -329,7 +328,7 @@ try {
     [ASLEEP, pushBranch(`factory/${ASLEEP}`, { test: "true", lint: "exit 4" })],
     [BROKEN, (pushBranch(`factory/${BROKEN}`, { test: "true" }), "d".repeat(40))],
     [GONE, "e".repeat(40)],
-    [LOCAL, "f".repeat(40)],
+    [LOCAL, pushBranch(`factory/${LOCAL}`, { test: "true", lint: "true" })],
     [TRIAL, "1".repeat(40)],
   ]);
   const assessment: MergeAssessment = {
@@ -342,31 +341,24 @@ try {
   const pr = (k: string, over: Partial<typeof jobs.$inferInsert>) => {
     const url = over.pr_url ?? `https://github.com/${REPO}/pull/${keys.indexOf(k) + 1}`;
     byUrl.set(url, k);
-    return db.update(jobs).set({ stage: "pr", stage_event_id: `evidence-regress-pr-${k}`, merge_assessment: assessment, execution: "modal", ...over, pr_url: url }).where(eq(jobs.key, k));
+    return db.update(jobs).set({ stage: "pr", stage_event_id: `evidence-regress-pr-${k}`, merge_assessment: assessment, ...over, pr_url: url }).where(eq(jobs.key, k));
   };
-  await pr(RUNNER, { sandbox_id: "sb-evidence-runner" });
-  await pr(ASLEEP, { sandbox_snapshot: "im-evidence-asleep" });
-  await pr(BROKEN, { sandbox_id: "sb-evidence-broken" });
-  await pr(GONE, { sandbox_id: "sb-evidence-gone" });
-  await pr(LOCAL, { execution: "local" });
-  await pr(TRIAL, { sandbox_id: "sb-evidence-trial", pr_url: `https://github.com/${TRIAL_REPO}/pull/1` });
+  for (const k of [RUNNER, ASLEEP, BROKEN, GONE, LOCAL]) await pr(k, {});
+  await pr(TRIAL, { pr_url: `https://github.com/${TRIAL_REPO}/pull/1` });
   github.pullDetail = async (url) => ({ state: "open", mergeable: "mergeable", headSha: heads.get(byUrl.get(url)!)!, baseRef: "main" });
   github.pullFiles = async () => [{ path: "src/a.ts", additions: 1, deletions: 1 }];
   github.checkState = async () => ({ checks: "success", bugbot: { state: "reviewed" } });
   github.bugbotFindings = async () => [];
   github.upsertComment = async () => "created";
   github.mergeCandidate = async () => ({ state: "open", headSha: "moved", baseRef: "main", title: "t", number: 1, commits: 1, mergeCommitSha: null, mergedByBot: false });
-  SOURCES.linear.labels = async () => ["factory"];
-  SOURCES.linear.note = async () => undefined;
   ingestClient.post = async (e) => ingest(db, [eventSchema.parse(e)]);
-  const woke: string[] = [];
-  hosts.wake = async (j) => (woke.push(j.key), localHost);
+  hosts.forJob = () => localHost;
 
   // The cap: two runs at a time, held open here until released.
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
-  hosts.sandbox = () => ({ ...localHost, run: async () => gate.then(() => Promise.reject(new Error("released"))) });
-  const capJob = (k: string) => ({ key: k, sandbox_id: "sb-cap", sandbox_snapshot: null, attempt: 1, repo: REPO, execution: "modal" });
+  hosts.forJob = () => ({ ...localHost, run: async () => gate.then(() => Promise.reject(new Error("released"))) });
+  const capJob = (k: string) => ({ key: k, attempt: 1, repo: REPO });
   const noPost = async () => undefined;
   assert.deepEqual(
     [startVerification(capJob("CAP-1"), SHA_A, null, noPost), startVerification(capJob("CAP-2"), SHA_A, null, noPost), startVerification(capJob("CAP-3"), SHA_A, null, noPost)],
@@ -396,10 +388,9 @@ try {
     "overlapping runs at one commit don't share a worktree",
   );
 
-  hosts.sandbox = (id) => {
-    if (id === "sb-evidence-gone") return { ...localHost, run: async () => Promise.reject(Object.assign(new Error("gone"), { code: 128 })) };
-    return localHost;
-  };
+  hosts.forJob = (job) => job.key === GONE
+    ? { ...localHost, run: async () => Promise.reject(Object.assign(new Error("checkout unavailable"), { code: 128 })) }
+    : localHost;
   const only = { only: [RUNNER, ASLEEP, BROKEN, GONE, LOCAL, TRIAL] };
   const decisionOf = async (k: string) => (await row(k)).merge_decision!;
   const first = await decideMerges({ ...only, now: Date.now() });
@@ -410,7 +401,7 @@ try {
     // Runs that finish fast free their slot within the pass; the rest start on a later one.
     if (d.verification) assert.deepEqual([d.verification.state, d.verification.sha], ["running", heads.get(k)]);
   }
-  assert.match((await decisionOf(LOCAL)).reasons.join(" "), /Not verified at fffffff: no checks were reported for it; the run isn't in a cloud sandbox/, "a local job can't be verified by the runner");
+  assert.equal((await decisionOf(LOCAL)).outcome, "pending", "native local jobs can be verified by the runner");
   assert.match((await decisionOf(TRIAL)).reasons.join(" "), /only when the repo merges on its own/, "trial never runs the checks itself");
   assert.equal((await decisionOf(TRIAL)).verification, undefined);
 
@@ -420,7 +411,6 @@ try {
     await decideMerges({ ...only, now: Date.now() });
   }
   await verificationsSettled();
-  assert.deepEqual(woke, [ASLEEP], "a hibernated sandbox is woken for the run");
   const runnerRows = await evidenceRows(RUNNER);
   assert.deepEqual(
     runnerRows.map((r) => [r.sha, r.producer, r.clean, r.source, r.checks.map((c) => [c.name, c.passed])]),
@@ -441,7 +431,6 @@ try {
   await decideMerges({ only: [BROKEN], now: Date.now() + 60 * 60_000 });
   assert.equal((await decisionOf(BROKEN)).outcome, "handover", "after a restart the failed head still hands over, with no new run");
   await verificationsSettled();
-  assert.equal(woke.length, 1);
 
   // A new head moves the decision back to the runner, once.
   heads.set(RUNNER, pushBranch(`factory/${RUNNER}`, { test: "true", lint: "true" }));
@@ -458,7 +447,7 @@ try {
   process.exitCode = 1;
 } finally {
   await server.close();
-  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("linear", "evidence-regress-")}%`))).map((j) => j.id);
+  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("internal", "evidence-regress-")}%`))).map((j) => j.id);
   if (ids.length > 0) await db.delete(auditLog).where(inArray(auditLog.job_id, ids));
   if (keys.length > 0) {
     await db.delete(events).where(inArray(events.job_key, keys));
@@ -466,7 +455,7 @@ try {
     await db.delete(runs).where(inArray(runs.job_key, keys));
   }
   await db.delete(runs).where(and(like(runs.session_id, "evidence:%")));
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "evidence-regress-")}%`));
+  await db.delete(jobs).where(like(jobs.id, `${jobId("internal", "evidence-regress-")}%`));
   await db.delete(repoSettings).where(inArray(repoSettings.repo, [REPO, TRIAL_REPO]));
   rmSync(dir, { recursive: true, force: true });
   process.exit(process.exitCode ?? 0);

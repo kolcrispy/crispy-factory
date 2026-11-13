@@ -11,7 +11,7 @@ const { isOnline, heartbeatSchema, inventorySchema, parseHeartbeat } = await imp
 const { parseConnectStatus, readProjects } = await import("@factory/integrations/t3-state");
 const { collectHeartbeat, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } = await import("@factory/runner/heartbeat");
 const { claimLaunch, releaseLaunch } = await import("@factory/runner/ops");
-const { linearJob } = await import("./fixtures");
+const { internalJob } = await import("./fixtures");
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtures/heartbeat", name), "utf8");
 
@@ -127,7 +127,7 @@ const inventoryA = inventorySchema.parse({
 });
 const inventoryB = { ...inventoryA, connect: "unlinked" as const };
 const id = `heartbeat-regress-${Date.now()}`;
-await db.insert(jobs).values(linearJob(id, id));
+await db.insert(jobs).values(internalJob(id, id));
 try {
   const heartbeat = await collectHeartbeat({
     ...ok,
@@ -188,9 +188,7 @@ try {
       connect: async () => inventoryA.connect,
       projects: async () => inventoryA.projects,
       repos: async () => inventoryA.repos,
-      harnesses: async () => inventoryA.harnesses,
-      sandbox: async () => (sandboxEntered(), await sandboxGate, inventoryA.sandbox),
-      slack: async () => inventoryA.slack,
+      harnesses: async () => (sandboxEntered(), await sandboxGate, inventoryA.harnesses),
     },
     inventoryMs: 600_000,
     // Room for the beat's database writes, which a resent packet on a distant link stretches past 200 ms.

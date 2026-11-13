@@ -1,9 +1,8 @@
-import { CloudIcon, ExternalLinkIcon, MonitorIcon } from "lucide-react";
-import Link from "next/link";
+import { ExternalLinkIcon, MonitorIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
+import Link from "next/link";
 import { Spinner } from "../ui/spinner";
 import type { AgentRow, RunRow } from "@factory/storage/schema";
-import type { SandboxState } from "@factory/core/execution";
 import type { Tracking } from "@factory/core/harness";
 import type { MergeDecision } from "@factory/core/merge-decision";
 import { activityHref } from "@factory/core/run-links";
@@ -61,21 +60,6 @@ const TRACKING_HINT: Record<Tracking, string | undefined> = {
   stages: "The runner reads this harness's cost from its session logs; it shows once usage is read and the model has a price.",
   none: "This harness reports no stages, agents or cost; check the run in T3.",
 };
-
-const SANDBOX_HINT: Record<SandboxState, string> = {
-  running: "Runs in its own cloud sandbox",
-  hibernated: "The sandbox is snapshotted while the job waits; it wakes when the job needs it",
-};
-
-/** Where a sandboxed job's sandbox is: running, or hibernated as a snapshot. `bare` drops the word sandbox for a line that says it already. */
-export function SandboxBadge({ state, bare = false }: { state: SandboxState; bare?: boolean }) {
-  return (
-    <Badge variant="outline" className="gap-1.5 rounded-md font-normal text-muted-foreground" title={SANDBOX_HINT[state]}>
-      <span className={cn("size-1.5 rounded-full", state === "running" ? "bg-success" : "bg-muted-foreground/50")} />
-      {bare ? state : `Sandbox · ${state}`}
-    </Badge>
-  );
-}
 
 function MergeLine({ decision }: { decision: MergeDecision | null }) {
   const line = decisionLine(decision);
@@ -135,7 +119,6 @@ export function StageCard({
 }) {
   const { latest } = card;
   const where = card.runsOn && whereLine(card.runsOn, machineName);
-  const sandbox = card.runsOn?.kind === "modal" ? card.runsOn.sandbox : null;
   return (
     <div data-card={card.id} className={cn(cardClass(selected), "gap-1.5")}>
       {latest && (
@@ -170,9 +153,8 @@ export function StageCard({
             <span title={TRACKING_HINT[card.harness.tracking]}>{card.harness.tracking === "stages" ? "cost unknown" : "not tracked"}</span>
           )}
           {where && (
-            <span title={sandbox ? `${where} · ${sandbox}` : where} className="flex items-center gap-1">
-              {card.runsOn?.kind === "modal" ? <CloudIcon className="size-3.5" aria-label={where} /> : <MonitorIcon className="size-3.5" aria-label={where} />}
-              {sandbox === "hibernated" && <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-label="hibernated" />}
+            <span title={where} className="flex items-center gap-1">
+              <MonitorIcon className="size-3.5" aria-label={where} />
             </span>
           )}
         </span>

@@ -3,16 +3,15 @@ import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
 import { join } from "node:path";
 import type { MergeAssessment } from "@factory/core/assessment";
+import { githubRequest } from "./github-request";
 
 const { db } = await import("@factory/storage/client");
 const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import("@factory/storage/schema");
-const { linearJob, usageRun } = await import("./fixtures");
+const { internalJob, usageRun } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
-const { SOURCES } = await import("@factory/core/sources/index");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { eventSchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
-const { hosts } = await import("@factory/core/host");
 const { github, mergeMethodOf, failedChecksOf, pullsClient } = await import("@factory/integrations/github/pulls");
 const { DECISION_MARKER, prCommentBody, sourceCommentBody } = await import("@factory/core/merge-comments");
 const { writeRepoAutonomy } = await import("@factory/core/settings");
@@ -154,7 +153,7 @@ const server = await serve(0, async (request) => {
   }
   return Response.json({ message: `no fake for ${request.method} ${path}` }, { status: 500 });
 });
-Object.assign(github, pullsClient({ api: `http://localhost:${server.port}`, tokens: { get: async () => "ghs_api_stub", evict: () => {} } }));
+Object.assign(github, pullsClient({ request: githubRequest(server.port) }));
 
 // --- fake git host for reverts
 type GitCall = { args: string[]; cwd?: string; env?: Record<string, string> };
@@ -179,7 +178,6 @@ revertDeps.host = {
   mtimeMs: async () => 0,
   remove: async () => {},
 };
-revertDeps.token = async () => TOKEN;
 revertDeps.checkout = async () => "/fake/checkout";
 revertDeps.dir = "/fake/tmp";
 
@@ -216,7 +214,7 @@ async function job(name: string, repo: string, n: number, pull: Partial<Pull> = 
   keys.push(k);
   pulls.set(pullKey(repo, n), { repo, number: n, heads: [`h${n}`], base: "main", title: `Title ${n}`, state: "open", merged: null, merge: merged(`m${n}`), ...pull });
   await db.insert(jobs).values(
-    linearJob(`auto-merge-regress-${k}`, k, {
+    internalJob(`auto-merge-regress-${k}`, k, {
       machine_id: TEST_MACHINE_ID,
       repo,
       provider: "claudeAgent",
@@ -233,13 +231,6 @@ async function job(name: string, repo: string, n: number, pull: Partial<Pull> = 
 }
 
 ingestClient.post = async (event) => ingest(db, [eventSchema.parse(event)]);
-hosts.wake = async (j) => {
-  throw new Error(`woke ${j.key}`);
-};
-SOURCES.linear.labels = async () => ["factory"];
-const notes: { key: string; id: string; body: string }[] = [];
-SOURCES.linear.note = async (j, id, body) => void notes.push({ key: j.key, id, body });
-const notesOf = (k: string) => notes.filter((n) => n.key === k).map((n) => n.body);
 const NOW = 1_800_000_000_000;
 const at = (minutes: number) => NOW + minutes * 60_000;
 
@@ -303,7 +294,6 @@ try {
   assert.ok(goodComments[0]!.body.startsWith(`${DECISION_MARKER}\n\n✅ Merged by the factory`), goodComments[0]!.body);
   assert.match(goodComments[0]!.body, /\*\*Assumptions I made\*\*\n\n- Case-insensitive/);
   assert.match(goodComments[0]!.body, /\*\*Confidence\*\*\n\nConfident it built what the issue asked for/);
-  assert.deepEqual(notesOf(GOOD), [`Merged by the factory: ${prUrl(AUTO, 1)}`]);
 
   // A push between the decision and the merge aborts it; the next pass merges the new head.
   assert.equal(putsTo(AUTO, 2).length, 0, "stale head: no merge");
@@ -325,7 +315,6 @@ try {
   assert.equal(putsTo(TRIAL, 6).length + putsTo(OFF, 7).length, 0);
   assert.match(comments.get(pullKey(TRIAL, 6))![0]!.body, /Would merge \(trial\)/);
   assert.equal(comments.get(pullKey(OFF, 7)), undefined, "off posts nothing");
-  assert.deepEqual(notesOf(OFFED), []);
 
   const second = await decideMerges({ only: all, now: at(2) });
   assert.deepEqual(second, [`${STALE}:merge`, `${STALE}:merged`], "only the moved head is merged again");
@@ -344,9 +333,7 @@ try {
   assert.equal(trialComments.length, 1, "one comment per PR");
   assert.match(trialComments[0]!.body, /Would hand over \(trial\) because:\n\n- A check failed on the latest commit\./);
   assert.equal(writes.filter((w) => w.method === "PATCH").length, 1, "edited, not duplicated");
-  assert.deepEqual(notesOf(TRIALED), [`Would merge (trial): ${prUrl(TRIAL, 6)}`, `Would hand over (trial): ${prUrl(TRIAL, 6)}\n\n- A check failed on the latest commit.`]);
   await decideMerges({ only: [TRIALED], now: at(31) + RECHECK_MS });
-  assert.equal(notesOf(TRIALED).length, 2, "an unchanged decision posts nothing");
   assert.equal(writes.filter((w) => w.method === "PATCH" || (w.method === "POST" && w.path.endsWith("/comments"))).length, 7, "six PRs commented, one edit");
 
   // --- post-merge watch
@@ -391,10 +378,10 @@ try {
   }
   assert.ok(argv.slice(from).includes(`worktree remove --force ${dir}`), "the worktree is cleaned up");
   const push = gitCalls.find((c) => c.args.includes("push"))!;
-  assert.deepEqual([push.cwd, push.env], [dir, { FACTORY_GIT_TOKEN: TOKEN, GIT_TERMINAL_PROMPT: "0" }], "the token goes in the push's env");
+  assert.deepEqual([push.cwd, push.env], [dir, { GIT_TERMINAL_PROMPT: "0" }], "push disables credential prompts without exporting credentials");
+  assert.ok(push.args.includes("credential.helper=!gh auth git-credential"), "gh supplies git credentials on the runner");
   assert.ok(gitCalls.filter((c) => c !== push).every((c) => !c.env), "and nowhere else");
   assert.ok(!gitCalls.some((c) => c.args.join(" ").includes(TOKEN)), "never in argv");
-  assert.deepEqual(notesOf(MC).at(-1), `Reverted: main went red after merge — build, ci/lint. Revert: ${mc.revertPr}`);
   assert.match(comments.get(pullKey(MERGE_ONLY, 5))![0]!.body, new RegExp(`Reverted in ${mc.revertPr} after main went red: build, ci/lint\\.`));
   assert.match((await auditsOf(MC)).at(-1)!.detail!, /^Reverted after main went red · build, ci\/lint · https:/);
 
@@ -411,7 +398,7 @@ try {
   assert.ok(gitCalls.some((c) => c.args.join(" ") === "revert --abort"), "the revert is aborted");
   assert.ok(gitCalls.some((c) => c.args[0] === "worktree" && c.args[1] === "remove"), "and the worktree removed");
   assert.ok(!gitCalls.some((c) => c.args.includes("push")), "nothing is pushed");
-  assert.match(notesOf(STALE).at(-1)!, /^Main went red after the factory merged .* — build\. The revert failed, so revert it by hand: git revert failed/);
+  assert.match((await decision(STALE)).watch!.reason!, /git revert failed/, "a failed revert remains visible in the durable decision");
   gitCalls.length = 0;
   assert.deepEqual(await watchMerges({ only: [STALE, MC, GOOD], now: at(12) }), [], "an ended watch is not watched again");
   assert.equal(gitCalls.length, 0);
@@ -459,12 +446,12 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("linear", "auto-merge-regress-")}%`))).map((j) => j.id);
+  const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("internal", "auto-merge-regress-")}%`))).map((j) => j.id);
   if (ids.length > 0) await db.delete(auditLog).where(inArray(auditLog.job_id, ids));
   if (keys.length > 0) await db.delete(events).where(inArray(events.job_key, keys));
   if (keys.length > 0) await db.delete(jobEvidence).where(inArray(jobEvidence.job_key, keys));
   if (keys.length > 0) await db.delete(runs).where(inArray(runs.job_key, keys));
-  await db.delete(jobs).where(like(jobs.id, `${jobId("linear", "auto-merge-regress-")}%`));
+  await db.delete(jobs).where(like(jobs.id, `${jobId("internal", "auto-merge-regress-")}%`));
   await db.delete(repoSettings).where(inArray(repoSettings.repo, [AUTO, MERGE_ONLY, TRIAL, OFF]));
   await server.close();
   process.exit(process.exitCode ?? 0);

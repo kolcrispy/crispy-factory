@@ -2,24 +2,19 @@ import { z } from "zod";
 
 export type SourceShape = { label: string; writeback: z.ZodType; sourceState: z.ZodType };
 
-const labelGroupSchema = z.object({ name: z.string(), group: z.string() });
 
-const linear = {
-  label: "Linear",
-  writeback: z.object({ kind: z.literal("linear"), issueId: z.string().min(1) }),
+const internal = {
+  label: "Factory job",
+  writeback: z.object({}),
   sourceState: z.object({
-    state: z.string().nullable(),
-    labels: z.array(z.string()),
-    /** The labels that sit in a Linear label group, with the group's name; rows stored before groups were read have none. */
-    labelGroups: z.array(labelGroupSchema).default([]),
-    /** Every comment the factory posted on the issue; anything else on it is a human. */
-    factoryCommentIds: z.array(z.string()).default([]),
+    actor: z.string(),
+    requestedProvider: z.string().optional(),
   }),
 };
 
-const SHIPPED = { linear } satisfies Record<string, SourceShape>;
+const SHIPPED = { internal } satisfies Record<string, SourceShape>;
 
-/** The sources the factory ships. Regressions register a fake one beside them (registerSource in ./index). */
+/** Internal PostgreSQL job identity namespace. */
 export type JobSource = keyof typeof SHIPPED;
 
 export const SOURCE_SHAPES: { [S in JobSource]: (typeof SHIPPED)[S] } = SHIPPED;

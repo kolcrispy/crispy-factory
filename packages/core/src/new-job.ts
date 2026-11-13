@@ -1,41 +1,35 @@
 import { isOwner, type SessionUser } from "./auth/owner";
 import type { Harness } from "./harness";
 import { JOB_IMAGE_TYPES, MAX_JOB_IMAGE_BYTES, newJobSchema, type ImageUploadOutcome, type NewJobOutcome } from "./new-job-schema";
-import type { FileDraft, FiledJob, ImageFile } from "./sources/types";
-import { defaultRepo, repoLabel, REPOSITORY_GROUP, type Registry } from "./repositories";
-import { HARNESS_GROUP, RUNS_ON_GROUP, RUNS_ON_LABELS } from "./ticket-overrides";
+import type { FiledJob, ImageFile } from "./sources/types";
+import { defaultRepo, type Registry } from "./repositories";
 
-// A job started from the panel is filed in its source like any other: for Linear, a Todo issue with
-// the factory label that the webhook brings to the runner. Questions, stops and write-back then
-// work as they do for an issue filed by hand. A harness or execution chosen in the form goes on the
-// issue as the same override label a person would add, and so does the repo, default or not.
+// Dashboard and CLI submissions commit directly to the shared job queue.
 
 export type NewJobDeps = {
   user: () => Promise<SessionUser | null | undefined>;
-  file: (draft: FileDraft) => Promise<FiledJob>;
+  file: (draft: { requestId: string; title: string; description: string; repo: string; provider?: string }, actor: string) => Promise<FiledJob>;
   /** What the machines report; null when none has reported its harnesses yet. */
   harnesses: () => Promise<Harness[] | null>;
   registry: () => Promise<Registry>;
 };
 
 export async function createJob(deps: NewJobDeps, input: unknown): Promise<NewJobOutcome> {
-  if (!isOwner(await deps.user())) return { ok: false, status: 403, message: "Only the factory owner can start jobs." };
+  const owner = await deps.user();
+  if (!isOwner(owner)) return { ok: false, status: 403, message: "Only the factory owner can start jobs." };
   const parsed = newJobSchema.safeParse(input);
   if (!parsed.success) return { ok: false, status: 400, message: parsed.error.issues[0]?.message ?? "The job is not valid." };
-  const { provider, execution, repo, ...draft } = parsed.data;
-  const labels: NonNullable<FileDraft["labels"]> = [];
+  const { provider, repo, ...draft } = parsed.data;
   const registry = await deps.registry();
   const target = repo ? registry.find((r) => r.repo === repo) : defaultRepo(registry);
-  if (repo && !target?.enabled) return { ok: false, status: 400, message: `${repo} is not an enabled repository.` };
-  if (target) labels.push({ group: REPOSITORY_GROUP, name: repoLabel(registry, target) });
+  if (!target?.enabled) return { ok: false, status: 400, message: "Choose an enabled repository before starting a job." };
   if (provider) {
     const harness = (await deps.harnesses())?.find((h) => h.id === provider && h.enabled);
     if (!harness) return { ok: false, status: 400, message: `No machine reports an enabled harness ${provider}.` };
-    labels.push({ group: HARNESS_GROUP, name: harness.name });
+    // Provider availability is checked against the runner's reported inventory.
   }
-  if (execution) labels.push({ group: RUNS_ON_GROUP, name: RUNS_ON_LABELS[execution] });
   try {
-    const filed = await deps.file({ ...draft, ...(labels.length > 0 && { labels }) });
+    const filed = await deps.file({ ...draft, repo: target.repo, provider }, owner!.email);
     return { ok: true, identifier: filed.key, url: filed.url };
   } catch (error) {
     return { ok: false, status: 502, message: `Could not file the job: ${error instanceof Error ? error.message : String(error)}` };

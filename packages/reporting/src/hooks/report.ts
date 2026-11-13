@@ -229,11 +229,18 @@ async function toEvent(
   }
 }
 
+/** User-level hooks run for every session; only a factory attempt branch reports. */
+async function onFactoryAttempt(cwd: string) {
+  if (process.env.FACTORY_JOB_KEY) return true;
+  const branch = await run("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { timeout: SUBPROCESS_TIMEOUT_MS }).then(({ stdout }) => stdout.trim()).catch(() => "");
+  return parseBranch(branch) !== undefined;
+}
+
 async function main() {
   const raw = readFileSync(0, "utf8");
   const input = JSON.parse(raw) as HookInput;
   const sessionId = str(input.session_id);
-  if (!readIngestTarget() || !sessionId) return;
+  if (!readIngestTarget() || !sessionId || !(await onFactoryAttempt(str(input.cwd) ?? process.cwd()))) return;
 
   const eventId = createHash("sha256")
     .update(`${input.hook_event_name}\n${raw}`)

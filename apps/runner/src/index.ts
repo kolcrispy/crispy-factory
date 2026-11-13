@@ -1,22 +1,26 @@
 import { join } from "node:path";
 
-// The factory runner: the only process that touches T3, git and the GitHub API. It reacts to webhook intents
-// through polling, and on startup
-// reconciles everything it missed while it was down. Every step is idempotent.
-//   bun apps/runner/src/index.ts            run as a daemon (launchd starts it this way)
-//   bun apps/runner/src/index.ts --once     run startup reconciliation once and exit
+// The factory runner owns local T3, git and GitHub operations. PostgreSQL intents are
+// authoritative; polling and startup reconciliation recover missed work idempotently.
+//   bun apps/runner/src/index.ts            run in the foreground
+//   bun apps/runner/src/index.ts --once     reconcile once and exit
 
 process.chdir(join(import.meta.dirname, "../../.."));
 await import("@factory/platform/environment");
 
 const { and, asc, eq, isNull } = await import("drizzle-orm");
 const { db } = await import("@factory/storage/client");
+const { acquireRunnerOwnership } = await import("./ownership");
+const releaseOwnership = await acquireRunnerOwnership(db.$client, error => {
+  console.error(JSON.stringify({ event: "ownership:lost", error: error.message }));
+  process.exit(1);
+});
 const { intents, jobs } = await import("@factory/storage/schema");
 const ops = await import("./ops");
 const { createBeat, inventoryCollectors, systemCollectors, thisMachine } = await import("./heartbeat");
 const { closeBroadcast, deliveryFor, expirePairings, INTENT_ATTEMPTS, leaseIntent, loggable, receiptIntent, recordReceipt } = await import("./intents");
 const { launchQueued } = await import("./launch");
-const { openT3, tickSandboxes } = await import("./lifecycle");
+const { openT3 } = await import("./pairing");
 const { recheckScheduler } = await import("./recheck");
 const { everyAtMost, serialQueue } = await import("./queue");
 const { isolated, reconcile } = await import("./reconcile");
@@ -26,13 +30,15 @@ const { approveMerge, decideMerges } = await import("./merge-decision");
 const { closeJob, forwardReview, requestChanges, retryJob } = await import("./inbox");
 const { confirmStops, retryStop } = await import("./stops");
 const { approveDetailSchema, closeDetailSchema, feedbackDetailSchema, retryDetailSchema } = await import("@factory/core/inbox");
+const { deliverAnswer } = await import("./answers");
 const { watchMerges } = await import("./post-merge");
-const { syncOverrideLabels } = await import("./overrides");
-const { baseImageIdle, rebuildBaseImage, stopBaseImage } = await import("./base-image");
-const { advanceOnboarding, onboardRepo, repoPushed, requestRebuild } = await import("./onboarding");
-const { repoPushDetailSchema } = await import("@factory/core/webhooks");
-const { notifySlack, sendSlackTest, slackFromEnv } = await import("./slack");
+const { refreshGithubSnapshots } = await import("./github-snapshot");
+const { verificationsSettled } = await import("./verify");
 type IntentRow = typeof intents.$inferSelect;
+const { startReportServer } = await import("./report-server");
+const { prepareRepository } = await import("./repository-registration");
+const { wireHarnessReporting } = await import("./harness-wiring");
+const reportServer = startReportServer(ops.config.ingestUrl, ops.config.secret);
 
 const machine = await thisMachine();
 
@@ -47,6 +53,8 @@ process.on("unhandledRejection", (reason) =>
   log("unhandledRejection", { error: reason instanceof Error ? reason.message : String(reason) }),
 );
 const serial = queue.serial;
+let stopping = false;
+const recheckTimers = new Set<ReturnType<typeof setTimeout>>();
 
 /** Launches what this machine has room for, then tells each source about the jobs it now holds. */
 /**
@@ -54,23 +62,15 @@ const serial = queue.serial;
  * a failing write-back is returned for the log and the timer, never thrown, so the intent or timer
  * pass that asked for it succeeds on its own work.
  */
-async function writeBackPass() {
-  const result = await ops.writeBack();
-  for (const { key, reason } of result.gaveUp) log("writeBack:gave-up", { key, reason });
-  return result;
-}
+const writeBackPass = () => ops.acknowledgeStages();
 
-async function launchAndAnnounce() {
-  const launched = await launchQueued(logWorktree);
-  const announced = await isolated(ops.announceClaims);
-  return announced ? { launched, announced } : { launched };
-}
+const launchAndAnnounce = () => launchQueued(logWorktree).then(launched => ({ launched }));
 
 async function handle(intent: IntentRow) {
   // Each step reaches a source only where it needs one, so a source outage does not block the rest.
   switch (intent.kind) {
     case "claim":
-      return { claimed: await ops.claim(), ...(await launchAndAnnounce()) };
+      return { queued: await ops.queuedJobs(), ...(await launchAndAnnounce()) };
     case "stop": {
       if (intent.id.startsWith("panel:stop:")) {
         const detail = JSON.parse(intent.detail ?? "null");
@@ -80,11 +80,7 @@ async function handle(intent: IntentRow) {
       return { stop: await ops.stopJob(intent.job_id!, intent.detail ?? "stopped in its source") };
     }
     case "answer":
-      return {
-        resumed: await ops.resumeAnswered(),
-        ...(await launchAndAnnounce()),
-        synced: await writeBackPass(),
-      };
+      return { ...(await deliverAnswer(intent)), ...(await launchAndAnnounce()) };
     case "merged":
       return { merged: await ops.checkPullRequests(), synced: await writeBackPass() };
     case "recheck_conflicts":
@@ -103,19 +99,13 @@ async function handle(intent: IntentRow) {
     case "close_job":
       return { close: await closeJob(intent.job_id!, closeDetailSchema.parse(JSON.parse(intent.detail ?? "null"))), synced: await writeBackPass() };
     case "onboard_repo":
-      return { onboarding: await onboardRepo(intent.detail!) };
-    case "rebuild_repo_image":
-      return { rebuild: await requestRebuild(intent.detail!, "the owner asked for a rebuild") };
-    case "repo_push":
-      return { push: await repoPushed(repoPushDetailSchema.parse(JSON.parse(intent.detail ?? "null"))) };
+      return { registration: await prepareRepository(intent.detail!, ops.config.factory.workRoot) };
     case "retry_stop":
       return { retry: await retryStop(intent.job_id!), synced: await writeBackPass() };
     case "retry_job": {
       const attempt = await retryJob(intent.job_id!, retryDetailSchema.parse(JSON.parse(intent.detail ?? "null")));
       return { attempt, ...("started" in attempt ? await launchAndAnnounce() : {}) };
     }
-    case "slack_test":
-      return sendSlackTest(JSON.parse(intent.detail ?? "null"));
     default: {
       const unhandled: never = intent.kind;
       throw new Error(`no handler for intent ${String(unhandled)}`);
@@ -126,8 +116,15 @@ async function handle(intent: IntentRow) {
 const recheck = recheckScheduler({
   settled: ops.pullRequestsSettled,
   check: ops.checkPullRequests,
-  enqueue: (name, step) => void serial(name, step),
-  schedule: (run, ms) => void setTimeout(run, ms),
+  enqueue: (name, step) => { if (!stopping) void serial(name, step); },
+  schedule: (run, ms) => {
+    if (stopping) return;
+    const timer = setTimeout(() => {
+      recheckTimers.delete(timer);
+      if (!stopping) run();
+    }, ms);
+    recheckTimers.add(timer);
+  },
   now: Date.now,
 });
 
@@ -135,11 +132,12 @@ const inProgress = new Set<string>();
 type OpenIntent = { intent: IntentRow; owner: string | null };
 
 function takeIntents(rows: readonly OpenIntent[]) {
+  if (stopping) return;
   for (const { intent, owner } of rows) {
     if (intent.handled_at || inProgress.has(intent.id)) continue;
     // Every later snapshot repeats the open intents; a failed one waits for its retry time.
     if (intent.retry_at && intent.retry_at.getTime() > Date.now()) continue;
-    const delivery = deliveryFor(intent.kind, owner, machine.id, slackFromEnv() !== null);
+    const delivery = deliveryFor(intent.kind, owner, machine.id);
     if (delivery === "skip") continue;
     // The lease decides; this only spares a queue step while a lease is live.
     if (delivery === "lease" && intent.lease_until && intent.lease_until.getTime() > Date.now()) continue;
@@ -206,13 +204,12 @@ async function tick() {
   return {
     // First, so stage reports a hook or MCP call could not deliver reach the board before anything reads it.
     outbox: await isolated(flushLocalOutbox),
-    claimed: await isolated(() => ops.claim()),
+    queued: await isolated(ops.queuedJobs),
     // An answer can land before its question reached the source, and its intent then finds nothing.
     resumed: await isolated(ops.resumeAnswered),
-    // Stops whose webhook never arrived; before deliverStops, so a new stop is messaged this tick.
-    stopsReconciled: await isolated(() => ops.reconcileStops()),
     stopsDelivered: await isolated(() => ops.deliverStops()),
     pullRequests: await isolated(ops.checkPullRequests),
+    githubSnapshots: await isolated(refreshGithubSnapshots),
     // Before the merge decisions, so a run that just opened its PR is decided on its latest cost.
     reconciled: await isolated(ops.reconcileUsage),
     // After the PR check, so a merged or conflicting PR has already left pr.
@@ -221,20 +218,9 @@ async function tick() {
     // Harnesses without hooks report no stage or PR; read them from GitHub and the thread instead.
     untracked: await isolated(() => inferUntracked()),
     watched: await isolated(ops.watchdog),
-    // After the stops and the PR check, so a finished job gives its slot back before this tick's launches.
-    sandboxes: await isolated(tickSandboxes),
-    // After teardown, which records a stopped sandbox's end; a confirmed stop frees its capacity before this tick's launches.
     stopsConfirmed: await isolated(() => confirmStops()),
     pairingsExpired: await isolated(expirePairings),
     synced: await isolated(writeBackPass),
-    // Starts a rebuild when the pins drifted and returns; the build runs beside the queue.
-    baseImage: await isolated(async () =>
-      rebuildBaseImage({
-        changed: () => void beat({ fresh: true }),
-        // Queued Modal jobs would otherwise wait for the next tick.
-        landed: () => void serial("launch", launchAndAnnounce),
-      }),
-    ),
   };
 }
 
@@ -254,48 +240,69 @@ if (process.argv.includes("--once")) {
   await beat({ inventory: false });
   await serial("registry", ops.registerCheckouts);
   await serial("reconcile", startupReconcile);
-  if (slackFromEnv()) await serial("slack", () => notifySlack());
   takeIntents(await openIntents());
-  await queue.idle();
-  // A rebuild the reconcile started is this run's to finish, with the launch it queues when it lands.
-  await baseImageIdle();
-  await queue.idle();
+  stopping = true;
+  for (const timer of recheckTimers) clearTimeout(timer);
+  await queue.drain();
+  await verificationsSettled();
   await beat();
+  await reportServer.stop();
+  await releaseOwnership();
+  await db.$client.end();
   process.exit(0);
 }
 
 log("start", { pid: process.pid, tickSeconds: ops.config.factory.tickSeconds, machine });
+const wiring = wireHarnessReporting(join(import.meta.dirname, "../../../packages/reporting/src"));
+log("harness-wiring", wiring);
+const background = new Set<Promise<unknown>>();
+function track(work: Promise<unknown>) {
+  background.add(work);
+  void work.then(() => background.delete(work), error => {
+    background.delete(work);
+    log("background:error", { error: String(error) });
+  });
+}
 await beat({ inventory: false });
-setInterval(() => void beat(), ops.config.factory.tickSeconds * 1000);
+const heartbeatTimer = setInterval(() => { if (!stopping) track(beat()); }, ops.config.factory.tickSeconds * 1000);
 // Before the first claim, so a fresh install has its checkouts registered and a default repo.
 await serial("registry", ops.registerCheckouts);
 await serial("reconcile", startupReconcile);
-void beat();
+track(beat());
 takeIntents(await openIntents());
 
 
 const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
-const labelSync = ops.config.factory.syncLinearLabels ? everyAtMost(86_400_000, () => syncOverrideLabels()) : undefined;
-if (ops.config.factory.syncLinearLabels) void serial("labelSync", () => syncOverrideLabels());
-setInterval(() => {
+const tickTimer = setInterval(() => {
+  if (stopping) return;
   void serial("tick", async () => {
     const result = { ...(await tick()), ...(await launchAndAnnounce()) };
     const cleaned = await hourlyCleanup();
-    const labels = await labelSync?.();
-    return { ...result, ...(cleaned !== undefined && { cleaned }), ...(labels !== undefined && { labels }) };
+    return { ...result, ...(cleaned !== undefined && { cleaned }) };
   });
-  // Its own step, so a snapshot that takes minutes never pushes the tick past its timeout.
-  void serial("onboarding", () => advanceOnboarding());
-  // After the tick's merge decisions and stop checks, so the inbox it reads is this tick's; its own step, so a slow Slack delays nothing.
-  if (slackFromEnv()) void serial("slack", () => notifySlack());
   // Durable intents remain authoritative between polling passes.
-  void openIntents().then(takeIntents);
+  track(openIntents().then(takeIntents));
 }, ops.config.factory.tickSeconds * 1000);
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    clearInterval(heartbeatTimer);
+    clearInterval(tickTimer);
+    for (const timer of recheckTimers) clearTimeout(timer);
     log("stop", { signal });
-    // A rebuild in flight is ended, not waited for: the next start builds again from the tick.
-    void Promise.all([queue.idle(), stopBaseImage()]).finally(() => process.exit(0));
+    void (async () => {
+      await Promise.allSettled([...background]);
+      await queue.drain();
+      await verificationsSettled();
+      await reportServer.stop();
+      await releaseOwnership();
+      await db.$client.end();
+      process.exit(0);
+    })().catch(error => {
+      log("stop:error", { error: String(error) });
+      process.exit(1);
+    });
   });
 }

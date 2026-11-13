@@ -1,19 +1,11 @@
-import type { IngestResult } from "@factory/core/ingest";
-import { forbidInTest } from "@factory/core/test-mode";
-import { config } from "./config";
+import { db } from "@factory/storage/client";
+import { ingest, type IngestResult } from "@factory/core/ingest";
+import { ingestBodySchema } from "@factory/core/events";
 
-/** Where the runner's own events go; regressions swap `post` for the ingest projection itself. */
+/** Runner events share the same transactional projection as loopback agent reports. */
 export const ingestClient = {
   async post(event: Record<string, unknown>): Promise<Pick<IngestResult, "refused">> {
-    forbidInTest("the deployed ingest function");
-    const res = await fetch(config.ingestUrl, {
-      method: "POST",
-      headers: { authorization: `Bearer ${config.secret}`, "content-type": "application/json" },
-      body: JSON.stringify(event),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`ingest answered ${res.status}: ${await res.text()}`);
-    return (await res.json()) as Pick<IngestResult, "refused">;
+    return ingest(db, ingestBodySchema.parse(event));
   },
 };
 

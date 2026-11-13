@@ -32,7 +32,7 @@ function hooksFor(root: string): Record<string, HookEntry[]> {
 }
 
 /** hooks/budget.ts counts as ours so rewiring a repo from before the cap was removed drops it. */
-const isOurs = (entry: HookEntry) => entry.hooks?.some((hook) => /hooks\/(report|budget)\.ts/.test(hook.command ?? ""));
+const isOurs = (entry: HookEntry) => entry.hooks?.some((hook) => /hooks[\\/](report|budget)\.ts/.test(hook.command ?? ""));
 
 export function withHooks(settings: Json, root: string): Json {
   const hooks = { ...((settings.hooks as Record<string, HookEntry[]>) ?? {}) };
@@ -61,7 +61,7 @@ export function withServer(mcp: Json, root: string): Json {
 export function wiredRoots(...files: (string | null)[]) {
   const roots = new Set<string>();
   for (const text of files) {
-    for (const match of (text ?? "").matchAll(/(\/[^"\s]*?)\/(?:hooks\/(?:report|budget)|mcp\/factory-report)\.ts/g)) roots.add(match[1]!);
+    for (const match of (text ?? "").matchAll(/([\\/][^"\s]*?)[\\/](?:hooks[\\/](?:report|budget)|mcp[\\/]factory-report)\.ts/g)) roots.add(match[1]!);
   }
   return [...roots];
 }

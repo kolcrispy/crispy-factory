@@ -4,8 +4,7 @@ import { z } from "zod";
 import * as schema from "@factory/storage/schema";
 import { auditLog, intents, jobs, type IntentKind, type JobRow } from "@factory/storage/schema";
 import { isOwner, type SessionUser } from "./auth/owner";
-import type { RepoName } from "@factory/integrations/github/app";
-import type { Mergeable, PullsClient } from "@factory/integrations/github/pulls";
+import type { Mergeable } from "@factory/integrations/github/pulls";
 import {
   allows,
   followUpIssue,
@@ -19,10 +18,11 @@ import {
   type InboxAction,
   type RetryDetail,
 } from "./inbox";
-import { mergeDecisionSchema, reviewSummary, type ReviewSummary } from "./merge-decision";
+import { mergeDecisionSchema, type ReviewSummary } from "./merge-decision";
 import { createJob, type NewJobDeps } from "./new-job";
 import { parseJob } from "./sources/index";
-import type { Job, JobId } from "./sources/types";
+import type { JobId } from "./sources/types";
+import { githubSnapshotSchema } from "./github-snapshot";
 
 // The inbox's owner-only actions, and run detail's Merge, which records the inbox's approval. Each one checks the owner and that the job still offers the
 // action, then records an intent for the job's runner; only dismiss and the answer's comment act
@@ -32,8 +32,6 @@ import type { Job, JobId } from "./sources/types";
 export type InboxDeps = {
   db: NodePgDatabase<typeof schema>;
   user: () => Promise<SessionUser | null | undefined>;
-  /** Posts the owner's answer in the job's source; see SourceAdapter.reply. */
-  reply: (job: Job, requestId: string, body: string) => Promise<void>;
   /** Files a job the way the panel's New job does. */
   newJob: NewJobDeps;
   now?: () => Date;
@@ -137,13 +135,13 @@ export async function approveFromRunDetail(deps: InboxDeps, jobId: JobId, reques
 
 export type MergeTarget = { title: string; headSha: string; repo: string; mergeable: Mergeable };
 
-/** What run detail's merge dialog shows, read on the server through the App: null for a non-owner or a job with nothing to merge. */
-export async function mergeTarget(deps: Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullRequest"> }, jobId: JobId): Promise<MergeTarget | null> {
+/** Dashboard reads runner observations; the merge executor always revalidates the pinned head. */
+export async function mergeTarget(deps: Pick<InboxDeps, "db" | "user">, jobId: JobId): Promise<MergeTarget | null> {
   if (!isOwner(await deps.user())) return null;
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
   if (!job || notMergeable(job)) return null;
-  const pull = await deps.pulls.pullRequest(job.pr_url!);
-  if (pull.state !== "open") return null;
+  const pull = githubSnapshotSchema.safeParse(job.github_snapshot).data;
+  if (!pull || pull.prUrl !== job.pr_url || pull.attempt !== job.attempt || pull.state !== "open") return null;
   return { title: pull.title, headSha: pull.headSha, repo: job.repo, mergeable: pull.mergeable };
 }
 
@@ -167,7 +165,7 @@ const followUpSchema = z.string().trim().min(1, "Write what the follow-up should
 
 /**
  * Files a new issue to fix main after a merge whose revert failed, with the original job's harness
- * and execution overrides, then takes the item out of the inbox. The merged attempt's worktree is
+ * then takes the item out of the inbox. The merged attempt's worktree is
  * gone, so its thread can't do the fix. The request id keys the issue, so a retry files it once.
  */
 export async function fileFollowUp(deps: InboxDeps, jobId: JobId, requestId: string, body: string): Promise<InboxOutcome> {
@@ -179,12 +177,12 @@ export async function fileFollowUp(deps: InboxDeps, jobId: JobId, requestId: str
   const { job } = found;
   const decision = mergeDecisionSchema.safeParse(job.merge_decision).data ?? null;
   const issue = followUpIssue(job, decision, text.data);
-  const overrides = job.ticket_overrides;
-  // A harness turned off since the original ran falls back to Settings rather than blocking the fix.
-  const provider = overrides?.provider && (await deps.newJob.harnesses())?.some((h) => h.id === overrides.provider && h.enabled) ? overrides.provider : undefined;
+  const requested = parseJob(job).source_state.requestedProvider;
+  // Disabled providers fall back to Settings rather than blocking the follow-up.
+  const provider = requested && (await deps.newJob.harnesses())?.some(h => h.id === requested && h.enabled) ? requested : undefined;
   // The fix goes to main of the same repo; a repo disabled since then sends it to the default.
   const repo = (await deps.newJob.registry()).some((r) => r.repo === job.repo && r.enabled) ? job.repo : undefined;
-  const filed = await createJob(deps.newJob, { ...issue, requestId, provider, execution: overrides?.execution, repo });
+  const filed = await createJob(deps.newJob, { ...issue, requestId, provider, repo });
   if (!filed.ok) return { ok: false, message: filed.message };
   const now = (deps.now ?? (() => new Date()))();
   await deps.db.update(jobs).set({ dismissed_at: now }).where(eq(jobs.id, job.id));
@@ -205,7 +203,7 @@ export async function fileFollowUp(deps: InboxDeps, jobId: JobId, requestId: str
   return { ok: true, intentId: null, message: `Filed ${filed.identifier}. The factory picks it up as a new job.` };
 }
 
-/** Answers the job's question in its source as a reply, then asks its runner to resume it. */
+/** Records the answer and question identity for runner delivery without any external source. */
 export async function answerQuestion(deps: InboxDeps, jobId: JobId, requestId: string, body: string): Promise<InboxOutcome> {
   if (badRequest(requestId)) return { ok: false, message: "The request is not valid." };
   const text = feedbackSchema.safeParse(body);
@@ -214,12 +212,7 @@ export async function answerQuestion(deps: InboxDeps, jobId: JobId, requestId: s
   if (previous) return previous;
   const found = await ownerJob(deps, jobId, "answer");
   if (!found.ok) return found;
-  try {
-    await deps.reply(parseJob(found.job), requestId, text.data);
-  } catch (error) {
-    return { ok: false, message: `Could not post the answer: ${error instanceof Error ? error.message : String(error)}` };
-  }
-  return record(deps, found.job, "answer", requestId, {});
+  return record(deps, found.job, "answer", requestId, { actor: found.actor, body: text.data, attempt: found.job.attempt, questionEventId: found.job.stage_event_id });
 }
 
 /** Closes the job's PR and fails the job with the owner's reason. */
@@ -283,6 +276,7 @@ const resultSchema = z.object({
   close: z.union([z.object({ closed: z.string(), pr: z.string() }), z.object({ refused: z.string() })]).optional(),
   retry: z.union([z.object({ retried: z.string() }), z.object({ refused: z.string() })]).optional(),
   attempt: z.union([z.object({ started: z.number() }), z.object({ refused: z.string() })]).optional(),
+  answer: z.union([z.object({ delivered: z.string() }), z.object({ refused: z.string() })]).optional(),
 });
 
 /** What the runner made of an intent: the result it stored, said for the owner. */
@@ -309,7 +303,8 @@ export function describeOutcome(kind: (typeof INBOX_INTENTS)[number], raw: strin
       return "closed" in c ? { status: "done", message: c.pr === "closed" ? "Closed the pull request and the job." : "Closed the job." } : { status: "failed", message: c.refused };
     }
     case "answer":
-      return { status: "done", message: "Answer sent. The job resumes." };
+      if (!result.answer) break;
+      return "delivered" in result.answer ? { status: "done", message: "Answer sent. The job resumes." } : { status: "failed", message: result.answer.refused };
     case "retry_stop": {
       const r = result.retry;
       if (!r) break;
@@ -339,7 +334,7 @@ export async function intentOutcome(deps: Pick<InboxDeps, "db" | "user">, intent
   return describeOutcome(intent.kind as (typeof INBOX_INTENTS)[number], intent.result);
 }
 
-export type ReviewDeps = Pick<InboxDeps, "db" | "user"> & { pulls: Pick<PullsClient, "pullDetail" | "pullFiles" | "checkState" | "bugbotFindings"> };
+export type ReviewDeps = Pick<InboxDeps, "db" | "user">;
 
 /**
  * The changed files and Bugbot's findings the inbox shows: what the runner stored with its decision
@@ -351,11 +346,6 @@ export async function inboxReview(deps: ReviewDeps, jobId: JobId): Promise<Revie
   if (!job?.pr_url || !inboxKind(job)) return null;
   const decision = mergeDecisionSchema.safeParse(job.merge_decision).data;
   if (decision?.review && (decision.stageEventId === job.stage_event_id || decision.merged)) return decision.review;
-  const detail = await deps.pulls.pullDetail(job.pr_url);
-  const [files, state, findings] = await Promise.all([
-    deps.pulls.pullFiles(job.pr_url),
-    deps.pulls.checkState(job.repo as RepoName, detail.headSha, { baseRef: detail.baseRef }),
-    deps.pulls.bugbotFindings(job.pr_url),
-  ]);
-  return reviewSummary({ headSha: detail.headSha, files, bugbot: { review: state.bugbot, findings } });
+  const snapshot = githubSnapshotSchema.safeParse(job.github_snapshot).data;
+  return snapshot && snapshot.prUrl === job.pr_url && snapshot.attempt === job.attempt ? snapshot.review : null;
 }
