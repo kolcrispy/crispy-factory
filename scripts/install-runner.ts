@@ -4,13 +4,13 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
 // Installs the runner as a launchd LaunchAgent: started at login, restarted when it exits, logging
-// to ~/Library/Logs/marshal-factory/runner.log. Re-running with nothing changed leaves it alone.
+// to ~/Library/Logs/crispy-factory/runner.log. Re-running with nothing changed leaves it alone.
 //   bun scripts/install-runner.ts [--uninstall]
 
 export const LABEL = "com.marshal-factory.runner";
 const root = join(import.meta.dirname, "..");
 const plistPath = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
-const logPath = join(homedir(), "Library/Logs/marshal-factory/runner.log");
+const logPath = join(homedir(), "Library/Logs/crispy-factory/runner.log");
 const domain = `gui/${userInfo().uid}`;
 
 const which = (bin: string) => execFileSync("/usr/bin/which", [bin], { encoding: "utf8" }).trim();

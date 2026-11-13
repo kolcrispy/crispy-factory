@@ -118,7 +118,7 @@ async function findT3Thread(
 }
 
 const USAGE_EVERY_MS = 30_000;
-const USAGE_DIR = join(homedir(), ".cache/marshal-factory/usage");
+const USAGE_DIR = join(homedir(), ".cache/crispy-factory/usage");
 
 /**
  * A factory session's main usage only lands with turn_stop, and a factory run is one long turn.

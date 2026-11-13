@@ -6,7 +6,7 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./harness";
 import { pricingSchema } from "./pricing";
 import { inTestMode } from "./test-mode";
 
-export const CONFIG_PATH = process.env.MARSHAL_FACTORY_CONFIG ?? join(homedir(), ".config/marshal-factory/config.json");
+export const CONFIG_PATH = process.env.MARSHAL_FACTORY_CONFIG ?? join(homedir(), ".config/crispy-factory/config.json");
 
 /** The machine a regression run's runner code acts as, so the jobs a script creates can belong to it. */
 export const TEST_MACHINE_ID = "test-machine";
@@ -37,7 +37,7 @@ export const factorySchema = z
     subagentIdleHours: z.number().nonnegative().default(6),
     /** Target repos the factory works in; the installer adds each one. */
     repos: z.array(z.string()).default([]),
-    workRoot: z.string().transform(home).default(join(homedir(), ".local/share/marshal-factory/repos")),
+    workRoot: z.string().transform(home).default(join(homedir(), ".local/share/crispy-factory/repos")),
     /** The provider and model for new factory threads when the panel's settings hold none. */
     provider: z.string().default(DEFAULT_PROVIDER),
     model: z.string().default(DEFAULT_MODEL),

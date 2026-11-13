@@ -12,8 +12,8 @@ import { inTestMode } from "./test-mode";
 // local outbox on each tick and a sandbox's before it hibernates or ends and when it wakes. Ingest
 // stores each eventId once, so delivering an event twice changes nothing.
 
-/** `$FACTORY_STATE_DIR`, else ~/.local/state/marshal-factory; in a sandbox that is under /root, which snapshots keep. */
-export const stateDir = (home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env) => env.FACTORY_STATE_DIR || join(home, ".local/state/marshal-factory");
+/** `$FACTORY_STATE_DIR`, else ~/.local/state/crispy-factory; in a sandbox that is under /root, which snapshots keep. */
+export const stateDir = (home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env) => env.FACTORY_STATE_DIR || join(home, ".local/state/crispy-factory");
 export const outboxDir = (state: string) => join(state, "outbox");
 /** Events ingest refused as invalid; a retry would be refused again, so they wait here for a human. */
 export const rejectedDir = (state: string) => join(state, "outbox-rejected");

@@ -62,7 +62,7 @@ bun run db:migrate               # Apply migrations to configured database
 
 - `apps/dashboard/app/layout.tsx`, `apps/dashboard/app/(panel)/layout.tsx`: UI roots; `apps/dashboard/components/panel/realtime-root.tsx`: client subscriptions.
 - `apps/runner/src/index.ts`, `packages/core/src/ingest.ts`, `packages/storage/src/schema.ts`: orchestration, projections, persistence.
-- `packages/core/src/config.ts`: machine configuration; default file `~/.config/marshal-factory/config.json`, overridable with `MARSHAL_FACTORY_CONFIG`.
+- `packages/core/src/config.ts`: machine configuration; default file `~/.config/crispy-factory/config.json`, overridable with `MARSHAL_FACTORY_CONFIG`.
 - `eslint.config.mjs`, `tsconfig.json`: architecture boundaries and compiler settings.
 - `apps/dashboard/next.config.ts`, `apps/dashboard/vercel.json`, `neon.ts`: dashboard and independent gateway deployment. Vercel previews disable live updates.
 - `drizzle.config.ts`, `scripts/migrate-guard.ts`: migration connection and production-branch protection.

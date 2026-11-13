@@ -37,7 +37,7 @@ bun run cli owners create --input '{"email":"you@example.com"}'
 
 Set `FACTORY_DASHBOARD_URL` when serving the dashboard. Production origins require HTTPS; loopback may use HTTP.
 
-Configure the runner at `~/.config/marshal-factory/config.json` (override with `MARSHAL_FACTORY_CONFIG`):
+Configure the runner at `~/.config/crispy-factory/config.json` (override with `MARSHAL_FACTORY_CONFIG`):
 
 ```json
 {

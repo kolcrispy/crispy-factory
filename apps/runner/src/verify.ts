@@ -20,7 +20,7 @@ export const MAX_RUNNER_VERIFICATIONS = 2;
 export const VERIFY_RETRY_MS = 10 * 60_000;
 
 /** Temporary verification worktrees; regressions use isolated directories. */
-export const verifyRuntime = { workDir: join(tmpdir(), "marshal-factory-verify") };
+export const verifyRuntime = { workDir: join(tmpdir(), "crispy-factory-verify") };
 
 type VerifyJob = HostedJob & { attempt: number; repo: string };
 type Flight = { sha: string; finished: boolean; failed?: string; done: Promise<void> };

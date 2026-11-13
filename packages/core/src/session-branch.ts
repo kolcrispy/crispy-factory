@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const SESSIONS = join(homedir(), ".cache/marshal-factory/sessions");
+const SESSIONS = join(homedir(), ".cache/crispy-factory/sessions");
 const sessionFile = (sessionId: string) => join(SESSIONS, sessionId.replace(/[^\w-]/g, "_"));
 
 /**
