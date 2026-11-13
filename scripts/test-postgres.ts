@@ -4,8 +4,6 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 
-const directory = mkdtempSync(join(tmpdir(), "factory-postgres-"));
-const data = join(directory, "data");
 const database = `factory_test_${randomUUID().replaceAll("-", "")}`;
 const port = Number(process.env.FACTORY_TEST_POSTGRES_PORT ?? 55439);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid FACTORY_TEST_POSTGRES_PORT");
@@ -14,6 +12,8 @@ const env = { ...process.env, DATABASE_URL: url, DATABASE_URL_UNPOOLED: url, FAC
 const prefixes = process.argv.slice(2);
 const scripts = readdirSync(import.meta.dirname).filter(file => file.endsWith("-regressions.ts") && (!prefixes.length || prefixes.some(prefix => file.startsWith(prefix)))).sort();
 if (!scripts.length) throw new Error("No matching regression scripts");
+const directory = mkdtempSync(join(tmpdir(), "factory-postgres-"));
+const data = join(directory, "data");
 async function run(command: string[]) {
   const child = Bun.spawn(command, { env, stdout: "inherit", stderr: "inherit" });
   if (await child.exited) throw new Error(`${command[0]} failed`);
