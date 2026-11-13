@@ -19,4 +19,4 @@
 
 ## Verification progress
 
-Repository add/retry/rebuild now expose stable intent IDs and replay before changed-state checks. Injected use-case/storage and CLI proofs passed, including conflict deduplication. Guarded onboarding regressions and live Linear/T3/evidence/PR acceptance remain unexecuted pending isolated Neon authentication and designated external test infrastructure. Ticket remains open.
+Repository add/retry/rebuild expose stable intent IDs and replay before changed-state checks; conflicting persistence neither duplicates registration nor resets completed work. Repository, onboarding, new-job, settings, evidence, sandbox, and launch regressions passed on disposable PostgreSQL 17. Secret provisioning is covered by the onboarding regression through the existing Modal secret fake; values stay out of records. An actual-CLI onboarding/submission smoke and live Linear/T3/PR acceptance remain outstanding.
