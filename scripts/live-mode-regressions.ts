@@ -9,7 +9,7 @@ process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 async function liveUpdatesFor(vercelEnv: string | undefined) {
   if (vercelEnv === undefined) delete process.env.VERCEL_ENV;
   else process.env.VERCEL_ENV = vercelEnv;
-  const { default: config } = await import(`../next.config.ts?env=${vercelEnv}`);
+  const { default: config } = await import(`../apps/dashboard/next.config.ts?env=${vercelEnv}`);
   return (config as { env: Record<string, string> }).env.NEXT_PUBLIC_LIVE_UPDATES;
 }
 assert.equal(await liveUpdatesFor("preview"), "off", "a preview build turns live updates off");

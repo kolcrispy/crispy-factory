@@ -1,8 +1,9 @@
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
 
 // Local workspace commands still use the checkout's existing credentials file.
 try {
-  process.loadEnvFile(new URL("../../.env.local", import.meta.url));
+  process.loadEnvFile(fileURLToPath(new URL("../../.env.local", import.meta.url)));
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
