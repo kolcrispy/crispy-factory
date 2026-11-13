@@ -20,11 +20,11 @@ delete process.env.VERCEL_ENV;
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 // Preview deployments carry no Realtime config, so the panel must load without it.
 delete process.env.NEON_REALTIME_SECRET;
-const { auth } = await import("../lib/auth/server");
+const { auth } = await import("../apps/dashboard/lib/auth/server");
 Object.assign(auth, {
   getSession: async () => ({ data: { user: { email: OWNER, emailVerified: true } }, error: null }),
 });
-const { load, runsQuery, sealedResponse } = await import("../lib/live-queries");
+const { load, runsQuery, sealedResponse } = await import("../apps/dashboard/lib/live-queries");
 
 const feed = await load(runsQuery());
 assert.equal(feed.sealedQuery, null, "a preview page hands the browser no sealed query");

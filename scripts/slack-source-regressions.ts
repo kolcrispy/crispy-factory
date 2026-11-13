@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import type { FileDraft } from "../lib/sources/types";
+import type { FileDraft } from "@factory/core/sources/types";
 
 // Filing jobs from Slack: signed requests straight into the commands and interactivity handlers, a
 // fake Slack Web API and response_url on localhost, and the panel's own createJob behind them with
@@ -13,12 +13,12 @@ const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 const OWNER_SLACK = "U0OWNER";
 
-const { db } = await import("../db/client");
-const { postResponse, slackClient } = await import("../lib/slack-api");
-const { handleInteraction, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist } = await import("../lib/slack-interactions");
-const { handleCommand, LOADING, NEW_JOB_BLOCKS, NEW_JOB_CALLBACK_ID, newJobRequestId, SETTINGS_DEFAULT, USAGE } = await import("../lib/slack-new-job");
-const { HARNESS_GROUP, RUNS_ON_GROUP } = await import("../lib/ticket-overrides");
-const { REPOSITORY_GROUP } = await import("../lib/repositories");
+const { db } = await import("@factory/storage/client");
+const { postResponse, slackClient } = await import("@factory/integrations/slack-api");
+const { handleInteraction, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist } = await import("@factory/core/slack-interactions");
+const { handleCommand, LOADING, NEW_JOB_BLOCKS, NEW_JOB_CALLBACK_ID, newJobRequestId, SETTINGS_DEFAULT, USAGE } = await import("@factory/core/slack-new-job");
+const { HARNESS_GROUP, RUNS_ON_GROUP } = await import("@factory/core/ticket-overrides");
+const { REPOSITORY_GROUP } = await import("@factory/core/repositories");
 const { serve } = await import("./serve");
 
 // --- the fake Slack: Web API calls under /api/, response_url posts under /response/

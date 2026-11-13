@@ -1,0 +1,151 @@
+import { createRealtime } from "@neon/realtime/server";
+import { drizzleAdapter } from "@neon/realtime-drizzle";
+import { and, asc, desc, eq, getTableColumns, ne } from "drizzle-orm";
+import { db } from "@factory/storage/client";
+import { agents, auditLog, events, jobEvidence, jobs, machines, runs } from "@factory/storage/schema";
+import { isJobKey } from "@factory/core/factory";
+import type { JobId } from "@factory/core/sources/shapes";
+import { assertOwner } from "./auth/server";
+import { liveUpdates } from "./live-mode";
+
+const createPanelRealtime = () =>
+  createRealtime({
+    secret: process.env.NEON_REALTIME_SECRET!,
+    db: new URL(process.env.DATABASE_URL!).pathname.slice(1),
+    adapter: drizzleAdapter(),
+  });
+
+type SealableQuery = Parameters<ReturnType<typeof createPanelRealtime>["seal"]>[0]["query"];
+
+// A preview build has no Realtime secret, and createRealtime rejects a missing one.
+const realtime = liveUpdates ? createPanelRealtime() : null;
+
+export const RUN_LIMIT = 200;
+export const AGENT_OVERVIEW_LIMIT = 1000;
+export const SESSION_AGENT_LIMIT = 200;
+export const FEED_LIMIT = 50;
+
+// Live queries must be deterministic, so none of these read the clock.
+
+export const runsQuery = () =>
+  db
+    .select(getTableColumns(runs))
+    .from(runs)
+    .orderBy(desc(runs.last_event_at))
+    .limit(RUN_LIMIT);
+
+/** Feeds per-card agent counts and cost on the board. */
+export const agentsOverviewQuery = () =>
+  db
+    .select(getTableColumns(agents))
+    .from(agents)
+    .orderBy(desc(agents.started_at))
+    .limit(AGENT_OVERVIEW_LIMIT);
+
+export const sessionAgentsQuery = (sessionId: string) =>
+  db
+    .select(getTableColumns(agents))
+    .from(agents)
+    .where(eq(agents.session_id, sessionId))
+    .orderBy(agents.started_at)
+    .limit(SESSION_AGENT_LIMIT);
+
+export const sessionEventsQuery = (sessionId: string) =>
+  db
+    .select(getTableColumns(events))
+    .from(events)
+    // Usage snapshots arrive every half minute and would push everything else out of the feed.
+    .where(and(eq(events.session_id, sessionId), ne(events.kind, "usage")))
+    .orderBy(desc(events.at), desc(events.event_id))
+    .limit(FEED_LIMIT);
+
+export const JOB_LIMIT = 200;
+
+export const jobsQuery = () =>
+  db
+    .select(getTableColumns(jobs))
+    .from(jobs)
+    .orderBy(desc(jobs.claimed_at))
+    .limit(JOB_LIMIT);
+
+export const machinesQuery = () =>
+  db.select(getTableColumns(machines)).from(machines).orderBy(asc(machines.name), asc(machines.id));
+
+export const STAGE_HISTORY_LIMIT = 100;
+
+export const sessionStagesQuery = (sessionId: string) =>
+  db
+    .select(getTableColumns(events))
+    .from(events)
+    .where(and(eq(events.session_id, sessionId), eq(events.kind, "stage")))
+    .orderBy(asc(events.at), asc(events.event_id))
+    .limit(STAGE_HISTORY_LIMIT);
+
+/** Every stage report for a job, across all the sessions that worked on it. */
+export const jobStagesQuery = (jobKey: string) =>
+  db
+    .select(getTableColumns(events))
+    .from(events)
+    .where(and(eq(events.job_key, jobKey), eq(events.kind, "stage")))
+    .orderBy(asc(events.at), asc(events.event_id))
+    .limit(STAGE_HISTORY_LIMIT);
+
+export const AUDIT_LIMIT = 50;
+
+export const jobAuditQuery = (jobId: JobId) =>
+  db
+    .select(getTableColumns(auditLog))
+    .from(auditLog)
+    .where(eq(auditLog.job_id, jobId))
+    .orderBy(desc(auditLog.at), desc(auditLog.id))
+    .limit(AUDIT_LIMIT);
+
+export const EVIDENCE_LIMIT = 20;
+
+/** The checks run at each of the job's commits, newest first. */
+export const jobEvidenceQuery = (jobKey: string) =>
+  db
+    .select(getTableColumns(jobEvidence))
+    .from(jobEvidence)
+    .where(eq(jobEvidence.job_key, jobKey))
+    .orderBy(desc(jobEvidence.recorded_at), desc(jobEvidence.sha))
+    .limit(EVIDENCE_LIMIT);
+
+export async function jobIdForKey(jobKey: string) {
+  await assertOwner();
+  const [row] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.key, jobKey));
+  return row?.id;
+}
+
+export async function runJob(sessionId: string) {
+  await assertOwner();
+  const [row] = await db
+    .select({ jobKey: runs.job_key, jobId: jobs.id })
+    .from(runs)
+    .leftJoin(jobs, eq(jobs.key, runs.job_key))
+    .where(eq(runs.session_id, sessionId));
+  return { jobKey: row?.jobKey ?? undefined, jobId: row?.jobId ?? undefined };
+}
+
+/** Runs the query for server rendering and seals it for the browser subscription. */
+export async function load<Q extends SealableQuery>(
+  query: Q,
+) {
+  await assertOwner();
+  const [initialData, sealedQuery] = await Promise.all([
+    query,
+    realtime ? realtime.seal({ query }) : null,
+  ]);
+  return { initialData, sealedQuery };
+}
+
+/** Answers a live route's renewal with a fresh seal of the same query. */
+export async function sealedResponse(query: SealableQuery) {
+  await assertOwner();
+  if (!realtime) return Response.json({ error: "Live updates are off" }, { status: 404 });
+  return Response.json(await realtime.seal({ query }), {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+export const parseJobKey = (value: string) => (isJobKey(value) ? value : undefined);

@@ -1,6 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { isAllowlisted, isOwner } from "../lib/auth/owner";
+import { isAllowlisted, isOwner, trustedOperator } from "@factory/core/auth/owner";
 
 const OWNER = "owner@example.com";
 
@@ -24,6 +24,10 @@ assert.equal(
 );
 assert.equal(isOwner({ email: "stranger@example.com", emailVerified: true }, OWNER), false, "verification does not stand in for the allowlist");
 assert.equal(isOwner(null, OWNER), false, "no session is not the owner");
+
+assert.equal(isOwner(trustedOperator("local:test-operator"), ""), true, "trusted CLI identity does not require a browser account");
+assert.equal(isOwner({ email: "local:test-operator", emailVerified: true }, ""), false, "a browser-shaped identity cannot impersonate the CLI trust grant");
+assert.throws(() => trustedOperator("  "), "operator attribution must not be empty");
 
 const saved = process.env.FACTORY_OWNER_EMAILS;
 process.env.FACTORY_OWNER_EMAILS = OWNER;

@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { attemptBranch, isJobKey, jobKey, parseBranch } from "../lib/factory";
-import { mcpIdentity } from "../lib/report-identity";
+import { attemptBranch, isJobKey, jobKey, parseBranch } from "@factory/core/factory";
+import { mcpIdentity } from "@factory/core/report-identity";
 
 // One parser for every attempt branch: the Linear branches already out there and the generic format.
 const branches: [string | undefined, ReturnType<typeof parseBranch>][] = [

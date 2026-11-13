@@ -21,12 +21,12 @@ if (!repo || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
   process.exit(2);
 }
 
-const { modal, modalHost, rememberSandbox, terminateSandbox, deleteSnapshot } = await import("../lib/modal-host");
-const { parseRecipe, BUILD_EXIT, redact } = await import("../lib/recipe");
-const { imageProblem, REPO_DIR } = await import("../lib/sandbox");
-const { config } = await import("../runner/config");
-const { sandboxRuntime, writeGithubToken } = await import("../runner/sandbox");
-const { onboardingRuntime, startImageBuild, imageBuildStatus, finishImageBuild } = await import("../runner/onboarding");
+const { modal, modalHost, rememberSandbox, terminateSandbox, deleteSnapshot } = await import("@factory/integrations/modal-host");
+const { parseRecipe, BUILD_EXIT, redact } = await import("@factory/core/recipe");
+const { imageProblem, REPO_DIR } = await import("@factory/core/sandbox");
+const { config } = await import("@factory/runner/config");
+const { sandboxRuntime, writeGithubToken } = await import("@factory/runner/sandbox");
+const { onboardingRuntime, startImageBuild, imageBuildStatus, finishImageBuild } = await import("@factory/runner/onboarding");
 
 const t0 = Date.now();
 const log = (text: string) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${text}`);

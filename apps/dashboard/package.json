@@ -1,0 +1,36 @@
+{
+  "name": "@factory/dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "@factory/storage": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "@factory/core": "workspace:*",
+    "next-themes": "^0.4.6",
+    "@hookform/resolvers": "^6.0.0",
+    "react-hook-form": "^7.90.0",
+    "zod": "^4.6.7",
+    "lucide-react": "^1.61.0",
+    "modal": "0.11.1",
+    "motion": "^14.6.0",
+    "@neon/realtime": "0.1.2",
+    "@neon/realtime-drizzle": "0.1.0",
+    "@neon/realtime-react": "0.1.1",
+    "@base-ui/react": "^1.9.0",
+    "class-variance-authority": "^0.7.1",
+    "@neondatabase/auth": "0.7.0-beta",
+    "cn": "^0.5.0",
+    "@tailwindcss/turbopack": "^4",
+    "@factory/integrations": "workspace:*",
+    "react-dom": "19.3.0",
+    "tailwindcss": "^4",
+    "shadcn": "^4.22.1"
+  }
+}

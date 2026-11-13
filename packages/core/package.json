@@ -1,0 +1,17 @@
+{
+  "name": "@factory/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "zod": "^4.6.7",
+    "@factory/storage": "workspace:*",
+    "modal": "0.11.1",
+    "@factory/platform": "workspace:*",
+    "@factory/integrations": "workspace:*",
+    "pg-connection-string": "2.14.1"
+  }
+}

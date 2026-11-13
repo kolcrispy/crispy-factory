@@ -2,17 +2,17 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { auditLog, jobs, repoSettings } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, jobs, repoSettings } = await import("@factory/storage/schema");
 type RepoRow = typeof repoSettings.$inferSelect;
-const { jobId, parseJob } = await import("../lib/sources");
-const { createLinearAdapter, linearOverrides } = await import("../lib/sources/linear");
-const { factorySchema } = await import("../lib/config");
-const repos = await import("../lib/repositories");
-const { repoFilter } = await import("../lib/repo-filter");
-const { createJob } = await import("../lib/new-job");
-const { announceFallbacks, overrideRuntime, planLaunch, syncOverrideLabels } = await import("../runner/overrides");
-const ops = await import("../runner/ops");
+const { jobId, parseJob } = await import("@factory/core/sources/index");
+const { createLinearAdapter, linearOverrides } = await import("@factory/integrations/sources/linear");
+const { factorySchema } = await import("@factory/core/config");
+const repos = await import("@factory/core/repositories");
+const { repoFilter } = await import("@factory/core/repo-filter");
+const { createJob } = await import("@factory/core/new-job");
+const { announceFallbacks, overrideRuntime, planLaunch, syncOverrideLabels } = await import("@factory/runner/overrides");
+const ops = await import("@factory/runner/ops");
 type Adapter = NonNullable<NonNullable<Parameters<typeof ops.claim>[0]>["sources"]>[number];
 
 const OWNER = "owner@example.com";

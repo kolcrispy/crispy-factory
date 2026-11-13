@@ -1,0 +1,17 @@
+{
+  "name": "@factory/cli",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/index.ts --target=bun --packages=external --outdir=dist",
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@factory/core": "workspace:*",
+    "@factory/storage": "workspace:*",
+    "@factory/integrations": "workspace:*",
+    "@factory/platform": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "zod": "^4.6.7"
+  }
+}

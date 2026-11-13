@@ -9,7 +9,7 @@ import { join } from "node:path";
 process.chdir(join(import.meta.dirname, ".."));
 process.loadEnvFile(".env.local");
 
-const { syncOverrideLabels } = await import("../runner/overrides");
+const { syncOverrideLabels } = await import("@factory/runner/overrides");
 
 const result = await syncOverrideLabels();
 if ("skipped" in result) {

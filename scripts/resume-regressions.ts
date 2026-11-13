@@ -2,12 +2,12 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { jobs } = await import("../db/schema");
-const { jobId } = await import("../lib/sources");
+const { db } = await import("@factory/storage/client");
+const { jobs } = await import("@factory/storage/schema");
+const { jobId } = await import("@factory/core/sources/index");
 const { linearJob } = await import("./fixtures");
-const { claimReplies } = await import("../lib/resume");
-const { planResume, resumeCommentId, stageCommentId, claimCommentId } = await import("../lib/sources/linear");
+const { claimReplies } = await import("@factory/core/resume");
+const { planResume, resumeCommentId, stageCommentId, claimCommentId } = await import("@factory/integrations/sources/linear");
 
 const id = `resume-regress-${Date.now()}`;
 const stageEventId = "evt-waiting";

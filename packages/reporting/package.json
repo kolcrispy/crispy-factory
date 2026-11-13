@@ -1,0 +1,12 @@
+{
+  "name": "@factory/reporting",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@factory/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
+}

@@ -1,8 +1,8 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { sourceFor } from "../lib/sources";
-import { githubIntent, verifyGithub } from "../lib/webhooks";
+import { sourceFor } from "@factory/core/sources/index";
+import { githubIntent, verifyGithub } from "@factory/core/webhooks";
 
 const { webhook } = sourceFor("linear");
 if (!webhook) throw new Error("the linear source has no webhook");
@@ -82,9 +82,9 @@ for (const event of ["installation", "installation_repositories", "issues", "che
 
 process.env.LINEAR_WEBHOOK_SECRET = secret;
 process.env.GITHUB_APP_WEBHOOK_SECRET = secret;
-const { default: ingestFunction } = await import("../functions/ingest/index");
-const { db } = await import("../db/client");
-const { intents, webhookDeliveries } = await import("../db/schema");
+const { default: ingestFunction } = await import("@factory/gateway/index");
+const { db } = await import("@factory/storage/client");
+const { intents, webhookDeliveries } = await import("@factory/storage/schema");
 const { eq } = await import("drizzle-orm");
 const deliveryId = `webhook-regress-${Date.now()}`;
 const post = (raw: string, signature: string, delivery: string | null = deliveryId) =>

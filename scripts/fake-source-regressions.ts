@@ -3,19 +3,19 @@ import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-const { db } = await import("../db/client");
-const { jobs, runs } = await import("../db/schema");
-const { allSources, isJobSource, parseJob, registerSource, SOURCES, sourceFor } = await import("../lib/sources");
-const { jobId, parseJobId, sourceLink } = await import("../lib/sources/shapes");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { eventSchema } = await import("../lib/events");
-const { ingest } = await import("../lib/ingest");
-const { attemptBranch, jobKey, parseBranch } = await import("../lib/factory");
-const { github } = await import("../lib/github/pulls");
-const { NO_OVERRIDES } = await import("../lib/ticket-overrides");
-const ops = await import("../runner/ops");
-const { launchEntries } = await import("../runner/launch");
-const { announceFallbacks, planLaunch } = await import("../runner/overrides");
+const { db } = await import("@factory/storage/client");
+const { jobs, runs } = await import("@factory/storage/schema");
+const { allSources, isJobSource, parseJob, registerSource, SOURCES, sourceFor } = await import("@factory/core/sources/index");
+const { jobId, parseJobId, sourceLink } = await import("@factory/core/sources/shapes");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { eventSchema } = await import("@factory/core/events");
+const { ingest } = await import("@factory/core/ingest");
+const { attemptBranch, jobKey, parseBranch } = await import("@factory/core/factory");
+const { github } = await import("@factory/integrations/github/pulls");
+const { NO_OVERRIDES } = await import("@factory/core/ticket-overrides");
+const ops = await import("@factory/runner/ops");
+const { launchEntries } = await import("@factory/runner/launch");
+const { announceFallbacks, planLaunch } = await import("@factory/runner/overrides");
 
 // A second source that exists only here. It goes through claim, launch, stage reports on its
 // branch, a pull request, the merge and every write-back without a line of runner code knowing

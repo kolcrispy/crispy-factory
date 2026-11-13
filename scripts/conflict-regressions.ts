@@ -2,15 +2,15 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { jobs } = await import("../db/schema");
-const { jobId } = await import("../lib/sources");
+const { db } = await import("@factory/storage/client");
+const { jobs } = await import("@factory/storage/schema");
+const { jobId } = await import("@factory/core/sources/index");
 const { linearJob } = await import("./fixtures");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { claimConflict, unclaimedRunsWithPr } = await import("../lib/conflicts");
-const { runs } = await import("../db/schema");
-const { checkPullRequests, pullRequestsSettled, threads } = await import("../runner/ops");
-const { github } = await import("../lib/github/pulls");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { claimConflict, unclaimedRunsWithPr } = await import("@factory/core/conflicts");
+const { runs } = await import("@factory/storage/schema");
+const { checkPullRequests, pullRequestsSettled, threads } = await import("@factory/runner/ops");
+const { github } = await import("@factory/integrations/github/pulls");
 type PullRequest = Awaited<ReturnType<typeof github.pullRequest>>;
 
 const id = `conflict-regress-${Date.now()}`;

@@ -1,27 +1,27 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
-import type { MergeAssessment } from "../lib/assessment";
-import type { DecisionInput, PrFacts } from "../lib/merge-decision";
+import type { MergeAssessment } from "@factory/core/assessment";
+import type { DecisionInput, PrFacts } from "@factory/core/merge-decision";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
-const { db } = await import("../db/client");
-const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import("@factory/storage/schema");
 const { linearJob, usageRun } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { SOURCES } = await import("../lib/sources");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { eventSchema, stageReportSchema } = await import("../lib/events");
-const { ingest } = await import("../lib/ingest");
-const { hosts } = await import("../lib/host");
-const { github, bugbotFindingsOf, checkStateOf, pullsClient } = await import("../lib/github/pulls");
-const { parseAssessment } = await import("../lib/assessment");
-const { decideMerge, DEFAULT_POLICY, noCiReason } = await import("../lib/merge-decision");
-const { globToRegExp } = await import("../lib/globs");
-const { readRepoSettings, resolvePolicy, writeRepoAutonomy } = await import("../lib/settings");
-const { decideMerges, RECHECK_MS } = await import("../runner/merge-decision");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { SOURCES } = await import("@factory/core/sources/index");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { eventSchema, stageReportSchema } = await import("@factory/core/events");
+const { ingest } = await import("@factory/core/ingest");
+const { hosts } = await import("@factory/core/host");
+const { github, bugbotFindingsOf, checkStateOf, pullsClient } = await import("@factory/integrations/github/pulls");
+const { parseAssessment } = await import("@factory/core/assessment");
+const { decideMerge, DEFAULT_POLICY, noCiReason } = await import("@factory/core/merge-decision");
+const { globToRegExp } = await import("@factory/core/globs");
+const { readRepoSettings, resolvePolicy, writeRepoAutonomy } = await import("@factory/core/settings");
+const { decideMerges, RECHECK_MS } = await import("@factory/runner/merge-decision");
 const { serve } = await import("./serve");
 
 const assessment = (over: Partial<MergeAssessment> = {}): MergeAssessment => ({

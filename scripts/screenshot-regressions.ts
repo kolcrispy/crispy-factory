@@ -4,27 +4,27 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, inArray } from "drizzle-orm";
-import type { MergeAssessment } from "../lib/assessment";
-import type { FactoryEvent } from "../lib/events";
-import type { DecisionInput } from "../lib/merge-decision";
+import type { MergeAssessment } from "@factory/core/assessment";
+import type { FactoryEvent } from "@factory/core/events";
+import type { DecisionInput } from "@factory/core/merge-decision";
 
 process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
 process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 process.env.NEXT_PUBLIC_LIVE_UPDATES = "off";
 
-const { db } = await import("../db/client");
-const { events, jobs, jobScreenshots, runs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { events, jobs, jobScreenshots, runs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { attemptBranch } = await import("../lib/factory");
-const { eventSchema, stageReportSchema } = await import("../lib/events");
-const { ingest } = await import("../lib/ingest");
-const { parseAssessment } = await import("../lib/assessment");
-const { appendEvent, flushOutbox, localFs } = await import("../lib/outbox");
-const { decideMerge, DEFAULT_POLICY } = await import("../lib/merge-decision");
-const { MAX_SCREENSHOT_BYTES, screenshotUrl, sniffType, uiFiles } = await import("../lib/screenshots");
-const { readScreenshot, screenshotEvents, unreadable } = await import("../lib/screenshot-files");
-const { GET } = await import("../app/api/jobs/[key]/screenshots/[index]/route");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { attemptBranch } = await import("@factory/core/factory");
+const { eventSchema, stageReportSchema } = await import("@factory/core/events");
+const { ingest } = await import("@factory/core/ingest");
+const { parseAssessment } = await import("@factory/core/assessment");
+const { appendEvent, flushOutbox, localFs } = await import("@factory/core/outbox");
+const { decideMerge, DEFAULT_POLICY } = await import("@factory/core/merge-decision");
+const { MAX_SCREENSHOT_BYTES, screenshotUrl, sniffType, uiFiles } = await import("@factory/core/screenshots");
+const { readScreenshot, screenshotEvents, unreadable } = await import("@factory/core/screenshot-files");
+const { GET } = await import("../apps/dashboard/app/api/jobs/[key]/screenshots/[index]/route");
 
 const stamp = Date.now() % 1_000_000;
 const dir = mkdtempSync(join(tmpdir(), "screenshot-regress-"));

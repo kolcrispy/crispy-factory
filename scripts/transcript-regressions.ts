@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { localHost } from "../lib/host";
-import { subagentTranscripts, sumUsage, transcriptPathFor } from "../lib/transcript";
+import { localHost } from "@factory/core/host";
+import { subagentTranscripts, sumUsage, transcriptPathFor } from "@factory/core/transcript";
 
 const line = (id: string, input: number, output: number) =>
   JSON.stringify({

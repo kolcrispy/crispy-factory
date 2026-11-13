@@ -2,17 +2,17 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { auditLog, jobs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, jobs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId, parseJob } = await import("../lib/sources");
-const { createLinearAdapter, linearFiler, linearOverrides } = await import("../lib/sources/linear");
-const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
-const { desiredLabelGroups, ticketOverrides } = await import("../lib/ticket-overrides");
-const { announceFallbacks, fallbackComment, overrideRuntime, planLaunch, splitByExecution, syncOverrideLabels } = await import("../runner/overrides");
-const { claimLaunch, releaseLaunch } = await import("../runner/ops");
-const { createJob } = await import("../lib/new-job");
-const { boardCards, harnessLine, runsOn, whereLine } = await import("../components/panel/cards");
+const { jobId, parseJob } = await import("@factory/core/sources/index");
+const { createLinearAdapter, linearFiler, linearOverrides } = await import("@factory/integrations/sources/linear");
+const { factorySchema, TEST_MACHINE_ID } = await import("@factory/core/config");
+const { desiredLabelGroups, ticketOverrides } = await import("@factory/core/ticket-overrides");
+const { announceFallbacks, fallbackComment, overrideRuntime, planLaunch, splitByExecution, syncOverrideLabels } = await import("@factory/runner/overrides");
+const { claimLaunch, releaseLaunch } = await import("@factory/runner/ops");
+const { createJob } = await import("@factory/core/new-job");
+const { boardCards, harnessLine, runsOn, whereLine } = await import("../apps/dashboard/components/panel/cards");
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;

@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SandboxImage } from "../lib/sandbox";
+import type { SandboxImage } from "@factory/core/sandbox";
 import { fake, FakeSandbox, type Reply } from "./fake-modal";
 
-const { factorySchema } = await import("../lib/config");
-const { sandboxReadinessSchema } = await import("../lib/machine");
-const { pinnedVersions, PSTACK_PLUGIN, readSandboxImage } = await import("../lib/sandbox");
-const { buildLockPath, buildSandboxImage, BuildLockedError } = await import("../lib/sandbox-image-build");
-const { baseImageBuild, baseImageIdle, baseImageRuntime, rebuildBaseImage, resetBaseImage, RETRY_AFTER_MS, stopBaseImage } = await import("../runner/base-image");
+const { factorySchema } = await import("@factory/core/config");
+const { sandboxReadinessSchema } = await import("@factory/core/machine");
+const { pinnedVersions, PSTACK_PLUGIN, readSandboxImage } = await import("@factory/core/sandbox");
+const { buildLockPath, buildSandboxImage, BuildLockedError } = await import("@factory/core/sandbox-image-build");
+const { baseImageBuild, baseImageIdle, baseImageRuntime, rebuildBaseImage, resetBaseImage, RETRY_AFTER_MS, stopBaseImage } = await import("@factory/runner/base-image");
 
 const limits = factorySchema.parse({}).sandbox;
 const pinned = pinnedVersions(limits);

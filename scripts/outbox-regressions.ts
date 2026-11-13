@@ -7,26 +7,26 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { eq, inArray, like, or } from "drizzle-orm";
-import type { FactoryEvent } from "../lib/events";
+import type { FactoryEvent } from "@factory/core/events";
 import { fake, fakeModal, sandboxes, type FakeSandbox } from "./fake-modal";
 import { serve } from "./serve";
 
-const { db } = await import("../db/client");
-const { events, jobs, runs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { events, jobs, runs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { ingestBodySchema } = await import("../lib/events");
-const { ingest } = await import("../lib/ingest");
-const { REPORT_STAGE_TOOL } = await import("../lib/factory");
-const { appendEvent, flushOutbox, localFs, outboxDir, rejectedDir } = await import("../lib/outbox");
-const { mcpIdentity, mcpPosts } = await import("../lib/report-identity");
-const { modal, modalHost } = await import("../lib/modal-host");
-const { boardCards, harnessLine } = await import("../components/panel/cards");
-const { config } = await import("../runner/ops");
-const { hibernateIdle, teardownFinished, wakeJob } = await import("../runner/lifecycle");
-const { flushSandboxOutbox, outboxClient, SANDBOX_STATE_DIR } = await import("../runner/outbox");
-const { sandboxRuntime } = await import("../runner/sandbox");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { ingestBodySchema } = await import("@factory/core/events");
+const { ingest } = await import("@factory/core/ingest");
+const { REPORT_STAGE_TOOL } = await import("@factory/core/factory");
+const { appendEvent, flushOutbox, localFs, outboxDir, rejectedDir } = await import("@factory/core/outbox");
+const { mcpIdentity, mcpPosts } = await import("@factory/core/report-identity");
+const { modal, modalHost } = await import("@factory/integrations/modal-host");
+const { boardCards, harnessLine } = await import("../apps/dashboard/components/panel/cards");
+const { config } = await import("@factory/runner/ops");
+const { hibernateIdle, teardownFinished, wakeJob } = await import("@factory/runner/lifecycle");
+const { flushSandboxOutbox, outboxClient, SANDBOX_STATE_DIR } = await import("@factory/runner/outbox");
+const { sandboxRuntime } = await import("@factory/runner/sandbox");
 
 modal.api = fakeModal;
 
@@ -71,7 +71,7 @@ const childEnv = (over: Record<string, string> = {}) => {
 
 async function mcp(env: Record<string, string>, cwd = dir) {
   const client = new Client({ name: "outbox-regress", version: "0" });
-  await client.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dirname, "../mcp/factory-report.ts")], env: childEnv(env), cwd, stderr: "ignore" }));
+  await client.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dirname, "../packages/reporting/src/mcp/factory-report.ts")], env: childEnv(env), cwd, stderr: "ignore" }));
   return {
     report: async (args: Record<string, unknown>) => {
       const result = (await client.callTool({ name: "report_stage", arguments: args })) as { content: { text: string }[] };
@@ -81,7 +81,7 @@ async function mcp(env: Record<string, string>, cwd = dir) {
   };
 }
 
-const hook = join(import.meta.dirname, "../hooks/report.ts");
+const hook = join(import.meta.dirname, "../packages/reporting/src/hooks/report.ts");
 // Spawned without blocking, since the stand-in ingest answers from this process.
 const runHook = (input: Record<string, unknown>) =>
   new Promise<void>((resolve, reject) => {

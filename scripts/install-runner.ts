@@ -43,7 +43,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <dict>
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
-  <array><string>${escape(tools[0]!)}</string><string>${escape(join(root, "runner/index.ts"))}</string></array>
+  <array><string>${escape(tools[0]!)}</string><string>${escape(join(root, "apps/runner/src/index.ts"))}</string></array>
   <key>WorkingDirectory</key><string>${escape(root)}</string>
   <key>EnvironmentVariables</key>
   <dict>

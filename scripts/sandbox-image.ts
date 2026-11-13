@@ -1,5 +1,5 @@
-import { loadLimits } from "../lib/config";
-import { buildSandboxImage } from "../lib/sandbox-image-build";
+import { loadLimits } from "@factory/core/config";
+import { buildSandboxImage } from "@factory/core/sandbox-image-build";
 
 // Builds the image factory sandboxes launch from, and records its id for the runner:
 //   bun scripts/sandbox-image.ts

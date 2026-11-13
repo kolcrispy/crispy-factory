@@ -4,9 +4,9 @@ import { randomBytes } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { GITHUB_APP_PATH } from "../lib/config";
+import { GITHUB_APP_PATH } from "@factory/core/config";
 import { serve } from "./serve";
-import { GITHUB_API, appFileSchema, appJwt, githubRequest, readAppFile, type AppFile } from "../lib/github/app";
+import { GITHUB_API, appFileSchema, appJwt, githubRequest, readAppFile, type AppFile } from "@factory/integrations/github/app";
 
 const { values: args } = parseArgs({
   options: {

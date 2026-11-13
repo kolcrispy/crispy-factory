@@ -4,21 +4,21 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, inArray } from "drizzle-orm";
-import type { ExecError } from "../lib/exec";
+import type { ExecError } from "@factory/platform/exec";
 import { fake, fakeModal, FakeSandbox, sandboxes, type Reply } from "./fake-modal";
 
-const { db } = await import("../db/client");
-const { jobs, settings } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { jobs, settings } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { HostGoneError, hosts, localHost } = await import("../lib/host");
-const { modal, modalHost, realModal, sandboxName } = await import("../lib/modal-host");
-const { enabledPstack, imageProblem, parseVersion, browserServer, pinnedVersions, PSTACK_PLUGIN, REPO_DIR } = await import("../lib/sandbox");
-const { config, launchSettings, threads } = await import("../runner/ops");
-const { launchInSandboxes, maybeStarted, recoverPending } = await import("../runner/launch");
-const { sandboxRuntime } = await import("../runner/sandbox");
-const { readSettings, SETTINGS_ID, writeSettings } = await import("../lib/settings");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { HostGoneError, hosts, localHost } = await import("@factory/core/host");
+const { modal, modalHost, realModal, sandboxName } = await import("@factory/integrations/modal-host");
+const { enabledPstack, imageProblem, parseVersion, browserServer, pinnedVersions, PSTACK_PLUGIN, REPO_DIR } = await import("@factory/core/sandbox");
+const { config, launchSettings, threads } = await import("@factory/runner/ops");
+const { launchInSandboxes, maybeStarted, recoverPending } = await import("@factory/runner/launch");
+const { sandboxRuntime } = await import("@factory/runner/sandbox");
+const { readSettings, SETTINGS_ID, writeSettings } = await import("@factory/core/settings");
 
 modal.api = fakeModal;
 

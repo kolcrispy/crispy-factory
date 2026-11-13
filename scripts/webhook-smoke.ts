@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
-import { readAppFile } from "../lib/github/app";
+import { readAppFile } from "@factory/integrations/github/app";
 
 // Exercises the deployed webhook routes: a signed GitHub merge for a throwaway non-factory PR,
 // its replay, and bad signatures on both routes.

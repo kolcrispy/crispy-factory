@@ -1,6 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { startupVerdict, touchedInputs } from "../lib/rollout";
+import { startupVerdict, touchedInputs } from "@factory/core/rollout";
 
 const line = (event: string, detail: Record<string, unknown> = {}) => JSON.stringify({ at: `2026-10-29T21:00:0${event.length % 10}Z`, event, ...detail });
 const okTick = line("tick", { result: { outbox: { delivered: 0 }, pullRequests: { conflicts: [], errors: [] } } });

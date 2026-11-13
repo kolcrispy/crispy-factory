@@ -1,6 +1,6 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
-import { CONFIG_PATH, loadConfig } from "../lib/config";
+import { CONFIG_PATH, loadConfig } from "@factory/core/config";
 
 process.loadEnvFile(".env.local");
 const base = process.env.NEON_FUNCTION_INGEST_BASE_URL!.replace(/\/$/, "");

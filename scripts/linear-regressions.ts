@@ -1,6 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { commentId, linearClient, LinearError } from "../lib/linear";
+import { commentId, linearClient, LinearError } from "@factory/integrations/linear";
 
 type Vars = { name?: string; input: { id: string; name: string; body: string } };
 type Handler = (query: string, variables: Vars) => unknown;

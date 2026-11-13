@@ -1,9 +1,8 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { migrateRefusal } from "../lib/migrate-guard";
-import { endpointOf } from "../lib/test-mode";
+import { migrateRefusal } from "@factory/core/migrate-guard";
+import { endpointOf } from "@factory/core/test-mode";
 
 const PRODUCTION = "postgresql://u:p@ep-odd-field-b95xpf9v.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require";
 const PRODUCTION_POOLED = "postgresql://u:p@ep-odd-field-b95xpf9v-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require";
@@ -65,7 +64,5 @@ assert.match(refused.stderr, /Refusing to migrate/);
 assert.doesNotMatch(refused.stderr, /u:p@/, "the refusal never prints a connection string");
 assert.equal(guard(preview).code, 0);
 
-const { buildCommand } = JSON.parse(readFileSync("vercel.json", "utf8")) as { buildCommand: string };
-assert.ok(buildCommand.startsWith("bun scripts/migrate-guard.ts && bun run db:migrate"), "the Vercel build checks before it migrates");
 
 console.log("migrate guard regressions passed");

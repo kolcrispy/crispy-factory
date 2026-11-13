@@ -2,9 +2,9 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
-import type { JobRow } from "../db/schema";
-import type { MergeDecision } from "../lib/merge-decision";
-import type { Job } from "../lib/sources/types";
+import type { JobRow } from "@factory/storage/schema";
+import type { MergeDecision } from "@factory/core/merge-decision";
+import type { Job } from "@factory/core/sources/types";
 
 // Acting from Slack: signed requests straight into the interactivity handler, a fake Slack Web API
 // and response_url on localhost, and the panel's own inbox actions behind them.
@@ -15,14 +15,14 @@ const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 const OWNER_SLACK = "U0OWNER";
 
-const { db } = await import("../db/client");
-const { auditLog, intents, jobs, slackMessages } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, intents, jobs, slackMessages } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { approveDetailSchema, feedbackDetailSchema } = await import("../lib/inbox");
-const inbox = await import("../lib/inbox-actions");
-const { notifyEvents, renderMessage, SLACK_ACTION_IDS, SLACK_LINK_ACTION_IDS } = await import("../lib/slack");
-const { postResponse, slackClient } = await import("../lib/slack-api");
-const { ALREADY_RESOLVED, handleInteraction, LOADING, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist, slackRequestId, TEXT_BLOCK } = await import("../lib/slack-interactions");
+const { approveDetailSchema, feedbackDetailSchema } = await import("@factory/core/inbox");
+const inbox = await import("@factory/core/inbox-actions");
+const { notifyEvents, renderMessage, SLACK_ACTION_IDS, SLACK_LINK_ACTION_IDS } = await import("@factory/core/slack");
+const { postResponse, slackClient } = await import("@factory/integrations/slack-api");
+const { ALREADY_RESOLVED, handleInteraction, LOADING, MAX_SKEW_SECONDS, NOT_OWNER, ownerFromAllowlist, slackRequestId, TEXT_BLOCK } = await import("@factory/core/slack-interactions");
 const { serve } = await import("./serve");
 
 // --- the fake Slack: Web API calls under /api/, response_url posts under /response/

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
-import { endpointOf, TEST_BRANCH_ENV, TEST_ENDPOINT_ENV } from "../lib/test-mode";
+import { endpointOf, TEST_BRANCH_ENV, TEST_ENDPOINT_ENV } from "@factory/core/test-mode";
 
 const ENV_FILE = ".env.local";
 const DB_VARS = ["DATABASE_URL", "DATABASE_URL_UNPOOLED"];

@@ -1,6 +1,6 @@
-import type { jobs, runs } from "../db/schema";
-import { attemptBranch } from "../lib/factory";
-import { jobId } from "../lib/sources/shapes";
+import type { jobs, runs } from "@factory/storage/schema";
+import { attemptBranch } from "@factory/core/factory";
+import { jobId } from "@factory/core/sources/shapes";
 
 export function linearJob(
   externalId: string,

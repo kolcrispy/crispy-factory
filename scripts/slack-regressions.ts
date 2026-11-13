@@ -2,8 +2,8 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
-import type { JobRow } from "../db/schema";
-import type { MergeDecision } from "../lib/merge-decision";
+import type { JobRow } from "@factory/storage/schema";
+import type { MergeDecision } from "@factory/core/merge-decision";
 
 // Slack notifications against a fake Slack Web API: no request leaves this machine.
 
@@ -13,16 +13,16 @@ const TOKEN = "xoxb-regression-token-0123456789";
 const SIGNING = "regression-signing-secret-abcdef";
 process.env.SLACK_SIGNING_SECRET = SIGNING;
 
-const { db } = await import("../db/client");
-const { intents, jobs, notificationSettings, runs, slackMessages } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { intents, jobs, notificationSettings, runs, slackMessages } = await import("@factory/storage/schema");
 const { linearJob, usageRun } = await import("./fixtures");
-const { inQuietHours, notificationConfigSchema, NOTIFICATIONS_ID, parseNotificationConfig, requestSlackTest, saveNotifications, slackTestOutcome, DEFAULT_NOTIFICATIONS } = await import("../lib/notifications");
-const { eventId, NOTIFY_WINDOW_MS, notifyEvents, redact, renderMessage, resolution, SLACK_ACTION_IDS } = await import("../lib/slack");
-const { slackClient } = await import("../lib/slack-api");
-const { notifySlack, POSTING_STALE_MS, sendSlackTest, slackFromEnv } = await import("../runner/slack");
-const { deliveryFor, INTENT_ATTEMPTS, INTENT_ROUTES } = await import("../runner/intents");
-const { requestedStop } = await import("../lib/stop");
-const { reportedSlack } = await import("../lib/machine");
+const { inQuietHours, notificationConfigSchema, NOTIFICATIONS_ID, parseNotificationConfig, requestSlackTest, saveNotifications, slackTestOutcome, DEFAULT_NOTIFICATIONS } = await import("@factory/core/notifications");
+const { eventId, NOTIFY_WINDOW_MS, notifyEvents, redact, renderMessage, resolution, SLACK_ACTION_IDS } = await import("@factory/core/slack");
+const { slackClient } = await import("@factory/integrations/slack-api");
+const { notifySlack, POSTING_STALE_MS, sendSlackTest, slackFromEnv } = await import("@factory/runner/slack");
+const { deliveryFor, INTENT_ATTEMPTS, INTENT_ROUTES } = await import("@factory/runner/intents");
+const { requestedStop } = await import("@factory/core/stop");
+const { reportedSlack } = await import("@factory/core/machine");
 const { serve } = await import("./serve");
 
 // --- the fake Slack Web API

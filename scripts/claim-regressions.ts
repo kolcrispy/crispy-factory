@@ -2,17 +2,17 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, like, sql } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { intentReceipts, intents, jobs, machines } = await import("../db/schema");
-const { announceClaims, checkPullRequests, claim, claimLaunch, deliverStops, threads, writeBack } = await import("../runner/ops");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { config } = await import("../runner/config");
-const { sourceFor } = await import("../lib/sources");
-const { SourceGoneError } = await import("../lib/sources/types");
-const { github } = await import("../lib/github/pulls");
-const { closeBroadcast, deliveryFor, leaseIntent, receiptIntent } = await import("../runner/intents");
+const { db } = await import("@factory/storage/client");
+const { intentReceipts, intents, jobs, machines } = await import("@factory/storage/schema");
+const { announceClaims, checkPullRequests, claim, claimLaunch, deliverStops, threads, writeBack } = await import("@factory/runner/ops");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { config } = await import("@factory/runner/config");
+const { sourceFor } = await import("@factory/core/sources/index");
+const { SourceGoneError } = await import("@factory/core/sources/types");
+const { github } = await import("@factory/integrations/github/pulls");
+const { closeBroadcast, deliveryFor, leaseIntent, receiptIntent } = await import("@factory/runner/intents");
 const { linearJob } = await import("./fixtures");
-const { NO_OVERRIDES } = await import("../lib/ticket-overrides");
+const { NO_OVERRIDES } = await import("@factory/core/ticket-overrides");
 type Adapter = NonNullable<NonNullable<Parameters<typeof claim>[0]>["sources"]>[number];
 
 const prefix = `claim-regress-${Date.now()}`;

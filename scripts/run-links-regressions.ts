@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { jobsHref } from "../components/panel/job-view";
-import { activityHref, fullViewHref, parseSessionId, runFeedPath } from "../lib/run-links";
+import { jobsHref } from "../apps/dashboard/components/panel/job-view";
+import { activityHref, fullViewHref, parseSessionId, runFeedPath } from "@factory/core/run-links";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
@@ -37,14 +37,14 @@ for (const feed of ["agents", "events", "stages"] as const) {
   assert.equal(url.searchParams.get("session"), CODEX);
 }
 
-const { auth } = await import("../lib/auth/server");
+const { auth } = await import("../apps/dashboard/lib/auth/server");
 Object.assign(auth, {
   getSession: async () => ({ data: { user: { email: OWNER, emailVerified: true } }, error: null }),
 });
 const routes = {
-  agents: await import("../app/api/live/runs/agents/route"),
-  events: await import("../app/api/live/runs/events/route"),
-  stages: await import("../app/api/live/runs/stages/route"),
+  agents: await import("../apps/dashboard/app/api/live/runs/agents/route"),
+  events: await import("../apps/dashboard/app/api/live/runs/events/route"),
+  stages: await import("../apps/dashboard/app/api/live/runs/stages/route"),
 };
 for (const [feed, route] of Object.entries(routes)) {
   const call = (path: string) => route.POST(new Request(new URL(path, "http://localhost:3007"), { method: "POST" }));

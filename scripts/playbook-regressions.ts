@@ -2,14 +2,14 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { JobHost } from "../lib/host";
+import type { JobHost } from "@factory/core/host";
 
-const { factorySchema } = await import("../lib/config");
-const { factoryPlaybook, jobExecution, REPO_PLAYBOOK, withPlaybook } = await import("../lib/playbook");
-const { imageProblem, installPlaybooks, pinnedVersions, playbooksVersion, SANDBOX_PLAYBOOKS } = await import("../lib/sandbox");
-const { conflictMessage } = await import("../lib/conflicts");
-const { resumeMessage } = await import("../lib/resume");
-const { nudgeMessage } = await import("../lib/watchdog");
+const { factorySchema } = await import("@factory/core/config");
+const { factoryPlaybook, jobExecution, REPO_PLAYBOOK, withPlaybook } = await import("@factory/core/playbook");
+const { imageProblem, installPlaybooks, pinnedVersions, playbooksVersion, SANDBOX_PLAYBOOKS } = await import("@factory/core/sandbox");
+const { conflictMessage } = await import("@factory/core/conflicts");
+const { resumeMessage } = await import("@factory/core/resume");
+const { nudgeMessage } = await import("@factory/core/watchdog");
 
 const root = resolve(import.meta.dirname, "..");
 const pins = factorySchema.parse({}).sandbox;

@@ -5,17 +5,17 @@ import { eq, like } from "drizzle-orm";
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
-const { db } = await import("../db/client");
-const { intents, jobs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { intents, jobs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { config } = await import("../runner/config");
-const { SOURCES, parseJob } = await import("../lib/sources");
-const { allows, inboxItems, inboxKind, INBOX_ACTIONS, MAX_RETRY_NOTE_CHARS } = await import("../lib/inbox");
-const inbox = await import("../lib/inbox-actions");
-const { retryJob } = await import("../runner/inbox");
-const { claim, launchMessage } = await import("../runner/ops");
-const { INTENT_ROUTES, INTENT_ATTEMPTS } = await import("../runner/intents");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { config } = await import("@factory/runner/config");
+const { SOURCES, parseJob } = await import("@factory/core/sources/index");
+const { allows, inboxItems, inboxKind, INBOX_ACTIONS, MAX_RETRY_NOTE_CHARS } = await import("@factory/core/inbox");
+const inbox = await import("@factory/core/inbox-actions");
+const { retryJob } = await import("@factory/runner/inbox");
+const { claim, launchMessage } = await import("@factory/runner/ops");
+const { INTENT_ROUTES, INTENT_ATTEMPTS } = await import("@factory/runner/intents");
 
 const stamp = Date.now() % 1_000_000;
 const REPO = "ski043/factory-demo";

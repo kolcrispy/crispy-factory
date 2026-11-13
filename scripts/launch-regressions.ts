@@ -1,22 +1,22 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
-import type { ExecOptions } from "../lib/exec";
-import type { JobHost } from "../lib/host";
+import type { ExecOptions } from "@factory/platform/exec";
+import type { JobHost } from "@factory/core/host";
 
-const { db } = await import("../db/client");
-const { jobs } = await import("../db/schema");
-const { bindThread, claimLaunch, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads } = await import("../runner/ops");
-const { jobId, sourceFor } = await import("../lib/sources");
+const { db } = await import("@factory/storage/client");
+const { jobs } = await import("@factory/storage/schema");
+const { bindThread, claimLaunch, deliverStops, pendingLaunches, reconcileStops, releaseLaunch, threads } = await import("@factory/runner/ops");
+const { jobId, sourceFor } = await import("@factory/core/sources/index");
 const { linearJob } = await import("./fixtures");
-const { createLinearAdapter } = await import("../lib/sources/linear");
-const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
-const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("../runner/binding");
+const { createLinearAdapter } = await import("@factory/integrations/sources/linear");
+const { factorySchema, TEST_MACHINE_ID } = await import("@factory/core/config");
+const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("@factory/runner/binding");
 const { and, sql } = await import("drizzle-orm");
-const { launchEntries, maybeStarted, MaybeStartedError, parseThreadId, startThread } = await import("../runner/launch");
-const { hosts, localHost } = await import("../lib/host");
-const { everyAtMost, serialQueue } = await import("../runner/queue");
-const { recheckScheduler } = await import("../runner/recheck");
+const { launchEntries, maybeStarted, MaybeStartedError, parseThreadId, startThread } = await import("@factory/runner/launch");
+const { hosts, localHost } = await import("@factory/core/host");
+const { everyAtMost, serialQueue } = await import("@factory/runner/queue");
+const { recheckScheduler } = await import("@factory/runner/recheck");
 
 const slot = { id: TEST_MACHINE_ID, repos: ["ski043/factory-demo"], maxInFlight: 2 };
 const sent: { threadId: string; message: string }[] = [];

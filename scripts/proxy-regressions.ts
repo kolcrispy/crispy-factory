@@ -7,12 +7,12 @@ process.env.FACTORY_OWNER_EMAILS = OWNER;
 process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
 process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
 
-const { auth, assertOwner } = await import("../lib/auth/server");
+const { auth, assertOwner } = await import("../apps/dashboard/lib/auth/server");
 const REFRESHED = "x-session-refreshed";
 Object.assign(auth, {
   middleware: () => async () => NextResponse.next({ headers: { [REFRESHED]: "1" } }),
 });
-const { proxy, config } = await import("../proxy");
+const { proxy, config } = await import("../apps/dashboard/proxy");
 
 type Who = "anonymous" | "stranger" | "unverified" | "owner";
 const SESSIONS: Record<Who, { user: { email: string; emailVerified: boolean } } | null> = {
@@ -60,7 +60,8 @@ const matcher = new RegExp(`^${config.matcher[0]}$`);
 for (const path of ["/", "/api/live/runs", "/api/live/jobs/FAC-7/stages", "/machines", "/authors", "/auth/settings", "/auth/sign-in-evil", "/auth/sign-upx", "/auth/forbiddenx", "/favicon.icox", "/faviconxico", "/api/authx", "/api/slackx", "/_next/staticx", "/auth/sign-in.evil"]) {
   assert.ok(matcher.test(path), `the proxy guards ${path}`);
 }
-for (const path of ["/auth/sign-in", "/auth/sign-in/", "/auth/sign-in.rsc", "/auth/sign-in.segments/_tree.segment.rsc", "/auth/sign-up", "/auth/forbidden", "/api/auth/sign-in/email", "/api/slack/interactions", "/api/slack/commands", "/_next/static/chunk.js", "/_next/image", "/favicon.ico"]) {
+for (const path of ["/api/slack/interactions", "/api/slack/commands"]) assert.ok(matcher.test(path), "Slack endpoints belong to the independent gateway, not the dashboard");
+for (const path of ["/auth/sign-in", "/auth/sign-in/", "/auth/sign-in.rsc", "/auth/sign-in.segments/_tree.segment.rsc", "/auth/sign-up", "/auth/forbidden", "/api/auth/sign-in/email", "/_next/static/chunk.js", "/_next/image", "/favicon.ico"]) {
   assert.ok(!matcher.test(path), `the proxy lets ${path} through without a session`);
 }
 
@@ -68,7 +69,7 @@ for (const who of ["anonymous", "stranger", "unverified"] as const) {
   signInAs(who);
   await assert.rejects(assertOwner(), /owner session is required/, `the seal refuses ${who}`);
 }
-const { load, runJob, runsQuery, sealedResponse } = await import("../lib/live-queries");
+const { load, runJob, runsQuery, sealedResponse } = await import("../apps/dashboard/lib/live-queries");
 signInAs("unverified");
 await assert.rejects(sealedResponse(runsQuery()), /owner session is required/, "an unverified owner gets no sealed query");
 await assert.rejects(load(runsQuery()), /owner session is required/, "an unverified owner gets no rows or sealed query");

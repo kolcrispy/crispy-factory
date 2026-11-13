@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
-import type { Stage } from "../lib/events";
-import { attemptBranch, parseBranch } from "../lib/factory";
-import { canTransition, decideStage, type StageMove, type StageRow } from "../lib/stages";
+import type { Stage } from "@factory/core/events";
+import { attemptBranch, parseBranch } from "@factory/core/factory";
+import { canTransition, decideStage, type StageMove, type StageRow } from "@factory/core/stages";
 
 // Replays every input that moves jobs.stage on the branch DATABASE_URL names (default: .env.local)
 // through lib/stages.ts and through the rules ingest used before it, then compares the end state
@@ -20,8 +20,8 @@ try {
   process.loadEnvFile(".env.local");
 } catch {
 }
-const { db } = await import("../db/client");
-const { events, jobs, runs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { events, jobs, runs } = await import("@factory/storage/schema");
 
 function legacyApplies(row: StageRow, move: StageMove) {
   if (row.stage_at && move.at < row.stage_at) return false;

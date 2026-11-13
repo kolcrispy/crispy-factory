@@ -2,18 +2,18 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import type { Harness } from "../lib/harness";
+import type { Harness } from "@factory/core/harness";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
-const { db } = await import("../db/client");
-const { jobs, settings } = await import("../db/schema");
-const { DEFAULT_MODEL, DEFAULT_PROVIDER } = await import("../lib/harness");
-const { imageOutdated, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, sandboxLogin } = await import("../lib/machine");
-const { readSettings, saveSettings, SETTINGS_ID, writeSettings } = await import("../lib/settings");
-const { readHarnesses } = await import("../lib/t3-state");
-const { claimLaunch, effectiveHarness, releaseLaunch } = await import("../runner/ops");
+const { db } = await import("@factory/storage/client");
+const { jobs, settings } = await import("@factory/storage/schema");
+const { DEFAULT_MODEL, DEFAULT_PROVIDER } = await import("@factory/core/harness");
+const { imageOutdated, rebuildText, reportedDrift, reportedHarnesses, reportedSandbox, sandboxLogin } = await import("@factory/core/machine");
+const { readSettings, saveSettings, SETTINGS_ID, writeSettings } = await import("@factory/core/settings");
+const { readHarnesses } = await import("@factory/integrations/t3-state");
+const { claimLaunch, effectiveHarness, releaseLaunch } = await import("@factory/runner/ops");
 const { linearJob } = await import("./fixtures");
 
 const fixtures = join(import.meta.dirname, "fixtures/harness");

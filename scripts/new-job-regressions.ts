@@ -1,12 +1,13 @@
 import "./test-guard";
 import assert from "node:assert/strict";
+import { trustedOperator } from "@factory/core/auth/owner";
+import type { FileDraft } from "@factory/core/sources/types";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
-const { createJob, uploadJobImage } = await import("../lib/new-job");
-const { linearFiler, linearUploader } = await import("../lib/sources/linear");
-type FileDraft = Parameters<typeof createJob>[0]["file"] extends (d: infer D) => unknown ? D : never;
+const { createJob, uploadJobImage } = await import("@factory/core/new-job");
+const { linearFiler, linearUploader } = await import("@factory/integrations/sources/linear");
 
 const owner = { email: OWNER, emailVerified: true };
 const requestId = "6f0c3f8e-1f4b-4a52-9f0e-2d7c5a8b9c10";
@@ -36,6 +37,18 @@ const draft = { title: "Show the item count", description: "On the weight sort b
   const down = await createJob({ user: async () => owner, file: async () => Promise.reject(new Error("Linear is down")), harnesses, registry }, draft);
   assert.equal(!down.ok && down.status, 502, "a Linear failure is reported");
   assert.match(!down.ok ? down.message : "", /Linear is down/);
+
+  const allowlist = process.env.FACTORY_OWNER_EMAILS;
+  process.env.FACTORY_OWNER_EMAILS = "";
+  try {
+    const user = trustedOperator("local:job-submitter");
+    const submitted = await createJob({ user: async () => user, file, harnesses, registry }, draft);
+    assert.equal(submitted.ok, true, "trusted CLI submission requires no dashboard account");
+    const spoofed = await createJob({ user: async () => ({ ...user }), file, harnesses, registry }, draft);
+    assert.equal(!spoofed.ok && spoofed.status, 403, "browser input cannot forge the trusted operator identity");
+  } finally {
+    if (allowlist === undefined) delete process.env.FACTORY_OWNER_EMAILS; else process.env.FACTORY_OWNER_EMAILS = allowlist;
+  }
 }
 
 {

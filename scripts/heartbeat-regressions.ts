@@ -5,12 +5,12 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { jobs, machines } = await import("../db/schema");
-const { isOnline, heartbeatSchema, inventorySchema, parseHeartbeat } = await import("../lib/machine");
-const { parseConnectStatus, readProjects } = await import("../lib/t3-state");
-const { collectHeartbeat, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } = await import("../runner/heartbeat");
-const { claimLaunch, releaseLaunch } = await import("../runner/ops");
+const { db } = await import("@factory/storage/client");
+const { jobs, machines } = await import("@factory/storage/schema");
+const { isOnline, heartbeatSchema, inventorySchema, parseHeartbeat } = await import("@factory/core/machine");
+const { parseConnectStatus, readProjects } = await import("@factory/integrations/t3-state");
+const { collectHeartbeat, createBeat, identify, inventoryReporter, parseDf, parseOrigin, parseVmStat, writeHeartbeat, writeInventory } = await import("@factory/runner/heartbeat");
+const { claimLaunch, releaseLaunch } = await import("@factory/runner/ops");
 const { linearJob } = await import("./fixtures");
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtures/heartbeat", name), "utf8");

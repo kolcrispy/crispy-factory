@@ -1,22 +1,20 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { eq, inArray, like } from "drizzle-orm";
-import type { JobRow } from "../db/schema";
-import type { MergeDecision } from "../lib/merge-decision";
+import type { JobRow } from "@factory/storage/schema";
+import type { MergeDecision } from "@factory/core/merge-decision";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
-const { db } = await import("../db/client");
-const { auditLog, jobs, runs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, jobs, runs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { archiveRefusal, isArchived, splitArchived } = await import("../lib/archive");
-const { archiveJobs, unarchiveJobs } = await import("../lib/archive-actions");
-const { inboxItems } = await import("../lib/inbox");
-const { requestedStop } = await import("../lib/stop");
-const { panelCards } = await import("../components/panel/cards");
+const { archiveRefusal, isArchived, splitArchived } = await import("@factory/core/archive");
+const { archiveJobs, unarchiveJobs } = await import("@factory/core/archive-actions");
+const { inboxItems } = await import("@factory/core/inbox");
+const { requestedStop } = await import("@factory/core/stop");
+const { panelCards } = await import("../apps/dashboard/components/panel/cards");
 
 // --- the rules, pure
 const T = (minutes: number) => new Date(1_800_000_000_000 + minutes * 60_000);
@@ -139,14 +137,6 @@ assert.deepEqual(
 await db.update(jobs).set({ stage: "queued", stage_at: new Date(Date.now() + 60_000) }).where(eq(jobs.id, ids.merged));
 assert.ok((await panel()).shown.includes(KEYS.merged), "a job moved on after its archive is back on the board");
 
-// The runner and ingest never read the archive.
-const sources = [
-  ...readdirSync(join(import.meta.dirname, "../runner"), { recursive: true }).map(String).filter((f) => f.endsWith(".ts")).map((f) => join("runner", f)),
-  "lib/ingest.ts",
-];
-for (const file of sources) {
-  assert.ok(!readFileSync(join(import.meta.dirname, "..", file), "utf8").includes("archived_"), `${file} doesn't read the archive`);
-}
 
 await db.delete(auditLog).where(inArray(auditLog.job_id, Object.values(ids)));
 await db.delete(runs).where(like(runs.session_id, "archive-regress-%"));

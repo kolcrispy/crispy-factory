@@ -2,13 +2,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { loadLimits } from "../lib/config";
-import { readRollout, ROLLOUT_PATH, startupVerdict, touchedInputs } from "../lib/rollout";
-import { imageProblem, IMAGE_BUNDLES, readSandboxImage } from "../lib/sandbox";
+import { loadLimits } from "@factory/core/config";
+import { readRollout, ROLLOUT_PATH, startupVerdict, touchedInputs } from "@factory/core/rollout";
+import { imageProblem, IMAGE_BUNDLES, readSandboxImage } from "@factory/core/sandbox";
 
 // Rolls merged main out to the live setup, in the order the parts depend on each other, and stops
 // at the first failure:
-//   1. wait for Vercel's production deploy of origin/main, which also migrates the database
+//   1. optionally wait for Vercel's production deploy with --dashboard
 //   2. refuse while this machine's runner has jobs in flight (--wait waits for them instead)
 //   3. stop the runner, pull main and bun install in the checkout
 //   4. bun run db:migrate
@@ -16,7 +16,7 @@ import { imageProblem, IMAGE_BUNDLES, readSandboxImage } from "../lib/sandbox";
 //   6. rebuild the sandbox image when its pins drifted or its bundles' inputs changed since it was built
 //   7. reinstall the runner and wait for its first clean tick
 // Then it records the commit in ~/.config/marshal-factory/rollout.json for the next run.
-//   bun scripts/rollout.ts [--wait] [--canary] [--force] [--checkout <path>]
+//   bun scripts/rollout.ts [--wait] [--dashboard] [--canary] [--force] [--checkout <path>]
 // --canary runs scripts/canary.ts afterwards. --force rolls out even when the commit was rolled out
 // already. --checkout names the live checkout when this script runs from another one.
 // Steps 4 to 7 run in a fresh process from the pulled checkout's script, so they are the new code's.
@@ -57,7 +57,7 @@ async function waitFor<T>(what: string, timeoutMs: number, everyMs: number, chec
   }
 }
 
-/** The Vercel commit status on main's head is the production deploy; it runs the migrations too. */
+/** Optional dashboard deployment gate; database migrations remain an explicit rollout step. */
 async function waitForVercel(sha: string) {
   log(`waiting for Vercel's production deploy of ${sha.slice(0, 7)}`);
   let last = "";
@@ -75,8 +75,8 @@ async function waitForVercel(sha: string) {
 
 /** This machine's jobs whose thread is working or stopping, counted as the runner counts them. */
 async function inFlight() {
-  const { machineInFlight } = await import(join(checkout, "runner/ops.ts"));
-  const { thisMachine } = await import(join(checkout, "runner/heartbeat.ts"));
+  const { machineInFlight } = await import(join(checkout, "apps/runner/src/ops.ts"));
+  const { thisMachine } = await import(join(checkout, "apps/runner/src/heartbeat.ts"));
   return (await machineInFlight((await thisMachine()).id)) as number;
 }
 
@@ -92,7 +92,7 @@ async function beforePull() {
     return false;
   }
   log(`rolling out ${target.slice(0, 7)} to ${checkout}; last rollout ${last ? `${last.commit.slice(0, 7)} at ${last.at}` : "none recorded"}`);
-  await waitForVercel(target);
+  if (flag("--dashboard")) await waitForVercel(target);
 
   process.chdir(checkout);
   process.loadEnvFile(".env.local");
@@ -146,10 +146,10 @@ async function afterPull() {
   run("bun", ["run", "db:migrate"]);
 
   const ingestChanged = changedSince(last?.commit);
-  const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["functions/ingest/index.ts"]));
+  const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["apps/gateway/src/index.ts"]));
   if (ingestTouched === null) log("ingest: no earlier rollout to compare with, so it is deployed");
   else if (ingestTouched.length > 0) log(`ingest: ${ingestTouched.join(", ")} changed`);
-  if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "functions/ingest/index.ts"]);
+  if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "apps/gateway/src/index.ts"]);
   else log("ingest: unchanged since the last rollout, not deployed");
 
   const image = readSandboxImage();
@@ -157,7 +157,7 @@ async function afterPull() {
   else {
     const problem = imageProblem(image, loadLimits().sandbox);
     const imageChanged = changedSince(image.factoryCommit);
-    const imageTouched = imageChanged && touchedInputs(imageChanged, [...(bundleInputs(IMAGE_BUNDLES)), "scripts/sandbox-image.ts", "lib/sandbox-image-build.ts"]);
+    const imageTouched = imageChanged && touchedInputs(imageChanged, [...(bundleInputs(IMAGE_BUNDLES)), "scripts/sandbox-image.ts", "packages/core/src/sandbox-image-build.ts"]);
     const why = [problem, imageTouched === null ? `its commit ${image.factoryCommit.slice(0, 7)} is not in this checkout` : imageTouched.length > 0 && `${imageTouched.join(", ")} changed`].filter(Boolean);
     if (why.length > 0) {
       log(`image: rebuilding, ${why.join("; ")}`);

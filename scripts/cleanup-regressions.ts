@@ -4,17 +4,17 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { planCleanup, type BranchState } from "../lib/cleanup";
-import { attemptBranch, parseBranch } from "../lib/factory";
+import { planCleanup, type BranchState } from "@factory/core/cleanup";
+import { attemptBranch, parseBranch } from "@factory/core/factory";
 
 // A T3 CLI with no threads; the cleanup modules read the path when they load.
 const t3Dir = mkdtempSync(join(tmpdir(), "cleanup-t3-"));
 process.env.T3CODE_CLI_PATH = join(t3Dir, "t3");
 writeFileSync(process.env.T3CODE_CLI_PATH, "#!/bin/sh\necho '[]'\n", { mode: 0o755 });
-const { cleanupRepo, linkedWorktrees } = await import("../lib/worktrees");
-const { github } = await import("../lib/github/pulls");
-const ops = await import("../runner/ops");
-const { reconcile } = await import("../runner/reconcile");
+const { cleanupRepo, linkedWorktrees } = await import("@factory/core/worktrees");
+const { github } = await import("@factory/integrations/github/pulls");
+const ops = await import("@factory/runner/ops");
+const { reconcile } = await import("@factory/runner/reconcile");
 
 const now = new Date("2026-10-23T12:00:00Z");
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);

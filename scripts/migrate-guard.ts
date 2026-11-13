@@ -1,4 +1,5 @@
-import { migrateRefusal } from "../lib/migrate-guard";
+import "@factory/platform/environment";
+import { migrateRefusal } from "@factory/core/migrate-guard";
 
 const refusal = migrateRefusal(process.env);
 if (refusal) {

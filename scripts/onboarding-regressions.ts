@@ -5,28 +5,28 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, inArray, like, sql } from "drizzle-orm";
-import type { OnboardingDetail } from "../lib/onboarding";
+import type { OnboardingDetail } from "@factory/core/onboarding";
 import { fake, fakeModal, sandboxes, type FakeSandbox } from "./fake-modal";
 
-const { db } = await import("../db/client");
-const { codexSlotLeases, intents, jobs, repoSettings } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { codexSlotLeases, intents, jobs, repoSettings } = await import("@factory/storage/schema");
 type RepoRow = typeof repoSettings.$inferSelect;
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { modal } = await import("../lib/modal-host");
-const recipes = await import("../lib/recipe");
-const { recipeHash } = await import("../lib/recipe-hash");
-const onboarding = await import("../lib/onboarding");
-const actions = await import("../lib/repo-onboarding");
-const { pinnedVersions, REPO_DIR, GITHUB_TOKEN_PATH } = await import("../lib/sandbox");
-const { githubPushIntent } = await import("../lib/webhooks");
-const { config } = await import("../runner/ops");
-const { threads } = await import("../runner/threads");
-const { sandboxRuntime } = await import("../runner/sandbox");
-const { launchInSandboxes, sandboxStart } = await import("../runner/launch");
-const runner = await import("../runner/onboarding");
-const { ORPHAN_LEASE_MS, releaseOrphanLeases } = await import("../runner/lifecycle");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { modal } = await import("@factory/integrations/modal-host");
+const recipes = await import("@factory/core/recipe");
+const { recipeHash } = await import("@factory/core/recipe-hash");
+const onboarding = await import("@factory/core/onboarding");
+const actions = await import("@factory/core/repo-onboarding");
+const { pinnedVersions, REPO_DIR, GITHUB_TOKEN_PATH } = await import("@factory/core/sandbox");
+const { githubPushIntent } = await import("@factory/core/webhooks");
+const { config } = await import("@factory/runner/ops");
+const { threads } = await import("@factory/runner/threads");
+const { sandboxRuntime } = await import("@factory/runner/sandbox");
+const { launchInSandboxes, sandboxStart } = await import("@factory/runner/launch");
+const runner = await import("@factory/runner/onboarding");
+const { ORPHAN_LEASE_MS, releaseOrphanLeases } = await import("@factory/runner/lifecycle");
 
 modal.api = fakeModal;
 
@@ -324,7 +324,7 @@ try {
 
   // No recipe on main: one agent thread writes it, the result comes back, the sandbox goes.
   // The slot is leased before the sandbox exists: a job leasing while it is created cannot take it.
-  const { leaseSlot } = await import("../runner/lifecycle");
+  const { leaseSlot } = await import("@factory/runner/lifecycle");
   const raceKey = `ONBR-${stamp % 100000}`;
   await db.insert(jobs).values(linearJob(jobIds[3]!, raceKey, { repo: LAUNCH }));
   const leases = async () => (await db.select().from(codexSlotLeases).where(inArray(codexSlotLeases.slot, [slotA, slotB]))).map((l) => [l.slot, l.holder_kind, l.holder_id]);

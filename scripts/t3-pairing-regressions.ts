@@ -7,16 +7,16 @@ import { fake, fakeModal, type FakeSandbox } from "./fake-modal";
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 
-const { db } = await import("../db/client");
-const { intents, jobs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { intents, jobs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { modal } = await import("../lib/modal-host");
-const { HIBERNATED_MESSAGE, requestPairing, takePairing } = await import("../lib/t3-pairing");
-const { config } = await import("../runner/config");
-const { openT3 } = await import("../runner/lifecycle");
-const { expirePairings, INTENT_ATTEMPTS, INTENT_ROUTES, loggable } = await import("../runner/intents");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { modal } = await import("@factory/integrations/modal-host");
+const { HIBERNATED_MESSAGE, requestPairing, takePairing } = await import("@factory/core/t3-pairing");
+const { config } = await import("@factory/runner/config");
+const { openT3 } = await import("@factory/runner/lifecycle");
+const { expirePairings, INTENT_ATTEMPTS, INTENT_ROUTES, loggable } = await import("@factory/runner/intents");
 
 modal.api = fakeModal;
 

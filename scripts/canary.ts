@@ -24,14 +24,14 @@ const timeoutMs = Number(option("--timeout-minutes") ?? 60) * 60_000;
 // The checkout only lends its env; the code is this script's own, so --checkout from a newer branch files with that branch's filer.
 process.chdir(checkout);
 process.loadEnvFile(".env.local");
-const { db } = await import("../db/client");
-const { jobEvidence, jobs, jobScreenshots } = await import("../db/schema");
-const { loadConfig } = await import("../lib/config");
-const { parseJob, sourceFor } = await import("../lib/sources");
-const { linearFiler } = await import("../lib/sources/linear");
-const { readRegistry, repoLabel, REPOSITORY_GROUP } = await import("../lib/repositories");
-const { RUNS_ON_GROUP, RUNS_ON_LABELS } = await import("../lib/ticket-overrides");
-const { REVIEW_LABEL } = await import("../lib/merge-decision");
+const { db } = await import("@factory/storage/client");
+const { jobEvidence, jobs, jobScreenshots } = await import("@factory/storage/schema");
+const { loadConfig } = await import("@factory/core/config");
+const { parseJob, sourceFor } = await import("@factory/core/sources/index");
+const { linearFiler } = await import("@factory/integrations/sources/linear");
+const { readRegistry, repoLabel, REPOSITORY_GROUP } = await import("@factory/core/repositories");
+const { RUNS_ON_GROUP, RUNS_ON_LABELS } = await import("@factory/core/ticket-overrides");
+const { REVIEW_LABEL } = await import("@factory/core/merge-decision");
 type JobRow = typeof jobs.$inferSelect;
 
 const t0 = Date.now();

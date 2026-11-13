@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { Client } from "pg";
 import { z } from "zod";
-import { endpointOf, TEST_BRANCH_ENV, TEST_ENDPOINT_ENV } from "../lib/test-mode";
+import { endpointOf, TEST_BRANCH_ENV, TEST_ENDPOINT_ENV } from "@factory/core/test-mode";
 
 const exec = promisify(execFile);
 const EXPIRES_AFTER_MS = 2 * 3_600_000;

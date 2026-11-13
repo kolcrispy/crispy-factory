@@ -1,5 +1,5 @@
 import { ConflictError, NotFoundError, SandboxFilesystemNotFoundError } from "modal";
-import type { ModalApi, SandboxHandle, SandboxProcess, SandboxSpec } from "../lib/modal-host";
+import type { ModalApi, SandboxHandle, SandboxProcess, SandboxSpec } from "@factory/integrations/modal-host";
 
 // A fake Modal for regressions: each sandbox records its execs and files, a per-test handler
 // answers execs, and a snapshot is an image that copies the files into the next sandbox.

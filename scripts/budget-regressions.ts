@@ -4,12 +4,12 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { factorySchema } from "../lib/config";
-import { wiredRoots, withHooks } from "../lib/target-wiring";
+import { factorySchema } from "@factory/core/config";
+import { wiredRoots, withHooks } from "@factory/core/target-wiring";
 
 // There is no budget cap. Repos wired before it was removed still run hooks/budget.ts, which must allow everything.
 const home = mkdtempSync(join(tmpdir(), "budget-"));
-const hook = join(import.meta.dirname, "../hooks/budget.ts");
+const hook = join(import.meta.dirname, "../packages/reporting/src/hooks/budget.ts");
 const write = (path: string, text: string) => {
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, text);

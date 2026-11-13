@@ -2,13 +2,13 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { asc } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { jobs } = await import("../db/schema");
-const ops = await import("../runner/ops");
-const { jobId, parseJobs, SOURCES } = await import("../lib/sources");
+const { db } = await import("@factory/storage/client");
+const { jobs } = await import("@factory/storage/schema");
+const ops = await import("@factory/runner/ops");
+const { jobId, parseJobs, SOURCES } = await import("@factory/core/sources/index");
 const { linearJob } = await import("./fixtures");
-const { createLinearAdapter } = await import("../lib/sources/linear");
-const { factorySchema, TEST_MACHINE_ID } = await import("../lib/config");
+const { createLinearAdapter } = await import("@factory/integrations/sources/linear");
+const { factorySchema, TEST_MACHINE_ID } = await import("@factory/core/config");
 
 const calls: unknown[] = [];
 const record = <T>(name: string, result: T) => (...args: unknown[]) => {

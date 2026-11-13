@@ -2,36 +2,36 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { eq, inArray, like } from "drizzle-orm";
-import type { JobRow } from "../db/schema";
-import type { AssessmentInput } from "../lib/assessment";
-import type { Harness } from "../lib/harness";
-import type { MergeDecision } from "../lib/merge-decision";
-import type { FileDraft } from "../lib/sources/types";
+import type { JobRow } from "@factory/storage/schema";
+import type { AssessmentInput } from "@factory/core/assessment";
+import type { Harness } from "@factory/core/harness";
+import type { MergeDecision } from "@factory/core/merge-decision";
+import type { FileDraft } from "@factory/core/sources/types";
 
 const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 const SECRET = "inbox-webhook-secret";
 process.env.GITHUB_APP_WEBHOOK_SECRET = SECRET;
 
-const { db } = await import("../db/client");
-const { auditLog, events, intents, jobs, repoSettings, webhookDeliveries } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, events, intents, jobs, repoSettings, webhookDeliveries } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { SOURCES } = await import("../lib/sources");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { eventSchema } = await import("../lib/events");
-const { ingest } = await import("../lib/ingest");
-const { hosts, localHost } = await import("../lib/host");
-const { github, pullsClient } = await import("../lib/github/pulls");
-const { writeRepoAutonomy } = await import("../lib/settings");
-const { allows, approveDetailSchema, changesMessage, feedbackDetailSchema, followUpHint, followUpIssue, inboxItems, inboxKind, isDismissed } = await import("../lib/inbox");
-const { approvalBlockers, reviewSummary } = await import("../lib/merge-decision");
-const { githubIntent } = await import("../lib/webhooks");
-const inbox = await import("../lib/inbox-actions");
-const { approveMerge } = await import("../runner/merge-decision");
-const { closeJob, forwardReview, REVIEW_WAIT_MS, requestChanges } = await import("../runner/inbox");
-const { ingestClient, threads } = await import("../runner/ops");
-const { INTENT_ROUTES } = await import("../runner/intents");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { SOURCES } = await import("@factory/core/sources/index");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { eventSchema } = await import("@factory/core/events");
+const { ingest } = await import("@factory/core/ingest");
+const { hosts, localHost } = await import("@factory/core/host");
+const { github, pullsClient } = await import("@factory/integrations/github/pulls");
+const { writeRepoAutonomy } = await import("@factory/core/settings");
+const { allows, approveDetailSchema, changesMessage, feedbackDetailSchema, followUpHint, followUpIssue, inboxItems, inboxKind, isDismissed } = await import("@factory/core/inbox");
+const { approvalBlockers, reviewSummary } = await import("@factory/core/merge-decision");
+const { githubIntent } = await import("@factory/core/webhooks");
+const inbox = await import("@factory/core/inbox-actions");
+const { approveMerge } = await import("@factory/runner/merge-decision");
+const { closeJob, forwardReview, REVIEW_WAIT_MS, requestChanges } = await import("@factory/runner/inbox");
+const { ingestClient, threads } = await import("@factory/runner/ops");
+const { INTENT_ROUTES } = await import("@factory/runner/intents");
 const { serve } = await import("./serve");
 
 // --- the inbox's rules, pure
@@ -329,6 +329,8 @@ try {
   assert.equal(putsTo(1).length, 1, "and never merges twice");
   await db.update(intents).set({ handled_at: new Date(), result: JSON.stringify({ approval: approved }) }).where(eq(intents.id, approveIntent!.id));
   assert.deepEqual(await inbox.intentOutcome(deps(), approveIntent!.id), { status: "done", message: "Merged as merge-1. The factory now watches main." });
+  assert.deepEqual(await inbox.approveMerge(deps(), handId, id1, "h1"), approval, "replaying accepted approval after merge returns its original request");
+  assert.deepEqual(await inbox.approveMerge(deps(), jobId("linear", "different-job"), id1, "h1"), { ok: false, message: "The request id already belongs to another job." }, "request identity cannot migrate to another target");
 
   const NOCI = await job("NOCI", {}, { number: 41, checks: "none" });
   assert.deepEqual(await approveMerge((await row(NOCI)).id, { actor: OWNER, headSha: "h41", via: "run_detail" }), { merged: "merge-41" }, "a repo without CI merges on the owner's approval");
@@ -436,7 +438,7 @@ try {
   threadState = "stopped";
 
   // --- GitHub reviews: recorded once per review, forwarded like the panel's
-  const { default: ingestFunction } = await import("../functions/ingest/index");
+  const { default: ingestFunction } = await import("@factory/gateway/index");
   const REVIEWED = await job("REVIEWED", {}, { number: 7 });
   const reviewBody = (delivery: string, user = { login: "jan", type: "User" }) => {
     const raw = JSON.stringify({ ...review({ id: 9000 + stamp }, user), pull_request: { html_url: prUrl(7) } });

@@ -1,8 +1,8 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { STAGES, type Stage } from "../lib/events";
-import { canTransition, causeOf, decideStage, RUNNER_CAUSES, runnerEventId, type Cause } from "../lib/stages";
-import { isStopped } from "../runner/binding";
+import { STAGES, type Stage } from "@factory/core/events";
+import { canTransition, causeOf, decideStage, RUNNER_CAUSES, runnerEventId, type Cause } from "@factory/core/stages";
+import { isStopped } from "@factory/runner/binding";
 
 const CAUSES: Cause[] = ["report", ...RUNNER_CAUSES];
 const WORKING: Stage[] = ["queued", "triage", "investigating", "implementing", "verifying"];

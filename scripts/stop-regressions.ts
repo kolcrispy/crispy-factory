@@ -2,24 +2,24 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, sql } from "drizzle-orm";
 import { fakeModal, type FakeSandbox } from "./fake-modal";
-import type { JobHost } from "../lib/host";
-import type { InterruptOutcome, SubagentThread } from "../lib/t3-client";
-import type { ThreadActivity } from "../runner/threads";
+import type { JobHost } from "@factory/core/host";
+import type { InterruptOutcome, SubagentThread } from "@factory/integrations/t3-client";
+import type { ThreadActivity } from "@factory/runner/threads";
 
-const { db } = await import("../db/client");
-const { jobs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { jobs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { SOURCES } = await import("../lib/sources");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { modal } = await import("../lib/modal-host");
-const { inboxKind, inboxReason } = await import("../lib/inbox");
-const { parseStop } = await import("../lib/stop");
-const { listSubagents, interruptThread } = await import("../lib/t3-client");
-const { canReclaim, canReclaimSql, stopping } = await import("../runner/binding");
-const { bindThread, ingestClient, machineInFlight, stopJob, threads, writeBack } = await import("../runner/ops");
-const { confirmStops, retryStop } = await import("../runner/stops");
-const { teardownFinished } = await import("../runner/lifecycle");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { SOURCES } = await import("@factory/core/sources/index");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { modal } = await import("@factory/integrations/modal-host");
+const { inboxKind, inboxReason } = await import("@factory/core/inbox");
+const { parseStop } = await import("@factory/core/stop");
+const { listSubagents, interruptThread } = await import("@factory/integrations/t3-client");
+const { canReclaim, canReclaimSql, stopping } = await import("@factory/runner/binding");
+const { bindThread, ingestClient, machineInFlight, stopJob, threads, writeBack } = await import("@factory/runner/ops");
+const { confirmStops, retryStop } = await import("@factory/runner/stops");
+const { teardownFinished } = await import("@factory/runner/lifecycle");
 
 modal.api = fakeModal;
 
@@ -239,6 +239,13 @@ try {
   const N = await insert("N", { stage: "queued", machine_id: null, t3_thread_id: null });
   await stopJob(await idOf(N), "the factory label was removed");
   assert.deepEqual([(await stopOf(N)).state, (await stopOf(N)).evidence], ["confirmed", "No thread was started, so nothing ran."]);
+
+  const O = await insert("O", { stage: "queued", machine_id: null, t3_thread_id: null, attempt: 2 });
+  assert.deepEqual(await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 1 }), { refused: "The job has moved to another attempt." });
+  assert.equal((await row(O)).stage, "queued", "a stale operator request must not stop a newer attempt");
+  await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 2 });
+  assert.equal((await row(O)).stage, "failed", "the current attempt accepts explicit cancellation");
+  assert.equal((await stopOf(O)).state, "confirmed", "no thread needs confirmation when cancellation precedes launch");
 
   // --- write-back waits for the stop to settle
   const W = await insert("W", {

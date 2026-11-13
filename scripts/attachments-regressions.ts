@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { localizeLinearImages } = await import("../lib/sources/linear");
+const { localizeLinearImages } = await import("@factory/integrations/sources/linear");
 
 const PNG: Uint8Array<ArrayBuffer> = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
 const upload = (name: string) => `https://uploads.linear.app/org/${name}`;

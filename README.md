@@ -10,11 +10,11 @@ When the PR is ready, the agent reports whether it is confident it built what th
 
 The pieces:
 
-- **Panel** (`app/`, `components/`): a Next.js app on Vercel. Its **Jobs** page shows every job as a board or a list (the header's Board/List switch; the panel remembers your pick), with each run's timeline and cost in a side panel you can expand to full view. **Inbox** lists what needs you: questions, PRs to review, failures. The panel files jobs and approves merges. Only the owner can sign in.
-- **Ingest Function** (`functions/ingest/`): a Neon Function that receives the Linear and GitHub webhooks and the reporter's events, and writes them to Postgres.
-- **Runner** (`runner/`): a Bun daemon on your Mac, run by launchd. It is the only part that touches T3, git and the GitHub API, starts and hibernates the Modal sandboxes, makes every merge, and posts the Slack notifications.
-- **Slack app** (`app/api/slack/`, optional): notifications, buttons to answer, merge or request changes, and `/factory` to file jobs. The routes run on Vercel and act through the same inbox actions as the panel.
-- **Reporter** (`hooks/`, `mcp/`): Claude Code hooks and a small MCP server, installed into each target repo. They send the run's progress to the ingest Function.
+- **Dashboard** (`apps/dashboard/`, optional): owner-protected Next.js supervision UI on Vercel.
+- **Gateway** (`apps/gateway/`): independently hosted Neon Function for Linear/GitHub webhooks, reporter events, and signed Slack commands/interactions. It persists work while runners are offline.
+- **Runner** (`apps/runner/`): Bun daemon on your Mac, run by launchd. Executes T3 jobs locally or in Modal, reconciles durable intents, and performs merges.
+- **Operator CLI** (`apps/cli/`): trusted local database access for inspection, configuration, repository bootstrap, and job controls. No dashboard account or running dashboard required.
+- **Reporter** (`packages/reporting/`): Claude Code hooks and reporting MCP server installed into target repos.
 - **Playbook** (`playbooks/factory.md`): the instructions every factory thread follows. It extends PStack's bug-fix and feature playbooks.
 
 ## What you need
@@ -24,7 +24,7 @@ Accounts:
 - **Linear**, with a team for factory work and a personal API key.
 - **GitHub**, for the target repo and a GitHub App the setup creates for you.
 - **Neon**, for Postgres, Auth, Realtime and the ingest Function.
-- **Vercel**, for the panel.
+- Optional: **Vercel** and Neon Auth, for the dashboard only.
 - Optional: **Modal**, to run jobs in cloud sandboxes ([Running jobs in Modal sandboxes](#running-jobs-in-modal-sandboxes)), and **Slack**, for notifications and acting from Slack ([Connecting Slack](#connecting-slack)).
 
 On the Mac that runs the factory:
@@ -48,12 +48,23 @@ cd ~/code/marshal-factory
 bun install
 ```
 
+For backend-only installation with Bun 1.4.4, replace `bun install` with:
+
+```sh
+bun install --filter @factory/runner --filter @factory/cli --filter @factory/gateway --production --frozen-lockfile
+bun run build:backend
+bun run cli --help
+```
+
+This excludes Next.js. Keep the checkout's workspace packages alongside build outputs. Configure local credentials in `.env.local`, exported environment, or a file selected by `MARSHAL_FACTORY_ENV`. The CLI trusts `DATABASE_URL`; use it only on a trusted operator machine. `--actor` attributes actions and does not authenticate an untrusted client. The runner still requires T3 and its machine configuration. Gateway hosting remains required even when the dashboard is omitted.
+
+
 Fork the repo first if you want Vercel to deploy your copy. This checkout is the **live checkout**. The runner, and the hooks installed into your target repos, run code straight from this path. Keep it on `main` and don't move it. Do development work in a separate clone or worktree.
 
 ### 2. Change the two values tied to the original setup
 
 - `scripts/setup-github-app.ts`: change the manifest's `name` (`marshal-factory-ski043`) and `url`. GitHub App names are unique across GitHub, so you need your own, such as `marshal-factory-<you>`.
-- `lib/migrate-guard.ts`: `PRODUCTION_ENDPOINTS` names the production database endpoint, so a preview build can never migrate production. You fill it in at step 4.
+- `packages/core/src/migrate-guard.ts`: `PRODUCTION_ENDPOINTS` names the production database endpoint. Verify the direct target before explicit migrations.
 
 ### 3. Prepare Linear
 
@@ -107,7 +118,7 @@ bun run db:migrate
 
 `.env.local` now also holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_AUTH_BASE_URL`, `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` and `NEON_FUNCTION_INGEST_BASE_URL`.
 
-Finally, put the production endpoint id into `PRODUCTION_ENDPOINTS` in `lib/migrate-guard.ts`. It is the `ep-…` part of the host in `DATABASE_URL`, without `-pooler`.
+Finally, put the production endpoint id into `PRODUCTION_ENDPOINTS` in `packages/core/src/migrate-guard.ts`. It is the `ep-…` part of the host in `DATABASE_URL`, without `-pooler`.
 
 ### 5. Write the runner's config
 
@@ -137,7 +148,7 @@ A browser page opens and sends the app manifest to GitHub. Click **Create GitHub
 Now give the ingest Function the real webhook secret:
 
 ```sh
-neon functions deploy ingest --branch main --src functions/ingest/index.ts \
+neon functions deploy ingest --branch main --src apps/gateway/src/index.ts \
   --env GITHUB_APP_WEBHOOK_SECRET="$(jq -r .webhook_secret ~/.config/marshal-factory/github-app.json)"
 ```
 
@@ -149,9 +160,9 @@ bun scripts/install-webhooks.ts
 
 This registers a webhook on your team (Issue and Comment events) that points at the ingest Function, and records its id in the config. Running it again reuses the existing webhook.
 
-### 8. Deploy the panel
+### 8. Deploy the dashboard (optional)
 
-Import the repo into Vercel as a Next.js project. `vercel.json` already sets the build command (migration guard, then migrations, then build) and the region. Then:
+Skip this section for a headless factory. Import the repo into Vercel as a Next.js monorepo project with the dashboard at `apps/dashboard`. Dashboard builds do not migrate. Run `bun run db:migrate` explicitly against the intended direct database target before deploying schema-dependent code. Then:
 
 - Add these environment variables for Production. Mark the secrets as Sensitive.
   - `DATABASE_URL`, `DATABASE_URL_UNPOOLED`
@@ -163,7 +174,7 @@ Import the repo into Vercel as a Next.js project. `vercel.json` already sets the
   - `FACTORY_TEAM_KEY` and `FACTORY_LABEL`, if they differ from `FAC` and `factory`
   - Optional: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, so you can paste a repo's secrets in the panel instead of running a command on the Mac
   - Optional: `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` and `SLACK_OWNER_USER_ID` ([Connecting Slack](#connecting-slack))
-- Set the Ignored Build Step to `[ -z "$DATABASE_URL" ]`, so previews without a database are skipped. To get previews with their own Neon branch, connect Neon's Vercel integration. Each preview then migrates its own branch, and the migration guard stops any preview that points at production.
+- Set the Ignored Build Step to `[ -z "$DATABASE_URL" ]`, so previews without a database are skipped. For preview databases, provision an isolated Neon branch and explicitly migrate it before deployment.
 
 Deploy, then add the panel's production URL to Neon Auth's trusted domains; the example uses `https://marshal-factory.vercel.app`, so put your own domain in its place. A new branch has none, and without this sign-up fails with "Create account failed: Invalid origin.":
 
@@ -219,6 +230,28 @@ To add a repo, click **Add repository** on the Repositories page and pick one of
 The new repo also gets its child in the **Repository** label group. A repo you also want to run locally still needs `bun scripts/install-target.ts` on the runner Mac ([Add your repo](#add-your-repo)). [docs/operations.md](docs/operations.md#onboarding-a-repository) has the details.
 
 The Jobs page and the Inbox have a repository filter in the header. It is kept in `?repo=owner/name` and remembered for the next visit. Cards and rows show their repo once more than one repo has jobs.
+
+### Operator CLI
+
+Run from the trusted checkout with service credentials loaded. No dashboard required:
+
+```sh
+bun run cli machines list
+bun run cli settings show
+bun run cli settings save --input '{"provider":"claudeAgent","model":"claude-opus-5-5","execution":"local"}'
+bun run cli repositories addable
+bun run cli repositories add --input '{"repo":"owner/name"}'
+bun run cli repositories list
+bun run cli repositories default --input '{"repo":"owner/name"}'
+bun run cli jobs create --input '{"title":"Show item count","description":"Add the count beside the filter.","repo":"owner/name","requestId":"6f0c3f8e-1f4b-4a52-9f0e-2d7c5a8b9c10"}'
+bun run cli inbox list
+bun run cli jobs answer --input '{"jobId":"linear:<issue-uuid>","body":"Use the existing filter.","requestId":"886f5032-b588-4017-8396-c60673d12968"}'
+bun run cli requests show --input '{"intentId":"panel:answer:886f5032-b588-4017-8396-c60673d12968"}' --wait 30
+```
+
+Use the source-qualified `id` from `jobs list`, not the display key. `evidence list` takes `jobKey`. Repository progress includes required secret names and purposes; provide `{"repo":"owner/name","values":{"NAME":"value"}}` over stdin to `repositories secrets`. Keep values out of shell history and argv. Configure notifications with `notifications show|save|test`. Merge policy, review requirements, and repository execution defaults use `repositories save` with shared validation.
+
+Durable actions return an `intentId`. Inspect with `requests show`; `--wait` exits 2 on timeout without cancelling work. Exit 1 indicates refusal/failure; exit 0 a successful query or accepted/completed operation. A completed stop intent is not proof that threads stopped: inspect the job's stop state for confirmation. Retain request UUIDs for retries; do not reuse them for another target.
 
 ## Use it
 
@@ -282,7 +315,7 @@ Optional. With Slack connected, the runner messages you when a job needs you or 
 
 1. Create the app at [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**, with the manifest in [docs/operations.md](docs/operations.md#slack-notifications), then install it to your workspace. Change the panel URL in it if yours isn't `marshal-factory.vercel.app`.
 2. Add three values to `.env.local` in the live checkout: `SLACK_BOT_TOKEN` (**OAuth & Permissions** → Bot User OAuth Token), `SLACK_SIGNING_SECRET` (**Basic Information** → App Credentials) and `SLACK_OWNER_USER_ID` (your Slack profile → ⋯ → **Copy member ID**).
-3. Add the same three to the panel's Vercel environment for Production, redeploy, and restart the runner (`bun scripts/install-runner.ts --uninstall && bun scripts/install-runner.ts`).
+3. Add the same three to the hosted gateway environment and redeploy it. Restart the runner (`bun scripts/install-runner.ts --uninstall && bun scripts/install-runner.ts`). Slack command and interaction URLs point to the gateway, not Vercel.
 4. In the panel's **Settings** → **Notifications**, pick your DMs or a channel, the events you want and optional quiet hours, then **Send test message**.
 
 [docs/operations.md](docs/operations.md#slack-notifications) has the details.
@@ -295,7 +328,7 @@ After a merge to `main`, update the live checkout with:
 bun scripts/rollout.ts
 ```
 
-It waits for Vercel's production deploy (which runs the migrations), stops the runner, pulls, migrates, redeploys the ingest Function and rebuilds the sandbox image when they changed, and starts the runner again. [docs/operations.md](docs/operations.md#rolling-out-a-merge) has the steps and the opt-in canary.
+It stops the runner, pulls, explicitly migrates, redeploys the gateway and rebuilds the sandbox image when changed, then starts the runner again. Add `--dashboard` only when you also want to wait for Vercel deployment. [docs/operations.md](docs/operations.md#rolling-out-a-merge) has the steps and the opt-in canary.
 
 ## Troubleshooting
 

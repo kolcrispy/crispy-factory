@@ -1,9 +1,9 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 
-const { db } = await import("../db/client");
-const { createLinearAdapter } = await import("../lib/sources/linear");
-const { factorySchema } = await import("../lib/config");
+const { db } = await import("@factory/storage/client");
+const { createLinearAdapter } = await import("@factory/integrations/sources/linear");
+const { factorySchema } = await import("@factory/core/config");
 
 type Label = { id: string; name: string };
 const states = ["Todo", "In Progress", "In Review", "Done"].map((name) => ({ id: `S:${name}`, name, type: "x" }));

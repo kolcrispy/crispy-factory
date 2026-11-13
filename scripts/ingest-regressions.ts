@@ -2,10 +2,10 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray } from "drizzle-orm";
 
-const { db } = await import("../db/client");
-const { agents, events, jobs, runs } = await import("../db/schema");
-const { ingest } = await import("../lib/ingest");
-const { eventSchema } = await import("../lib/events");
+const { db } = await import("@factory/storage/client");
+const { agents, events, jobs, runs } = await import("@factory/storage/schema");
+const { ingest } = await import("@factory/core/ingest");
+const { eventSchema } = await import("@factory/core/events");
 const { linearJob } = await import("./fixtures");
 
 const run = `regress-${Date.now()}`;

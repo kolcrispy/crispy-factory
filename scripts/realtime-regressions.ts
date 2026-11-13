@@ -2,7 +2,7 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import type { LiveQueryError, LiveQueryState } from "@neon/realtime/client";
 
-const { keepSubscribed } = await import("../runner/realtime");
+const { keepSubscribed } = await import("@factory/runner/realtime");
 
 // A client that, like @neon/realtime's, fails every later subscription once its connection failed.
 class FakeClient {

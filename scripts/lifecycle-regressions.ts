@@ -6,21 +6,21 @@ import { join } from "node:path";
 import { eq, inArray, like, sql } from "drizzle-orm";
 import { fake, fakeModal, FakeSandbox, sandboxes } from "./fake-modal";
 
-const { db } = await import("../db/client");
-const { auditLog, jobs, runs } = await import("../db/schema");
+const { db } = await import("@factory/storage/client");
+const { auditLog, jobs, runs } = await import("@factory/storage/schema");
 const { linearJob } = await import("./fixtures");
-const { jobId } = await import("../lib/sources/shapes");
-const { SOURCES } = await import("../lib/sources");
-const { TEST_MACHINE_ID } = await import("../lib/config");
-const { ensureAwake, HostAsleepError, hosts } = await import("../lib/host");
-const { modal } = await import("../lib/modal-host");
-const { CODEX_AUTH, GITHUB_TOKEN_PATH, pinnedVersions, playbooksVersion, readSlotHealth, sandboxReadiness } = await import("../lib/sandbox");
-const { github } = await import("../lib/github/pulls");
-const { canReclaim, canReclaimSql } = await import("../runner/binding");
-const { checkPullRequests, config, deliverStops, ingestClient, reconcileUsage, resumeAnswered, threads, toLaunch, watchdog } = await import("../runner/ops");
-const { hibernateIdle, reap, refreshTokens, sandboxesInFlight, teardownFinished, tickSandboxes, TOKEN_REFRESH_MS } = await import("../runner/lifecycle");
-const { launchInSandboxes } = await import("../runner/launch");
-const { CodexLoginError, sandboxRuntime, usableSlots } = await import("../runner/sandbox");
+const { jobId } = await import("@factory/core/sources/shapes");
+const { SOURCES } = await import("@factory/core/sources/index");
+const { TEST_MACHINE_ID } = await import("@factory/core/config");
+const { ensureAwake, HostAsleepError, hosts } = await import("@factory/core/host");
+const { modal } = await import("@factory/integrations/modal-host");
+const { CODEX_AUTH, GITHUB_TOKEN_PATH, pinnedVersions, playbooksVersion, readSlotHealth, sandboxReadiness } = await import("@factory/core/sandbox");
+const { github } = await import("@factory/integrations/github/pulls");
+const { canReclaim, canReclaimSql } = await import("@factory/runner/binding");
+const { checkPullRequests, config, deliverStops, ingestClient, reconcileUsage, resumeAnswered, threads, toLaunch, watchdog } = await import("@factory/runner/ops");
+const { hibernateIdle, reap, refreshTokens, sandboxesInFlight, teardownFinished, tickSandboxes, TOKEN_REFRESH_MS } = await import("@factory/runner/lifecycle");
+const { launchInSandboxes } = await import("@factory/runner/launch");
+const { CodexLoginError, sandboxRuntime, usableSlots } = await import("@factory/runner/sandbox");
 
 modal.api = fakeModal;
 

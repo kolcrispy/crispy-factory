@@ -3,55 +3,41 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "bun run --cwd apps/dashboard dev",
+    "build": "bun run --cwd apps/dashboard build",
+    "start": "bun run --cwd apps/dashboard start",
     "lint": "eslint",
     "test:regressions": "bun scripts/test-branch.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
-  },
-  "dependencies": {
-    "@base-ui/react": "^1.9.0",
-    "@hookform/resolvers": "^6.0.0",
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "@neon/env": "^1.6.4",
-    "@neon/functions": "^0.11.0",
-    "@neon/realtime": "0.1.2",
-    "@neon/realtime-drizzle": "0.1.0",
-    "@neon/realtime-react": "0.1.1",
-    "@neondatabase/auth": "0.7.0-beta",
-    "class-variance-authority": "^0.7.1",
-    "cn": "^0.5.0",
-    "drizzle-orm": "0.45.4",
-    "hono": "^4.13.13",
-    "lucide-react": "^1.61.0",
-    "modal": "0.11.1",
-    "motion": "^14.6.0",
-    "next": "16.4.2",
-    "next-themes": "^0.4.6",
-    "pg": "^8.23.1",
-    "pg-connection-string": "2.14.1",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "react-hook-form": "^7.90.0",
-    "shadcn": "^4.22.1",
-    "ws": "8",
-    "zod": "^4.6.7"
+    "db:migrate": "bun scripts/migrate-guard.ts && drizzle-kit migrate",
+    "cli": "bun apps/cli/src/index.ts",
+    "build:backend": "bun run --filter @factory/runner --filter @factory/cli --filter @factory/gateway build"
   },
   "devDependencies": {
+    "@factory/core": "workspace:*",
+    "@factory/gateway": "workspace:*",
+    "@factory/integrations": "workspace:*",
+    "@factory/platform": "workspace:*",
+    "@factory/reporting": "workspace:*",
+    "@factory/runner": "workspace:*",
+    "@factory/storage": "workspace:*",
     "@neon/config": "^1.9.3",
-    "@tailwindcss/turbopack": "^4",
+    "@neon/realtime": "0.1.2",
+    "@types/bun": "latest",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "0.31.11",
+    "drizzle-orm": "0.45.4",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
-    "tailwindcss": "^4",
+    "modal": "0.11.1",
+    "next": "16.4.2",
+    "pg": "^8.23.1",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "zod": "^4.6.7"
   },
   "packageManager": "bun@1.4.4",
   "ignoreScripts": [
@@ -61,5 +47,9 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
+  ],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
   ]
 }

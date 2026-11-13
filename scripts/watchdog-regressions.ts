@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { factorySchema } from "../lib/config";
-import { watch, type WatchInput } from "../lib/watchdog";
+import { factorySchema } from "@factory/core/config";
+import { watch, type WatchInput } from "@factory/core/watchdog";
 
 const limits = factorySchema.parse({ stuckAfterMinutes: 30, stoppedGraceMinutes: 2, failAfterNudgeMinutes: 30 });
 const now = new Date("2026-10-23T12:00:00Z");

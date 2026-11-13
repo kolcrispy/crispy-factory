@@ -5,8 +5,8 @@ import { generateKeyPairSync, verify } from "node:crypto";
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appCredentials, appJwt, installationTokens, readAppFile, tokenSource } from "../lib/github/app";
-import { github, parsePullUrl, pullsClient } from "../lib/github/pulls";
+import { appCredentials, appJwt, installationTokens, readAppFile, tokenSource } from "@factory/integrations/github/app";
+import { github, parsePullUrl, pullsClient } from "@factory/integrations/github/pulls";
 import { serve } from "./serve";
 
 const { privateKey: pem, publicKey } = generateKeyPairSync("rsa", {

@@ -10,11 +10,11 @@ process.chdir(join(import.meta.dirname, ".."));
 process.loadEnvFile(".env.local");
 
 const { eq } = await import("drizzle-orm");
-const { db } = await import("../db/client");
-const { repoSettings } = await import("../db/schema");
-const { modalSecretName, parseDetail } = await import("../lib/onboarding");
-const { modalSecretStore } = await import("../lib/modal-secrets");
-const { recordSecretNames } = await import("../lib/repo-onboarding");
+const { db } = await import("@factory/storage/client");
+const { repoSettings } = await import("@factory/storage/schema");
+const { modalSecretName, parseDetail } = await import("@factory/core/onboarding");
+const { modalSecretStore } = await import("@factory/integrations/modal-secrets");
+const { recordSecretNames } = await import("@factory/core/repo-onboarding");
 
 const [repo, name] = process.argv.slice(2);
 if (!repo || !name || !/^[^/\s]+\/[^/\s]+$/.test(repo) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
