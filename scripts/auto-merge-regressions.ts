@@ -1,6 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, like } from "drizzle-orm";
+import { join } from "node:path";
 import type { MergeAssessment } from "@factory/core/assessment";
 
 const { db } = await import("@factory/storage/client");
@@ -371,7 +372,8 @@ try {
   assert.match(String(created.body.body), /- build\n- ci\/lint/);
   assert.deepEqual(putsTo(MERGE_ONLY, revertPull.number).map((w) => [w.body.sha, w.body.merge_method]), [["revert-head", "merge"]], "the revert merges at once");
 
-  const dir = `/fake/tmp/marshal-factory-revert-${MERGE_ONLY.replace("/", "-")}-5`;
+  // The production code joins the dir, so on Windows the expectation carries backslashes too.
+  const dir = join(revertDeps.dir, `marshal-factory-revert-${MERGE_ONLY.replace("/", "-")}-5`);
   const argv = gitCalls.map((c) => c.args.filter((a) => !a.startsWith("credential.helper=!")).join(" "));
   const expect = [
     `fetch origin main`,

@@ -40,10 +40,13 @@ try {
     assert.deepEqual(files.map((f) => f.split(".")[1]).sort(), ["jpg", "png"], "with the extension of its content type");
     assert.deepEqual(new Uint8Array(readFileSync(join(dir, files.find((f) => f.endsWith(".png"))!))), PNG, "byte for byte");
     assert.ok(!out.includes("uploads.linear.app"), "the private links are gone from the text");
-    assert.match(out, new RegExp(`Before: \\[image: ${join(dir, "[0-9a-f]{16}\\.png").replaceAll("/", "\\/")}\\]`), "each link points at its file");
+    const saved = files.map((f) => join(dir, f));
+    const png = saved.find((f) => f.endsWith(".png"))!;
+    const jpg = saved.find((f) => f.endsWith(".jpg"))!;
+    assert.ok(out.includes(`Before: [image: ${png}]`) && out.includes(`After: [image: ${jpg}]`), "each link points at its file");
     assert.ok(out.includes("Other: ![x](https://example.com/x.png)"), "an image on another host is left alone");
     assert.match(out, /## Images\n\nThis text refers to 2 images, saved on this machine\. Open each one with the Read tool before you start/, "and the agent is told to open them first");
-    assert.equal(out.match(/^- \//gm)?.length, 2, "listing each file once");
+    assert.equal(out.match(/^- (?:[A-Za-z]:)?[\/\\]/gm)?.length, 2, "listing each file once");
 
     const again = fakeHost({});
     assert.equal(await localizeLinearImages(text, { apiKey: "linear-key", dir, fetch: again.fetch }), out, "a relaunch gives the same text");

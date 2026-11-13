@@ -7,7 +7,13 @@ import { join } from "node:path";
 import { planCleanup, type BranchState } from "@factory/core/cleanup";
 import { attemptBranch, parseBranch } from "@factory/core/factory";
 
-// A T3 CLI with no threads; the cleanup modules read the path when they load.
+// A T3 CLI with no threads; the cleanup modules read the path when they load. The fake is a
+// shebang script, which Windows cannot spawn, and T3 here is the macOS/Linux runner's executable:
+// this suite reports itself skipped there rather than pretending it ran.
+if (process.platform === "win32") {
+  console.log("cleanup regressions skipped: the fake t3 CLI needs a POSIX executable host");
+  process.exit(77);
+}
 const t3Dir = mkdtempSync(join(tmpdir(), "cleanup-t3-"));
 process.env.T3CODE_CLI_PATH = join(t3Dir, "t3");
 writeFileSync(process.env.T3CODE_CLI_PATH, "#!/bin/sh\necho '[]'\n", { mode: 0o755 });

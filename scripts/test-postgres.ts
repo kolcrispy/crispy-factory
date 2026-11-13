@@ -14,9 +14,14 @@ const scripts = readdirSync(import.meta.dirname).filter(file => file.endsWith("-
 if (!scripts.length) throw new Error("No matching regression scripts");
 const directory = mkdtempSync(join(tmpdir(), "factory-postgres-"));
 const data = join(directory, "data");
+const SKIP = 77;
+const skipped: string[] = [];
 async function run(command: string[]) {
   const child = Bun.spawn(command, { env, stdout: "inherit", stderr: "inherit" });
-  if (await child.exited) throw new Error(`${command[0]} failed`);
+  const code = await child.exited;
+  if (code === SKIP) return code;
+  if (code) throw new Error(`${command[0]} failed`);
+  return code;
 }
 let started = false;
 try {
@@ -33,9 +38,9 @@ try {
   await run([process.execPath, "node_modules/drizzle-kit/bin.cjs", "migrate"]);
   for (const script of scripts) {
     console.log(`\n== ${script}`);
-    await run([process.execPath, join(import.meta.dirname, script)]);
+    if ((await run([process.execPath, join(import.meta.dirname, script)])) === SKIP) skipped.push(script);
   }
-  console.log(`All ${scripts.length} PostgreSQL regression scripts passed`);
+  console.log(`All ${scripts.length - skipped.length} PostgreSQL regression scripts passed${skipped.length ? `; skipped ${skipped.join(", ")}` : ""}`);
 } finally {
   if (started) await run(["pg_ctl", "-D", data, "-m", "immediate", "-w", "stop"]);
   rmSync(directory, { recursive: true, force: true });

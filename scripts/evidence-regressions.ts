@@ -187,6 +187,10 @@ writeFileSync(configPath, JSON.stringify({ ingestUrl: `http://localhost:${server
 const verifyScript = join(import.meta.dirname, "../packages/reporting/src/hooks/verify.ts");
 const childEnv = (over: Record<string, string> = {}) => {
   const env: Record<string, string | undefined> = { ...process.env, HOME: dir, MARSHAL_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: join(dir, "state"), ...over };
+  // These repos' check scripts are POSIX shell, which is what a sandbox or the Mac runs. Windows'
+  // npm would hand them to cmd.exe, where "exit 3" and "true" mean something else.
+  const bash = process.platform === "win32" ? Bun.which("bash") : null;
+  if (bash) env.npm_config_script_shell = bash;
   for (const name of ["FACTORY_JOB_KEY", "FACTORY_ATTEMPT", "FACTORY_SESSION_ID", "GITHUB_TOKEN"]) if (!(name in over)) delete env[name];
   return env as NodeJS.ProcessEnv;
 };
