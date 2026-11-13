@@ -243,6 +243,7 @@ try {
   const accepted = await actions.addRepository(addDeps(), addInput);
   assert.ok(accepted.ok);
   assert.deepEqual(await actions.addRepository(addDeps(), addInput), accepted, "replay returns the same request after registration");
+  assert.equal(await actions.writeNewRepository(db, addInput.repo, OWNER, new Date(), addInput.requestId), accepted.intentId, "concurrent acceptance converges on the existing intent");
   const fresh = await row(`${NS}/fresh`);
   assert.deepEqual([fresh.enabled, fresh.is_default, fresh.onboarding_state, fresh.updated_by], [true, false, "analyzing", OWNER]);
   const freshIntents = await db.select().from(intents).where(eq(intents.detail, `${NS}/fresh`));
