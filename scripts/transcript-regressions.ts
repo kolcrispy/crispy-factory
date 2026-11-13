@@ -44,7 +44,7 @@ try {
 
 assert.match(
   transcriptPathFor({ session_id: "abc", cwd: "/Users/jan/.t3/worktrees/demo/factory-FAC-5", transcript_path: null })!,
-  /\.claude\/projects\/-Users-jan--t3-worktrees-demo-factory-FAC-5\/abc\.jsonl$/,
+  /\.claude[\/\\]projects[\/\\]-Users-jan--t3-worktrees-demo-factory-FAC-5[\/\\]abc\.jsonl$/,
   "an old run without a recorded path still finds its transcript",
 );
 console.log("transcript regressions passed");
