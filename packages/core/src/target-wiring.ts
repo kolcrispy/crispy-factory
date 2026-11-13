@@ -10,9 +10,17 @@ type HookEntry = {
   hooks: { type: string; command: string; async?: boolean; timeout?: number }[];
 };
 
+/**
+ * A path under `root` in the form the root is written in. A factory root inside a sandbox is
+ * POSIX even when the runner is not, so path.join must not turn it into backslashes; a Windows
+ * checkout keeps its own separators for the installer.
+ */
+const pathIn = (root: string, ...parts: string[]) =>
+  /^[A-Za-z]:[\\/]/.test(root) || root.startsWith("\\\\") ? join(root, ...parts) : [root.replace(/\/+$/, ""), ...parts].join("/");
+
 /** Ours, per event, in order. PostToolUse takes every tool so the reporter can send usage snapshots. */
 function hooksFor(root: string): Record<string, HookEntry[]> {
-  const reporter = { type: "command", command: `bun "${join(root, "hooks/report.ts")}"`, async: true, timeout: 20 };
+  const reporter = { type: "command", command: `bun "${pathIn(root, "hooks/report.ts")}"`, async: true, timeout: 20 };
   return {
     SessionStart: [{ hooks: [reporter] }],
     PreToolUse: [{ matcher: "Agent", hooks: [reporter] }],
@@ -42,7 +50,7 @@ export function withHooks(settings: Json, root: string): Json {
   };
 }
 
-export const reportServer = (root: string) => ({ command: "bun", args: [join(root, "mcp/factory-report.ts")] });
+export const reportServer = (root: string) => ({ command: "bun", args: [pathIn(root, "mcp/factory-report.ts")] });
 
 /** Claude Code's hooks report its stages, so its server only validates. */
 export function withServer(mcp: Json, root: string): Json {
