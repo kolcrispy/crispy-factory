@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { jobs } from "@factory/storage/schema";
-import { auth } from "../../../../../lib/auth/server";
+import { getOwner } from "../../../../../lib/auth/server";
 import { github } from "@factory/integrations/github/pulls";
 import { parseJobKey } from "../../../../../lib/live-queries";
 import { mergeTarget } from "@factory/core/inbox-actions";
@@ -13,6 +13,6 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/jobs
   const [job] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.key, key));
   if (!job) return Response.json({ target: null }, { status: 404 });
   // Null for a non-owner as for a job with nothing to merge, so the route says nothing about either.
-  const target = await mergeTarget({ db, pulls: github, user: async () => (await auth.getSession()).data?.user }, job.id);
+  const target = await mergeTarget({ db, pulls: github, user: getOwner }, job.id);
   return Response.json({ target }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -10,7 +10,6 @@ try {
 
 const nextConfig: NextConfig = {
   agentRules: false,
-  env: { NEXT_PUBLIC_LIVE_UPDATES: process.env.VERCEL_ENV === "preview" ? "off" : "on" },
   turbopack: {
     rules: {
       "*.css": {

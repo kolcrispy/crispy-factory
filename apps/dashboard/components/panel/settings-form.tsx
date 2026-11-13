@@ -273,7 +273,7 @@ export function SettingsForm({ machines, saved, notifications }: { machines: Fee
         return;
       }
       setSavedNow(true);
-      router.refresh();
+      router.refresh(); window.dispatchEvent(new Event("factory:refresh"));
     });
   };
 

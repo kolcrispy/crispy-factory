@@ -1,3 +1,4 @@
+export { ownerAccounts, ownerSessions, loginAttempts } from "./auth-schema";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -27,8 +28,6 @@ import type { JobId, JobSource } from "@factory/core/sources/shapes";
 import type { StopRecord } from "@factory/core/stop";
 import type { TicketRecord } from "@factory/core/ticket-overrides";
 
-// Keys equal column names: the Neon Realtime Drizzle adapter requires it.
-// Token counters are float8 because int8 and numeric reach live subscribers as strings.
 
 export const runStatus = pgEnum("run_status", ["active", "idle", "ended"]);
 export const runStage = pgEnum("run_stage", STAGES);

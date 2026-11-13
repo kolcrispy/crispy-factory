@@ -1,10 +1,10 @@
-import { sealedResponse, sessionEventsQuery } from "../../../../../lib/live-queries";
+import { pollingResponse, sessionEventsQuery } from "../../../../../lib/live-queries";
 import { sessionParam } from "@factory/core/run-links";
 
-export async function POST(request: Request) {
+export async function GET(request: Request) {
   const sessionId = sessionParam(request);
   if (!sessionId) {
     return Response.json({ error: "invalid session id" }, { status: 400 });
   }
-  return sealedResponse(sessionEventsQuery(sessionId));
+  return pollingResponse(sessionEventsQuery(sessionId));
 }

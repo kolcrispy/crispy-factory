@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@factory/storage/client";
 import { redact, secretValues } from "@factory/core/slack";
 import { redact as redactDiagnostic } from "@factory/core/recipe";
+import { ownerCommand } from "./owners";
 
 class InputError extends Error {}
 
@@ -22,6 +23,7 @@ Resources:
   repositories list|addable|add|save|default|retry|rebuild|secrets
   notifications show|save|test
   requests show
+  owners create|reset|disable (email input; passwords prompted in terminal)
 
 Input is a JSON object. Use --stdin for secrets; secret values in argv are forbidden.
 Job actions require jobId. Durable actions accept requestId (UUID); retain it for replay.
@@ -35,6 +37,7 @@ const COMMANDS = new Set([
   ..."show save".split(" ").map(action => `settings ${action}`),
   ..."list addable add save default retry rebuild secrets".split(" ").map(action => `repositories ${action}`),
   ..."show save test".split(" ").map(action => `notifications ${action}`),
+  "owners create", "owners reset", "owners disable",
 ]);
 
 export async function main(argv: string[]) {
@@ -53,6 +56,11 @@ export async function main(argv: string[]) {
   try { input = JSON.parse(values.stdin ? await Bun.stdin.text() : values.input ?? "{}"); }
   catch { throw new InputError("Input must be valid JSON."); }
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new InputError("Input must be a JSON object.");
+  if (resource === "owners") {
+    if (Object.keys(input).some(key => key !== "email")) throw new InputError("Owner commands accept only email; passwords are prompted securely.");
+    console.log(JSON.stringify(await ownerCommand(action, input.email)));
+    return 0;
+  }
   const requestId = input.requestId ?? randomUUID();
   if (!process.env.DATABASE_URL) throw new InputError("DATABASE_URL is required for trusted operator access.");
   const result = await operator(resource, action, { ...input, requestId }, values.actor ?? `local:${userInfo().username}@${hostname()}`, wait);

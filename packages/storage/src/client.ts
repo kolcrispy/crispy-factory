@@ -6,7 +6,7 @@ const globalForPool = globalThis as unknown as { __pgPool?: Pool };
 
 function createPool() {
   const pool = new Pool({
-    // Neon URLs say sslmode=require; verify-full keeps today's checks and skips pg's warning.
+    // Require certificate verification for TLS connections.
     connectionString: process.env.DATABASE_URL?.replace(
       "sslmode=require",
       "sslmode=verify-full",

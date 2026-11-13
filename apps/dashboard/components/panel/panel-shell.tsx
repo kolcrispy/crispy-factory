@@ -3,7 +3,7 @@
 import { ActivityIcon, FolderGit2Icon, InboxIcon, KanbanIcon, type LucideIcon, PanelLeftIcon, ServerIcon, SettingsIcon } from "lucide-react";
 import { LayoutGroup, MotionConfig, motion } from "motion/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, type ReactElement, type ReactNode, useContext, useEffect, useState } from "react";
 import { ThemeToggle } from "../theme-toggle";
 import { Button } from "../ui/button";
@@ -71,6 +71,7 @@ function Nav({
   onNavigate?: () => void;
   onToggle?: () => void;
 }) {
+  const router = useRouter();
   const pathname = usePathname();
   const fade = cn("transition-opacity duration-150", collapsed && "pointer-events-none opacity-0");
   return (
@@ -107,6 +108,10 @@ function Nav({
           </div>
         ))}
       </nav>
+      <Button variant="ghost" size="sm" aria-label="Sign out" onClick={async () => {
+        const response = await fetch("/api/auth/logout", { method: "POST" });
+        if (response.ok) { router.replace("/auth/sign-in"); router.refresh(); }
+      }}>Sign out</Button>
       {/* The rail toggle keeps the bottom-left corner in both states; the theme menu sits beside it, or above it when collapsed. */}
       <div className="relative flex h-10 shrink-0 items-center gap-1 border-t px-1.5">
         {onToggle && (

@@ -17,7 +17,7 @@ const { values: args } = parseArgs({
 });
 await import("@factory/platform/environment");
 const GITHUB = process.env.GITHUB_URL ?? "https://github.com";
-const ingestBase = (process.env.FACTORY_GATEWAY_URL ?? process.env.NEON_FUNCTION_INGEST_BASE_URL)?.replace(/\/$/, "");
+const ingestBase = process.env.FACTORY_GATEWAY_URL?.replace(/\/$/, "");
 if (!ingestBase) throw new Error("FACTORY_GATEWAY_URL must name the public HTTPS gateway");
 
 const base = `http://localhost:${args.port}`;

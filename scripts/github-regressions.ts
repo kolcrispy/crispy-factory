@@ -203,7 +203,7 @@ async function setupScriptEndToEnd(api: string) {
       GITHUB_URL: api,
       GITHUB_API_URL: api,
       MARSHAL_FACTORY_GITHUB_APP: path,
-      NEON_FUNCTION_INGEST_BASE_URL: "https://ingest.invalid",
+      FACTORY_GATEWAY_URL: "https://ingest.invalid",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

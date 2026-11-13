@@ -141,16 +141,10 @@ async function afterPull() {
   process.chdir(checkout);
   process.loadEnvFile(".env.local");
   const head = git("rev-parse", "HEAD");
-  const last = readRollout();
 
   run("bun", ["run", "db:migrate"]);
 
-  const ingestChanged = changedSince(last?.commit);
-  if (flag("--neon")) {
-    const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["apps/gateway/src/neon.ts"]));
-    if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "apps/gateway/src/neon.ts"]);
-    else log("ingest: unchanged since the last rollout, not deployed");
-  } else log("gateway: independently hosted; use --neon only for Neon Functions deployment");
+  log("gateway: independently hosted; deploy its backend build separately");
 
   const image = readSandboxImage();
   if (!image) log("image: none was ever built on this machine (no Modal jobs), not built");

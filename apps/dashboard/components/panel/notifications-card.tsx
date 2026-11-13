@@ -91,7 +91,7 @@ export function NotificationsCard({ saved, slack }: { saved: NotificationSetting
       const outcome = await saveNotifications(config);
       if (!outcome.ok) return setFailure(outcome.message);
       setSavedNow(outcome.message ?? "Saved. The runner uses it on its next tick.");
-      router.refresh();
+      router.refresh(); window.dispatchEvent(new Event("factory:refresh"));
     });
   };
 

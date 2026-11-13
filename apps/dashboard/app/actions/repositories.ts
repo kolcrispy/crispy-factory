@@ -2,7 +2,7 @@
 
 import { db } from "@factory/storage/client";
 import { machines } from "@factory/storage/schema";
-import { auth } from "../../lib/auth/server";
+import { getOwner } from "../../lib/auth/server";
 import { installationRepos } from "@factory/integrations/github/installation";
 import { reportedHarnesses } from "@factory/core/machine";
 import { modalEnvConfigured, modalSecretStore } from "@factory/integrations/modal-secrets";
@@ -29,7 +29,7 @@ import {
 } from "@factory/core/repositories";
 import { panelSource } from "@factory/core/sources/index";
 
-const user = async () => (await auth.getSession()).data?.user;
+const user = getOwner;
 const registry = () => readRegistry(db);
 const installable = () => installationRepos();
 const request = (kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string) => writeRepoRequest(db, kind, repo, new Date(), requestId);

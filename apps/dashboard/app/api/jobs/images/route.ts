@@ -1,4 +1,4 @@
-import { auth } from "../../../../lib/auth/server";
+import { getOwner } from "../../../../lib/auth/server";
 import { uploadJobImage } from "@factory/core/new-job";
 import { panelSource } from "@factory/core/sources/index";
 
@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   const form = await request.formData().catch(() => null);
   const file = form?.get("image");
   const outcome = await uploadJobImage(
-    { user: async () => (await auth.getSession()).data?.user, upload: (image) => panelSource().uploadImage!(image) },
+    { user: getOwner, upload: (image) => panelSource().uploadImage!(image) },
     file instanceof File ? file : null,
   );
   return Response.json(outcome, { status: outcome.ok ? 200 : outcome.status });

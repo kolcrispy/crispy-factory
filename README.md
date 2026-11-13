@@ -6,12 +6,11 @@ You label an issue in Linear, file one from the panel, or send one from Slack. A
 
 When the PR is ready, the agent reports whether it is confident it built what the issue asked for. In repos you switch to **Merge when confident**, the factory merges every PR the agent is confident about and that clears the hard limits (green checks, no conflicts, no open Bugbot findings, checks verified at the PR head), and reverts a merge that turns main red. Everything else is handed to you to review and merge from the panel, Slack or GitHub ([Merge decisions](docs/operations.md#merge-decisions)).
 
-![The whole factory: sources, Neon, your Mac, Modal, Vercel and GitHub, with the numbered path one ticket takes](docs/images/factory-diagram.jpg)
 
 The pieces:
 
 - **Dashboard** (`apps/dashboard/`, optional): owner-protected Next.js supervision UI on Vercel.
-- **Gateway** (`apps/gateway/`): independently hosted Neon Function for Linear/GitHub webhooks, reporter events, and signed Slack commands/interactions. It persists work while runners are offline.
+- **Gateway** (`apps/gateway/`): independently hosted HTTP ingress for Linear/GitHub webhooks, reporter events, and signed Slack commands/interactions. It persists work while runners are offline.
 - **Runner** (`apps/runner/`): Bun daemon on your Mac, run by launchd. Executes T3 jobs locally or in Modal, reconciles durable intents, and performs merges.
 - **Operator CLI** (`apps/cli/`): trusted local database access for inspection, configuration, repository bootstrap, and job controls. No dashboard account or running dashboard required.
 - **Reporter** (`packages/reporting/`): Claude Code hooks and reporting MCP server installed into target repos.
@@ -23,8 +22,8 @@ Accounts:
 
 - **Linear**, with a team for factory work and a personal API key.
 - **GitHub**, for the target repo and a GitHub App the setup creates for you.
-- **Neon**, for Postgres, Auth, Realtime and the ingest Function.
-- Optional: **Vercel** and Neon Auth, for the dashboard only.
+- **PostgreSQL**, for authoritative factory state, owner accounts, and sessions.
+- Optional: **Vercel**, for hosting the dashboard.
 - Optional: **Modal**, to run jobs in cloud sandboxes ([Running jobs in Modal sandboxes](#running-jobs-in-modal-sandboxes)), and **Slack**, for notifications and acting from Slack ([Connecting Slack](#connecting-slack)).
 
 On the Mac that runs the factory:
@@ -38,7 +37,7 @@ On the Mac that runs the factory:
 
 ## Install
 
-The default headless setup is PostgreSQL, a hosted gateway, and a runner. Neon is optional. Dashboard authentication remains Neon-based for now and is not required for headless operation.
+The default setup is PostgreSQL, a hosted gateway, and a runner. The optional dashboard uses local owner authentication and polling.
 
 ### 1. Clone the factory
 
@@ -65,11 +64,9 @@ This excludes Next.js. Keep the checkout's workspace packages alongside build ou
 3. Run `bun run db:migrate` explicitly. Run `bun apps/gateway/src/serve.ts` on your hosted machine behind HTTPS, with database network access. Port defaults to 3008. Keep the gateway reachable while the runner is offline.
 4. Configure `~/.config/marshal-factory/config.json` with `linearApiKey`, the public gateway `/ingest` URL as `ingestUrl`, and the same ingest `secret`. Prepare T3 and local checkouts or Modal as described below.
 5. Point Linear/GitHub webhooks and Slack URLs at the gateway. Use the CLI commands below to configure repositories, onboard, provision secrets, submit jobs, and operate them. Leave `FACTORY_PANEL_URL` empty when no dashboard exists.
-6. Start `bun apps/runner/src/index.ts`. Without Neon Realtime credentials it uses startup reconciliation and polling; downtime delays work, not persisted decisions.
+6. Start `bun apps/runner/src/index.ts`. It uses startup reconciliation and polling; downtime delays work, not persisted decisions.
 
-Local regressions default to an isolated temporary PostgreSQL cluster: install PostgreSQL tools (`initdb`, `pg_ctl`) on PATH, then run `bun run test:regressions -- cli gateway`. The harness creates and removes its own cluster, never uses your application database. Optional Neon branch tests remain available through `bun run test:regressions:neon`.
-
-The numbered walkthrough below describes the optional Neon-hosted deployment. Skip its Neon/dashboard provisioning for the default headless setup.
+Local regressions use an isolated temporary PostgreSQL cluster: install PostgreSQL tools (`initdb`, `pg_ctl`) on PATH, then run `bun run test:regressions -- cli gateway`. The harness creates and removes its own cluster and never uses your application database.
 
 
 Fork the repo first if you want Vercel to deploy your copy. This checkout is the **live checkout**. The runner, and the hooks installed into your target repos, run code straight from this path. Keep it on `main` and don't move it. Do development work in a separate clone or worktree.
@@ -90,48 +87,10 @@ In the Linear team you want the factory to work in:
 
 If your team key or label differs, set them in every place listed under [Settings](#settings).
 
-### 4. Create the Neon backend (optional)
+### 4. Create the PostgreSQL backend
 
-Create a project, link this checkout to it, and turn on Realtime for `main`:
+Provision a dedicated PostgreSQL database/user. Set `DATABASE_URL`, direct `DATABASE_URL_UNPOOLED`, `FACTORY_GATEWAY_URL`, `FACTORY_INGEST_SECRET`, `LINEAR_WEBHOOK_SECRET`, and `LINEAR_API_KEY` in a protected environment file. Run `bun run db:migrate` explicitly before deploying schema-dependent code. Host `bun apps/gateway/src/serve.ts` behind HTTPS with database access; keep it online independently of the runner.
 
-```sh
-neon projects create --name marshal-factory
-neon init --no-agent-setup      # links this directory to the project; writes .neon
-neon realtime enable --branch main --allowed-origin '*'
-```
-
-Create `.env.local` with the secrets you choose yourself:
-
-```sh
-cat > .env.local <<EOF
-FACTORY_INGEST_SECRET=$(openssl rand -hex 32)
-LINEAR_WEBHOOK_SECRET=$(openssl rand -hex 32)
-NEON_AUTH_COOKIE_SECRET=$(openssl rand -base64 32)
-FACTORY_OWNER_EMAILS=you@example.com
-LINEAR_API_KEY=<your Linear API key>
-FACTORY_TEAM_KEY=FAC
-FACTORY_LABEL=factory
-EOF
-chmod 600 .env.local
-```
-
-Deploy `neon.ts` to `main`, which turns on Neon Auth and deploys the ingest Function. The GitHub App doesn't exist yet, so pass a placeholder for its webhook secret. Step 6 replaces it.
-
-```sh
-GITHUB_APP_WEBHOOK_SECRET=pending neon deploy --branch main --env .env.local --no-env-pull
-```
-
-Pull the values Neon generated (connection strings, Auth, Realtime, and the Function's URL), then create the tables:
-
-```sh
-neon env pull --branch main
-echo "NEXT_PUBLIC_NEON_REALTIME_URL=$(grep '^NEON_REALTIME_URL=' .env.local | cut -d= -f2-)" >> .env.local
-bun run db:migrate
-```
-
-`.env.local` now also holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_AUTH_BASE_URL`, `NEON_REALTIME_URL`, `NEON_REALTIME_SECRET` and `NEON_FUNCTION_INGEST_BASE_URL`.
-
-Finally, put the production endpoint id into `PRODUCTION_ENDPOINTS` in `packages/core/src/migrate-guard.ts`. It is the `ep-…` part of the host in `DATABASE_URL`, without `-pooler`.
 
 ### 5. Write the runner's config
 
@@ -140,7 +99,7 @@ The runner and the reporter read `~/.config/marshal-factory/config.json`:
 ```sh
 mkdir -p ~/.config/marshal-factory
 set -a; source .env.local; set +a
-jq -n --arg key "$LINEAR_API_KEY" --arg url "$NEON_FUNCTION_INGEST_BASE_URL/ingest" --arg secret "$FACTORY_INGEST_SECRET" \
+jq -n --arg key "$LINEAR_API_KEY" --arg url "$FACTORY_GATEWAY_URL/ingest" --arg secret "$FACTORY_INGEST_SECRET" \
   '{linearApiKey: $key, ingestUrl: $url, secret: $secret, factory: {teamKey: "FAC", label: "factory"}}' \
   > ~/.config/marshal-factory/config.json
 chmod 600 ~/.config/marshal-factory/config.json
@@ -158,12 +117,7 @@ bun scripts/setup-github-app.ts
 
 A browser page opens and sends the app manifest to GitHub. Click **Create GitHub App**, pick the repos the factory may work in, and click **Install**. The script saves the app's id, private key and webhook secret to `~/.config/marshal-factory/github-app.json` (mode 600). You can add repos to the installation later in GitHub's app settings.
 
-Now give the ingest Function the real webhook secret:
-
-```sh
-neon functions deploy ingest --branch main --src apps/gateway/src/neon.ts \
-  --env GITHUB_APP_WEBHOOK_SECRET="$(jq -r .webhook_secret ~/.config/marshal-factory/github-app.json)"
-```
+Give the gateway `GITHUB_APP_WEBHOOK_SECRET` from the generated app file through your hosting secret store, then restart the gateway. Never put the private key or secret in command arguments or logs.
 
 ### 7. Create the Linear webhook
 
@@ -177,25 +131,18 @@ This registers a webhook on your team (Issue and Comment events) that points at 
 
 Skip this section for a headless factory. Import the repo into Vercel as a Next.js monorepo project with the dashboard at `apps/dashboard`. Dashboard builds do not migrate. Run `bun run db:migrate` explicitly against the intended direct database target before deploying schema-dependent code. Then:
 
-- Add these environment variables for Production. Mark the secrets as Sensitive.
-  - `DATABASE_URL`, `DATABASE_URL_UNPOOLED`
-  - `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`
-  - `NEON_REALTIME_URL`, `NEXT_PUBLIC_NEON_REALTIME_URL`, `NEON_REALTIME_SECRET`
-  - `FACTORY_OWNER_EMAILS`
-  - `LINEAR_API_KEY`, used by the New job form
-  - `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, from `~/.config/marshal-factory/github-app.json`, so **Add repository** can list the repos the App reaches
-  - `FACTORY_TEAM_KEY` and `FACTORY_LABEL`, if they differ from `FAC` and `factory`
-  - Optional: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, so you can paste a repo's secrets in the panel instead of running a command on the Mac
-  - Optional: `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` and `SLACK_OWNER_USER_ID` ([Connecting Slack](#connecting-slack))
-- Set the Ignored Build Step to `[ -z "$DATABASE_URL" ]`, so previews without a database are skipped. For preview databases, provision an isolated Neon branch and explicitly migrate it before deployment.
-
-Deploy, then add the panel's production URL to Neon Auth's trusted domains; the example uses `https://marshal-factory.vercel.app`, so put your own domain in its place. A new branch has none, and without this sign-up fails with "Create account failed: Invalid origin.":
+- Configure `DATABASE_URL` and `FACTORY_DASHBOARD_URL` (the exact browser origin). Browser access requires HTTPS or loopback through an SSH tunnel. Internal reverse-proxy traffic may use HTTP.
+- Retain integration credentials needed by dashboard operations: Linear, GitHub App, and optionally Modal. Slack endpoints are hosted by the gateway.
+- If using a reverse proxy, set `FACTORY_CLIENT_IP_HEADER` only to a header that proxy overwrites with a validated client address. Otherwise login throttling uses a conservative shared network bucket.
+- Apply migrations explicitly and provision each owner before opening the dashboard:
 
 ```sh
-neon neon-auth domain add https://marshal-factory.vercel.app --branch main
+bun run cli owners create --input '{"email":"you@example.com"}'
 ```
 
-Then create your owner account. Sign-up is off by default. The [owner account steps](docs/operations.md#panel-access-and-deploys) turn it on briefly, so you can register with an address from `FACTORY_OWNER_EMAILS` and confirm it with the emailed code.
+The CLI prompts twice without echoing the password. Passwords require at least eight characters and are stored as Argon2id hashes. Use `owners reset` to change a password or `owners disable` to remove access; both revoke all sessions. There is no public signup or email recovery. SSO passwords/sessions are not migrated; existing job/audit history remains unchanged.
+
+Sessions expire after 24 idle hours or seven days absolute. Dashboard updates poll every five seconds while visible; hidden tabs stop polling. No Neon account, authentication service, realtime service, or hosting adapter is used.
 
 ### 9. Start the runner
 
@@ -308,7 +255,7 @@ The optional `factory` object in `~/.config/marshal-factory/config.json` overrid
 
 [docs/operations.md](docs/operations.md) lists the rest.
 
-If you change the team key or label, also change them in the ingest Function (`FACTORY_TEAM_KEY` and `FACTORY_LABEL`, with the `neon functions deploy` command from step 6) and in Vercel. Then rerun `bun scripts/install-webhooks.ts` for a new team.
+If you change the team key or label, update `FACTORY_TEAM_KEY` and `FACTORY_LABEL` on the gateway and dashboard. Then rerun `bun scripts/install-webhooks.ts` for a new team.
 
 ## Running jobs in Modal sandboxes
 
@@ -350,17 +297,17 @@ It stops the runner, pulls, explicitly migrates, redeploys the gateway and rebui
 - **Start with the runner log**: `~/Library/Logs/marshal-factory/runner.log`. Each line is one JSON event. Errors name the step that failed.
 - **An issue isn't picked up.** Check that it is in your team (`teamKey`), has the label, and is in an unstarted state such as Todo. Also check that **Repositories** lists at least one repo or `factory.repos` isn't empty, and that the Linear webhook exists under Linear → Settings → API. The runner also polls every 90 seconds, so a missed webhook only delays the job.
 - **Machine shows offline.** The runner isn't sending heartbeats. Check `launchctl list | grep marshal-factory`, then the log. Run `bun apps/runner/src/index.ts --once` in the live checkout to do one operational reconciliation pass. This can mutate jobs and services; it is not a read-only health check.
-- **Sign-up fails with "Invalid origin."** Neon Auth only accepts sign-ups from its trusted domains, and the panel's domain isn't one of them. Run `neon neon-auth domain add https://<your panel domain> --branch main`, then sign up again. See [the owner account steps](docs/operations.md#panel-access-and-deploys).
-- **The board has no live updates.** Check the three Realtime variables in Vercel. Previews never subscribe to live updates; only production does.
+- **Sign-in fails.** Ask a trusted operator to reset the local owner password through the CLI. Check `FACTORY_DASHBOARD_URL` matches the browser origin.
+- **The board stops updating.** Polling pauses in hidden tabs. Check owner session validity, database connectivity, and `/api/live/` responses.
 - **A run has no stages or costs.** The target repo's hooks aren't reaching ingest. Check that the files from `install-target` are on the repo's `main`, and that `secret` in your config equals `FACTORY_INGEST_SECRET` in the Function.
 - **You moved the live checkout.** The hooks and the LaunchAgent hold its old path. Run `install-target` for each repo and `install-runner` again.
 - **Repositories shows a repo as failed with "The image build was still running after 45 minutes, so the factory stopped it."** The runner never saw the warm-image build finish, for example because a rollout restarted it while the build ran. Until a new image lands, that repo's jobs run without a warm image (the runner logs `sandbox:warm-image-outdated`), so they clone and install from scratch. Press **Rebuild image** on the repo's Repositories entry; the image builds in a few minutes and the repo returns to Ready. See Freshness in [Onboarding a repository](docs/operations.md#onboarding-a-repository).
 
 ## Developing
 
-Work in a separate clone or worktree, never in the live checkout. Run `bun dev` for the panel against a Neon branch of your own, not `main`.
+Work in a separate clone or worktree, never in the live checkout. Run `bun dev` against a dedicated development PostgreSQL database, never production.
 
-`bun run test:regressions` runs every `scripts/*-regressions.ts` against a throwaway Neon branch made from production. It deletes the branch when the run ends. Pass a prefix to run a subset, for example `bun run test:regressions ingest`. During a test run, the real Linear client, the GitHub App and `t3` commands refuse to run, so a test can't touch real work.
+`bun run test:regressions` runs guarded scripts against a disposable local PostgreSQL cluster and removes it afterward. Pass filename prefixes for a subset. Real external service clients refuse to run during regressions.
 
 ## Further reading
 

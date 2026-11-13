@@ -1,5 +1,5 @@
-import { jobsQuery, sealedResponse } from "../../../../lib/live-queries";
+import { jobsQuery, pollingResponse } from "../../../../lib/live-queries";
 
-export async function POST() {
-  return sealedResponse(jobsQuery());
+export async function GET() {
+  return pollingResponse(jobsQuery());
 }

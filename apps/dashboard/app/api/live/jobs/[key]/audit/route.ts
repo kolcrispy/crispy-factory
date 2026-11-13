@@ -1,6 +1,6 @@
-import { jobAuditQuery, jobIdForKey, parseJobKey, sealedResponse } from "../../../../../../lib/live-queries";
+import { jobAuditQuery, jobIdForKey, parseJobKey, pollingResponse } from "../../../../../../lib/live-queries";
 
-export async function POST(
+export async function GET(
   _request: Request,
   { params }: RouteContext<"/api/live/jobs/[key]/audit">,
 ) {
@@ -10,5 +10,5 @@ export async function POST(
   }
   const jobId = await jobIdForKey(key);
   if (!jobId) return Response.json({ error: "no such job" }, { status: 404 });
-  return sealedResponse(jobAuditQuery(jobId));
+  return pollingResponse(jobAuditQuery(jobId));
 }

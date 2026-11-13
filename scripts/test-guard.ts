@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
-import { endpointOf, TEST_BRANCH_ENV, TEST_ENDPOINT_ENV } from "@factory/core/test-mode";
+import { TEST_BRANCH_ENV, TEST_ENDPOINT_ENV } from "@factory/core/test-mode";
 
 const ENV_FILE = ".env.local";
 const DB_VARS = ["DATABASE_URL", "DATABASE_URL_UNPOOLED"];
@@ -27,12 +27,5 @@ if (postgresUrl) {
     if (fileEnv[name] === postgresUrl) refuse("test database matches the application database");
   }
 } else {
-  const production = new Set(DB_VARS.flatMap((name) => (fileEnv[name] ? [endpointOf(fileEnv[name])] : [])));
-  if (production.has(endpoint)) refuse(`endpoint ${endpoint} is the one ${ENV_FILE} points at`);
-
-  for (const name of DB_VARS) {
-    const url = process.env[name];
-    if (!url) refuse(`${name} is not set`);
-    if (endpointOf(url) !== endpoint) refuse(`${name} targets ${endpointOf(url)}, not test branch ${branch} (${endpoint})`);
-  }
+  refuse("an isolated PostgreSQL harness URL is required");
 }

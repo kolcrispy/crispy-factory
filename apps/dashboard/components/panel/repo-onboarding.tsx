@@ -87,7 +87,7 @@ export function AddRepository() {
       if (outcome.labelNote) setNote(outcome.labelNote);
       else setOpen(false);
       router.push(`/repositories?${new URLSearchParams({ repo })}`, { scroll: false });
-      router.refresh();
+      router.refresh(); window.dispatchEvent(new Event("factory:refresh"));
     });
   };
   const shown = addable?.repos.filter((r) => r.repo.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
@@ -195,7 +195,7 @@ function Secrets({ row, panelTakesSecrets }: { row: RepoSettingsRow; panelTakesS
         return;
       }
       setValues({});
-      router.refresh();
+      router.refresh(); window.dispatchEvent(new Event("factory:refresh"));
     });
   };
   return (
@@ -261,7 +261,7 @@ export function OnboardingSection({ row, panelTakesSecrets }: { row: RepoSetting
     setFailure(null);
     startTransition(async () => {
       const outcome = await action({ repo: row.repo });
-      if (outcome.ok) router.refresh();
+      if (outcome.ok) { router.refresh(); window.dispatchEvent(new Event("factory:refresh")); }
       else setFailure(outcome.message);
     });
   };

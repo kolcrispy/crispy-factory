@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@factory/storage/client";
-import { auth } from "../../lib/auth/server";
+import { getOwner } from "../../lib/auth/server";
 import {
   requestSlackTest,
   saveNotifications as save,
@@ -10,7 +10,7 @@ import {
   type NotificationInput,
 } from "@factory/core/notifications";
 
-const user = async () => (await auth.getSession()).data?.user;
+const user = getOwner;
 
 const deps: NotificationDeps = {
   db,

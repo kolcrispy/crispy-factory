@@ -183,7 +183,7 @@ function Detail({ entry, harnesses, panelTakesSecrets }: { entry: Entry; harness
         return;
       }
       setSavedNow(true);
-      router.refresh();
+      router.refresh(); window.dispatchEvent(new Event("factory:refresh"));
     });
   };
 

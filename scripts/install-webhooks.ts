@@ -3,7 +3,7 @@ import { z } from "zod";
 import { CONFIG_PATH, loadConfig } from "@factory/core/config";
 
 await import("@factory/platform/environment");
-const gatewayUrl = process.env.FACTORY_GATEWAY_URL ?? process.env.NEON_FUNCTION_INGEST_BASE_URL;
+const gatewayUrl = process.env.FACTORY_GATEWAY_URL;
 if (!gatewayUrl) throw new Error("FACTORY_GATEWAY_URL must name the public HTTPS gateway");
 const base = gatewayUrl.replace(/\/$/, "");
 const config = loadConfig();

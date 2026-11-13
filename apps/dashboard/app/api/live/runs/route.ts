@@ -1,5 +1,5 @@
-import { runsQuery, sealedResponse } from "../../../../lib/live-queries";
+import { runsQuery, pollingResponse } from "../../../../lib/live-queries";
 
-export async function POST() {
-  return sealedResponse(runsQuery());
+export async function GET() {
+  return pollingResponse(runsQuery());
 }

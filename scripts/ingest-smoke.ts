@@ -3,7 +3,7 @@ export {};
 // Exercises the deployed ingest function: idempotency, out-of-order delivery, auth, validation.
 process.loadEnvFile(".env.local");
 
-const base = process.env.NEON_FUNCTION_INGEST_BASE_URL!.replace(/\/$/, "");
+const base = process.env.FACTORY_GATEWAY_URL!.replace(/\/$/, "");
 const secret = process.env.FACTORY_INGEST_SECRET!;
 const run = `smoke-${Date.now()}`;
 const t0 = Date.now() - 60_000;

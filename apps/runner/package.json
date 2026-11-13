@@ -14,9 +14,7 @@
     "@factory/integrations": "workspace:*",
     "zod": "^4.6.7",
     "@factory/platform": "workspace:*",
-    "modal": "0.11.1",
-    "@neon/realtime": "0.1.2",
-    "@neon/realtime-drizzle": "0.1.0"
+    "modal": "0.11.1"
   },
   "exports": {
     "./*": "./src/*.ts"

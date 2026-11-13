@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 // The factory runner: the only process that touches T3, git and the GitHub API. It reacts to webhook intents
-// through polling and optional Neon Realtime hints, and on startup
+// through polling, and on startup
 // reconciles everything it missed while it was down. Every step is idempotent.
 //   bun apps/runner/src/index.ts            run as a daemon (launchd starts it this way)
 //   bun apps/runner/src/index.ts --once     run startup reconciliation once and exit
@@ -9,9 +9,7 @@ import { join } from "node:path";
 process.chdir(join(import.meta.dirname, "../../.."));
 await import("@factory/platform/environment");
 
-const { createRealtime } = await import("@neon/realtime/server");
-const { drizzleAdapter } = await import("@neon/realtime-drizzle");
-const { and, asc, eq, getTableColumns, isNull } = await import("drizzle-orm");
+const { and, asc, eq, isNull } = await import("drizzle-orm");
 const { db } = await import("@factory/storage/client");
 const { intents, jobs } = await import("@factory/storage/schema");
 const ops = await import("./ops");
@@ -22,7 +20,6 @@ const { openT3, tickSandboxes } = await import("./lifecycle");
 const { recheckScheduler } = await import("./recheck");
 const { everyAtMost, serialQueue } = await import("./queue");
 const { isolated, reconcile } = await import("./reconcile");
-const { stopDeliverable } = await import("./binding");
 const { inferUntracked } = await import("./untracked");
 const { flushLocalOutbox } = await import("./outbox");
 const { approveMerge, decideMerges } = await import("./merge-decision");
@@ -35,7 +32,6 @@ const { baseImageIdle, rebuildBaseImage, stopBaseImage } = await import("./base-
 const { advanceOnboarding, onboardRepo, repoPushed, requestRebuild } = await import("./onboarding");
 const { repoPushDetailSchema } = await import("@factory/core/webhooks");
 const { notifySlack, sendSlackTest, slackFromEnv } = await import("./slack");
-const { keepSubscribed } = await import("./realtime");
 type IntentRow = typeof intents.$inferSelect;
 
 const machine = await thisMachine();
@@ -277,49 +273,6 @@ await serial("reconcile", startupReconcile);
 void beat();
 takeIntents(await openIntents());
 
-const connectRealtime = () =>
-  createRealtime({
-    url: process.env.NEON_REALTIME_URL!,
-    secret: process.env.NEON_REALTIME_SECRET!,
-    db: new URL(process.env.DATABASE_URL!).pathname.slice(1),
-    adapter: drizzleAdapter(),
-    logLevel: "warn",
-    logger: (entry) => log("realtime:diagnostic", { diagnostic: entry.event, ...("error" in entry && { error: String(entry.error) }) }),
-  });
-type Realtime = ReturnType<typeof connectRealtime>;
-
-/**
- * Realtime does not promise every change, so a snapshot is read as the current state: open
- * intents are taken, and this machine's jobs whose stage has not reached their source yet get a
- * write-back. An intent snapshot only says something changed; the intents are read again with
- * their job's owner, which routing needs.
- */
-async function subscribe(realtime: Realtime) {
-  const intentsLive = await realtime.subscribe(
-    db.select(getTableColumns(intents)).from(intents).where(isNull(intents.handled_at)).orderBy(asc(intents.created_at)),
-  );
-  intentsLive.onChange((snapshot) => {
-    if (snapshot.status === "live") void openIntents().then(takeIntents);
-  });
-  const jobsLive = await realtime.subscribe(db.select(getTableColumns(jobs)).from(jobs).where(eq(jobs.machine_id, machine.id)));
-  jobsLive.onChange((snapshot) => {
-    if (snapshot.status !== "live") return;
-    const rows = snapshot.data ?? [];
-    if (rows.some((i) => i.stage_event_id && i.stage_event_id !== i.synced_event_id)) {
-      void serial("writeBack", writeBackPass);
-    }
-    // A thread's own session start can bind it (ingest), outside bindThread; deliver its stop now.
-    if (rows.some(stopDeliverable)) void serial("deliverStops", () => ops.deliverStops());
-  });
-  return [intentsLive, jobsLive];
-}
-const realtime = process.env.NEON_REALTIME_URL && process.env.NEON_REALTIME_SECRET ? keepSubscribed({
-  connect: connectRealtime,
-  subscribe,
-  log: (detail) => log("realtime", detail),
-  schedule: (run, ms) => void setTimeout(run, ms),
-}) : null;
-await realtime?.start();
 
 const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
 const labelSync = ops.config.factory.syncLinearLabels ? everyAtMost(86_400_000, () => syncOverrideLabels()) : undefined;
@@ -335,14 +288,13 @@ setInterval(() => {
   void serial("onboarding", () => advanceOnboarding());
   // After the tick's merge decisions and stop checks, so the inbox it reads is this tick's; its own step, so a slow Slack delays nothing.
   if (slackFromEnv()) void serial("slack", () => notifySlack());
-  // Intents the subscription may not have delivered.
+  // Durable intents remain authoritative between polling passes.
   void openIntents().then(takeIntents);
 }, ops.config.factory.tickSeconds * 1000);
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
     log("stop", { signal });
-    realtime?.close();
     // A rebuild in flight is ended, not waited for: the next start builds again from the tick.
     void Promise.all([queue.idle(), stopBaseImage()]).finally(() => process.exit(0));
   });

@@ -153,6 +153,7 @@ export function JobList({
         return;
       }
       toastManager.add({ type: "success", title: outcome.message });
+      window.dispatchEvent(new Event("factory:refresh"));
       setPicked(new Set());
     });
   };

@@ -6,12 +6,13 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.4",
-    "zod": "^4.6.7",
-    "@factory/storage": "workspace:*",
-    "modal": "0.11.1",
-    "@factory/platform": "workspace:*",
     "@factory/integrations": "workspace:*",
-    "pg-connection-string": "2.14.1"
+    "@factory/platform": "workspace:*",
+    "@factory/storage": "workspace:*",
+    "@node-rs/argon2": "^2.2.2",
+    "drizzle-orm": "0.45.4",
+    "modal": "0.11.1",
+    "pg-connection-string": "2.14.1",
+    "zod": "^4.6.7"
   }
 }

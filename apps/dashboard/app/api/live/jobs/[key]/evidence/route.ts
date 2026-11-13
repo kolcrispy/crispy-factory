@@ -1,6 +1,6 @@
-import { jobEvidenceQuery, parseJobKey, sealedResponse } from "../../../../../../lib/live-queries";
+import { jobEvidenceQuery, parseJobKey, pollingResponse } from "../../../../../../lib/live-queries";
 
-export async function POST(
+export async function GET(
   _request: Request,
   { params }: RouteContext<"/api/live/jobs/[key]/evidence">,
 ) {
@@ -8,5 +8,5 @@ export async function POST(
   if (!key) {
     return Response.json({ error: "invalid job key" }, { status: 400 });
   }
-  return sealedResponse(jobEvidenceQuery(key));
+  return pollingResponse(jobEvidenceQuery(key));
 }

@@ -5,7 +5,7 @@ import { readAppFile } from "@factory/integrations/github/app";
 // Exercises the deployed webhook routes: a signed GitHub merge for a throwaway non-factory PR,
 // its replay, and bad signatures on both routes.
 process.loadEnvFile(".env.local");
-const base = process.env.NEON_FUNCTION_INGEST_BASE_URL!.replace(/\/$/, "");
+const base = process.env.FACTORY_GATEWAY_URL!.replace(/\/$/, "");
 const sign = (secret: string, body: string) => createHmac("sha256", secret).update(body).digest("hex");
 
 async function github(body: object, delivery: string, signature?: string) {

@@ -1,5 +1,5 @@
-import { agentsOverviewQuery, sealedResponse } from "../../../../lib/live-queries";
+import { agentsOverviewQuery, pollingResponse } from "../../../../lib/live-queries";
 
-export async function POST() {
-  return sealedResponse(agentsOverviewQuery());
+export async function GET() {
+  return pollingResponse(agentsOverviewQuery());
 }
