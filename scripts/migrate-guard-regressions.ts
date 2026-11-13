@@ -22,10 +22,13 @@ assert.match(
 );
 assert.match(migrateRefusal({ ...preview, VERCEL_ENV: "development", DATABASE_URL_UNPOOLED: PRODUCTION }) ?? "", /development build/);
 assert.equal(
-  migrateRefusal({ VERCEL_ENV: "production", DATABASE_URL: PRODUCTION_POOLED, DATABASE_URL_UNPOOLED: PRODUCTION }),
+  migrateRefusal({ FACTORY_MIGRATION_TARGET: "production", DATABASE_URL: PRODUCTION_POOLED, DATABASE_URL_UNPOOLED: PRODUCTION }),
   null,
-  "a production build migrates production",
+  "an explicitly acknowledged operator migration may target production without Vercel",
 );
+assert.match(migrateRefusal({ VERCEL_ENV: "production", DATABASE_URL: PRODUCTION_POOLED, DATABASE_URL_UNPOOLED: PRODUCTION }) ?? "", /FACTORY_MIGRATION_TARGET/, "dashboard environment alone does not authorize production migrations");
+assert.match(migrateRefusal({ ...preview, FACTORY_MIGRATION_TARGET: "production", DATABASE_URL_UNPOOLED: PRODUCTION }) ?? "", /production branch/, "preview cannot override production protection");
+assert.match(migrateRefusal({ FACTORY_MIGRATION_TARGET: "production", DATABASE_URL: "invalid", DATABASE_URL_UNPOOLED: PRODUCTION }) ?? "", /not a valid URL/, "explicit acknowledgment does not bypass URL validation");
 
 const PRODUCTION_HOST = "ep-odd-field-b95xpf9v.c-2.eu-central-1.aws.neon.tech";
 const GENERIC = "postgresql://u:p@c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require";

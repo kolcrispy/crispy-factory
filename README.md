@@ -253,6 +253,8 @@ Use the source-qualified `id` from `jobs list`, not the display key. `evidence l
 
 Durable actions return an `intentId`. Inspect with `requests show`; `--wait` exits 2 on timeout without cancelling work. Exit 1 indicates refusal/failure; exit 0 a successful query or accepted/completed operation. A completed stop intent is not proof that threads stopped: inspect the job's stop state for confirmation. Retain request UUIDs for retries; do not reuse them for another target.
 
+For a verified production database target, run `FACTORY_MIGRATION_TARGET=production bun run db:migrate` explicitly before deploying schema-dependent backend changes. The guard still validates URLs and rejects production targets from preview/development environments. `VERCEL_ENV=production` alone is not migration authorization. For headless production rollout, export `FACTORY_MIGRATION_TARGET=production` only after verifying the direct target; rollout inherits that explicit acknowledgment.
+
 ## Use it
 
 **Start a job.** Either:

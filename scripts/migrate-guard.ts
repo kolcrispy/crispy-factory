@@ -3,6 +3,6 @@ import { migrateRefusal } from "@factory/core/migrate-guard";
 
 const refusal = migrateRefusal(process.env);
 if (refusal) {
-  console.error(`Refusing to migrate: ${refusal}.\nOnly a production build may migrate the production branch.`);
+  console.error(`Refusing to migrate: ${refusal}.`);
   process.exit(1);
 }

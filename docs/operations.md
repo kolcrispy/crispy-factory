@@ -10,6 +10,8 @@ Use JSON `--input` or `--stdin`; repository secrets require stdin. Retain the UU
 
 Run the gateway locally with `bun apps/gateway/src/serve.ts` (port 3008). Deploy `apps/gateway/src/index.ts` independently of Vercel. Slack URLs use this gateway's `/api/slack/commands` and `/api/slack/interactions`. Set `FACTORY_PANEL_URL` to an empty string when no dashboard exists. Dashboard builds never migrate; explicitly run `bun run db:migrate` against the intended direct database target.
 
+Production migrations require explicit `FACTORY_MIGRATION_TARGET=production bun run db:migrate` after verifying both database URLs. Preview/development environments cannot use this acknowledgment to migrate production. A production Vercel environment alone grants no migration permission. Headless rollout inherits the same variable when intentionally targeting production.
+
 
 ## Parts
 

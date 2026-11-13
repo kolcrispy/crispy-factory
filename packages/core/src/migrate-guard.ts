@@ -5,9 +5,9 @@ export const PRODUCTION_ENDPOINTS = new Set(["ep-odd-field-b95xpf9v"]);
 
 const DB_VARS = ["DATABASE_URL", "DATABASE_URL_UNPOOLED"] as const;
 
-/** Why a Vercel build must not migrate, or null when it may. Only a production build may touch production. */
+/** Explicit production migrations require operator acknowledgment; previews never gain that grant. */
 export function migrateRefusal(env: Record<string, string | undefined>): string | null {
-  if (env.VERCEL_ENV === "production") return null;
+  const production = env.FACTORY_MIGRATION_TARGET === "production" && (!env.VERCEL_ENV || env.VERCEL_ENV === "production");
   const target = env.VERCEL_ENV ?? "non-production";
   for (const name of DB_VARS) {
     const url = env[name];
@@ -18,7 +18,7 @@ export function migrateRefusal(env: Record<string, string | undefined>): string 
     } catch (error) {
       return `${name} ${(error as Error).message}`;
     }
-    if (PRODUCTION_ENDPOINTS.has(endpoint)) return `${name} points at the production branch (${endpoint}) in a ${target} build`;
+    if (PRODUCTION_ENDPOINTS.has(endpoint) && !production) return `${name} points at the production branch (${endpoint}) in a ${target} build; explicit production migrations require FACTORY_MIGRATION_TARGET=production`;
   }
   return null;
 }
