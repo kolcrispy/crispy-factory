@@ -21,3 +21,7 @@
 ## Verification progress
 
 No live end-to-end acceptance claimed. Neon CLI is available, but project `tiny-firefly-89834288` has no local credentials; project access returned `Cannot run interactive auth in CI`. Operator selected authentication unavailable. Do not bypass the isolated branch harness or use production credentials/jobs. Designated local/Modal/T3/Linear/GitHub/Slack test infrastructure and authorized dashboard proof are still required. Tickets 01-06 remain open.
+
+PostgreSQL-default update: isolated PostgreSQL 17 migrations and CLI, gateway, lint-boundary, migrate-guard, claim, inbox, new-job, owner, repositories, settings, stop, and ingest regressions passed without Neon credentials. Onboarding regression currently fails in its POSIX shell fixture on Windows (`spawnSync` status null); outbox regression cannot resolve SDK dependency `cross-spawn` despite frozen install reporting no changes. These are not live T3/Modal acceptance. Dashboard non-Neon authentication is deferred by explicit operator decision.
+
+Retry, Slack actions, Slack notifications, Slack source, and webhook regressions also passed on disposable PostgreSQL 17. Bootstrap installers now accept `FACTORY_GATEWAY_URL` without Neon provisioning. Optional Neon deployment uses its dedicated gateway hosting adapter.

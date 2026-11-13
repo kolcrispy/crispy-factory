@@ -146,11 +146,11 @@ async function afterPull() {
   run("bun", ["run", "db:migrate"]);
 
   const ingestChanged = changedSince(last?.commit);
-  const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["apps/gateway/src/index.ts"]));
-  if (ingestTouched === null) log("ingest: no earlier rollout to compare with, so it is deployed");
-  else if (ingestTouched.length > 0) log(`ingest: ${ingestTouched.join(", ")} changed`);
-  if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "apps/gateway/src/index.ts"]);
-  else log("ingest: unchanged since the last rollout, not deployed");
+  if (flag("--neon")) {
+    const ingestTouched = ingestChanged && touchedInputs(ingestChanged, bundleInputs(["apps/gateway/src/neon.ts"]));
+    if (ingestTouched === null || ingestTouched.length > 0) run("neon", ["functions", "deploy", "ingest", "--branch", "main", "--src", "apps/gateway/src/neon.ts"]);
+    else log("ingest: unchanged since the last rollout, not deployed");
+  } else log("gateway: independently hosted; use --neon only for Neon Functions deployment");
 
   const image = readSandboxImage();
   if (!image) log("image: none was ever built on this machine (no Modal jobs), not built");

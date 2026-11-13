@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/serve.ts --target=bun --packages=external --outdir=dist",
+    "build": "bun build ./src/index.ts ./src/serve.ts ./src/neon.ts --target=bun --packages=external --outdir=dist",
     "start": "bun src/serve.ts"
   },
   "dependencies": {

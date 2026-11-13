@@ -1,13 +1,13 @@
 import { join } from "node:path";
 
 // The factory runner: the only process that touches T3, git and the GitHub API. It reacts to webhook intents
-// through Neon Realtime, runs a plain timer for the checks that need no event, and on startup
+// through polling and optional Neon Realtime hints, and on startup
 // reconciles everything it missed while it was down. Every step is idempotent.
 //   bun apps/runner/src/index.ts            run as a daemon (launchd starts it this way)
 //   bun apps/runner/src/index.ts --once     run startup reconciliation once and exit
 
 process.chdir(join(import.meta.dirname, "../../.."));
-process.loadEnvFile(".env.local");
+await import("@factory/platform/environment");
 
 const { createRealtime } = await import("@neon/realtime/server");
 const { drizzleAdapter } = await import("@neon/realtime-drizzle");
@@ -313,13 +313,13 @@ async function subscribe(realtime: Realtime) {
   });
   return [intentsLive, jobsLive];
 }
-const realtime = keepSubscribed({
+const realtime = process.env.NEON_REALTIME_URL && process.env.NEON_REALTIME_SECRET ? keepSubscribed({
   connect: connectRealtime,
   subscribe,
   log: (detail) => log("realtime", detail),
   schedule: (run, ms) => void setTimeout(run, ms),
-});
-await realtime.start();
+}) : null;
+await realtime?.start();
 
 const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
 const labelSync = ops.config.factory.syncLinearLabels ? everyAtMost(86_400_000, () => syncOverrideLabels()) : undefined;
@@ -342,7 +342,7 @@ setInterval(() => {
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
     log("stop", { signal });
-    realtime.close();
+    realtime?.close();
     // A rebuild in flight is ended, not waited for: the next start builds again from the tick.
     void Promise.all([queue.idle(), stopBaseImage()]).finally(() => process.exit(0));
   });

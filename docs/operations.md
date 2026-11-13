@@ -6,6 +6,10 @@ Reference for how each part of the factory behaves once it is installed. For ins
 
 Runner, gateway, CLI, and optional dashboard are separate Bun workspaces. Backend-only install/build commands are in the README. `bun run cli --help` lists commands. Local `DATABASE_URL` credentials grant trusted operator access without a dashboard account; `--actor` records attribution, not authentication. Browser routes still require a verified owner.
 
+Headless defaults to ordinary PostgreSQL. Runner Realtime is optional: without `NEON_REALTIME_URL` and `NEON_REALTIME_SECRET`, startup reconciliation and polling remain authoritative. Run the portable gateway with `apps/gateway/src/serve.ts`; optional Neon Functions deploys use `apps/gateway/src/neon.ts`. Rollout invokes Neon only with `--neon`. Dashboard non-Neon authentication is deferred and does not block headless operation.
+
+`bun run test:regressions -- <prefixes>` creates a disposable local PostgreSQL cluster using `initdb` and `pg_ctl`, applies migrations, runs guarded scripts, stops the cluster, and deletes its directory. PostgreSQL tools must be on PATH. `FACTORY_TEST_POSTGRES_PORT` selects a free port (default 55439). Existing servers are never reused. Use `test:regressions:neon` only when intentionally testing on Neon.
+
 Shared packages, including source adapters, reject dashboard-framework imports through ESLint. Adapter composition may import concrete source integrations without relaxing that framework boundary.
 
 Use JSON `--input` or `--stdin`; repository secrets require stdin. Retain the UUID `requestId` for durable actions. Acceptance means persisted work, not completed execution. `requests show` takes `intentId`; `--wait SECONDS` exits 2 on timeout without cancelling queued work. Runner downtime delays execution, not configuration writes or queries.

@@ -4,7 +4,6 @@ import { slackRouteDeps } from "@factory/core/slack-route-deps";
 import { safeMessage } from "@factory/core/slack-request";
 import { secretValues } from "@factory/core/slack";
 import { timingSafeEqual } from "node:crypto";
-import { attachDatabasePool, waitUntil } from "@neon/functions";
 import { eq } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import * as schema from "@factory/storage/schema";
@@ -14,7 +13,13 @@ import { isJobSource, sourceFor } from "@factory/core/sources/index";
 import type { JobSource } from "@factory/core/sources/types";
 import { githubIntent, githubPushIntent, verifyGithub, type IntentDraft } from "@factory/core/webhooks";
 
-attachDatabasePool(db.$client);
+let background = (work: () => Promise<void>) => {
+  void work().catch(error => console.error(safeMessage(secretValues(process.env), error)));
+};
+
+export function setBackgroundHandler(handler: (work: () => Promise<void>) => void) {
+  background = handler;
+}
 
 function authorized(request: Request) {
   const secret = process.env.FACTORY_INGEST_SECRET;
@@ -92,8 +97,8 @@ async function ingestEvents(request: Request) {
 const ROUTES: Record<string, (request: Request) => Promise<Response>> = {
   "/ingest": ingestEvents,
   "/webhooks/github": githubWebhook,
-  "/api/slack/commands": request => handleCommand(request, slackRouteDeps(work => waitUntil(work()))),
-  "/api/slack/interactions": request => handleInteraction(request, slackRouteDeps(work => waitUntil(work()))),
+  "/api/slack/commands": request => handleCommand(request, slackRouteDeps(background)),
+  "/api/slack/interactions": request => handleInteraction(request, slackRouteDeps(background)),
 };
 
 const handler = {

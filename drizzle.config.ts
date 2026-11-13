@@ -1,10 +1,6 @@
 import { defineConfig } from "drizzle-kit";
 
-try {
-  process.loadEnvFile(".env.local");
-} catch {
-  // CI or a shell that already exports DATABASE_URL_UNPOOLED
-}
+import "@factory/platform/environment";
 
 export default defineConfig({
   dialect: "postgresql",

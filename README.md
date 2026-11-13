@@ -38,7 +38,7 @@ On the Mac that runs the factory:
 
 ## Install
 
-These steps set up one factory: one Neon project, one panel, and one Mac running the runner. Do them in order. Several steps depend on values an earlier step creates.
+The default headless setup is PostgreSQL, a hosted gateway, and a runner. Neon is optional. Dashboard authentication remains Neon-based for now and is not required for headless operation.
 
 ### 1. Clone the factory
 
@@ -57,6 +57,19 @@ bun run cli --help
 ```
 
 This excludes Next.js. Keep the checkout's workspace packages alongside build outputs. Configure local credentials in `.env.local`, exported environment, or a file selected by `MARSHAL_FACTORY_ENV`. The CLI trusts `DATABASE_URL`; use it only on a trusted operator machine. `--actor` attributes actions and does not authenticate an untrusted client. The runner still requires T3 and its machine configuration. Gateway hosting remains required even when the dashboard is omitted.
+
+### PostgreSQL headless setup (default)
+
+1. Provision PostgreSQL 17 and a dedicated database/user. Set `DATABASE_URL` and direct `DATABASE_URL_UNPOOLED` in `.env.local`; no Neon account or variables are required.
+2. Set `FACTORY_GATEWAY_URL` to the public HTTPS gateway origin, plus `LINEAR_API_KEY`, `FACTORY_INGEST_SECRET`, `LINEAR_WEBHOOK_SECRET`, and `FACTORY_OWNER_EMAILS`. Configure the GitHub App using `bun scripts/setup-github-app.ts`. Set Slack credentials only when using Slack.
+3. Run `bun run db:migrate` explicitly. Run `bun apps/gateway/src/serve.ts` on your hosted machine behind HTTPS, with database network access. Port defaults to 3008. Keep the gateway reachable while the runner is offline.
+4. Configure `~/.config/marshal-factory/config.json` with `linearApiKey`, the public gateway `/ingest` URL as `ingestUrl`, and the same ingest `secret`. Prepare T3 and local checkouts or Modal as described below.
+5. Point Linear/GitHub webhooks and Slack URLs at the gateway. Use the CLI commands below to configure repositories, onboard, provision secrets, submit jobs, and operate them. Leave `FACTORY_PANEL_URL` empty when no dashboard exists.
+6. Start `bun apps/runner/src/index.ts`. Without Neon Realtime credentials it uses startup reconciliation and polling; downtime delays work, not persisted decisions.
+
+Local regressions default to an isolated temporary PostgreSQL cluster: install PostgreSQL tools (`initdb`, `pg_ctl`) on PATH, then run `bun run test:regressions -- cli gateway`. The harness creates and removes its own cluster, never uses your application database. Optional Neon branch tests remain available through `bun run test:regressions:neon`.
+
+The numbered walkthrough below describes the optional Neon-hosted deployment. Skip its Neon/dashboard provisioning for the default headless setup.
 
 
 Fork the repo first if you want Vercel to deploy your copy. This checkout is the **live checkout**. The runner, and the hooks installed into your target repos, run code straight from this path. Keep it on `main` and don't move it. Do development work in a separate clone or worktree.
@@ -77,7 +90,7 @@ In the Linear team you want the factory to work in:
 
 If your team key or label differs, set them in every place listed under [Settings](#settings).
 
-### 4. Create the Neon backend
+### 4. Create the Neon backend (optional)
 
 Create a project, link this checkout to it, and turn on Realtime for `main`:
 
@@ -148,7 +161,7 @@ A browser page opens and sends the app manifest to GitHub. Click **Create GitHub
 Now give the ingest Function the real webhook secret:
 
 ```sh
-neon functions deploy ingest --branch main --src apps/gateway/src/index.ts \
+neon functions deploy ingest --branch main --src apps/gateway/src/neon.ts \
   --env GITHUB_APP_WEBHOOK_SECRET="$(jq -r .webhook_secret ~/.config/marshal-factory/github-app.json)"
 ```
 

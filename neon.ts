@@ -8,7 +8,7 @@ export default defineConfig({
   functions: {
     ingest: {
       name: "factory ingest",
-      source: "apps/gateway/src/index.ts",
+      source: "apps/gateway/src/neon.ts",
       env: {
         FACTORY_INGEST_SECRET: process.env.FACTORY_INGEST_SECRET!,
         LINEAR_WEBHOOK_SECRET: process.env.LINEAR_WEBHOOK_SECRET!,

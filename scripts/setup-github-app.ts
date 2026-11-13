@@ -15,10 +15,10 @@ const { values: args } = parseArgs({
     force: { type: "boolean", default: false },
   },
 });
-if (existsSync(".env.local")) process.loadEnvFile(".env.local");
+await import("@factory/platform/environment");
 const GITHUB = process.env.GITHUB_URL ?? "https://github.com";
-const ingestBase = process.env.NEON_FUNCTION_INGEST_BASE_URL?.replace(/\/$/, "");
-if (!ingestBase) throw new Error("NEON_FUNCTION_INGEST_BASE_URL is not set; it names the main ingest Function");
+const ingestBase = (process.env.FACTORY_GATEWAY_URL ?? process.env.NEON_FUNCTION_INGEST_BASE_URL)?.replace(/\/$/, "");
+if (!ingestBase) throw new Error("FACTORY_GATEWAY_URL must name the public HTTPS gateway");
 
 const base = `http://localhost:${args.port}`;
 let state: string | undefined = randomBytes(16).toString("hex");
