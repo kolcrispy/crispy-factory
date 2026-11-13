@@ -69,16 +69,20 @@ assert.deepEqual(recipes.parseCheckResults("test\t0\nlint\t1\nbogus\t0\n", recip
 ]);
 // A Python pin installs that version and fails the build when python3 is still another one. Fakes stand in for every installer.
 const pyBin = mkdtempSync(join(tmpdir(), "onb-python-"));
+// The fakes run under Bash, which reads a Windows path's backslashes as escapes.
+const pyBinSh = pyBin.replaceAll("\\", "/");
 const fakeTool = (name: string, body: string) => writeFileSync(join(pyBin, name), `#!/bin/bash\n${body}\n`, { mode: 0o755 });
-fakeTool("python3", `cat ${pyBin}/version`);
-fakeTool("uv", `echo "uv $*" >> ${pyBin}/calls; if [ "$1 $2" = "python find" ]; then echo /opt/uv-python/cpython/bin/python3; fi`);
-fakeTool("apt-get", `echo "apt-get $*" >> ${pyBin}/calls`);
-fakeTool("ln", `echo "ln $*" >> ${pyBin}/calls`);
+fakeTool("python3", `cat ${pyBinSh}/version`);
+fakeTool("uv", `echo "uv $*" >> ${pyBinSh}/calls; if [ "$1 $2" = "python find" ]; then echo /opt/uv-python/cpython/bin/python3; fi`);
+fakeTool("apt-get", `echo "apt-get $*" >> ${pyBinSh}/calls`);
+fakeTool("ln", `echo "ln $*" >> ${pyBinSh}/calls`);
+const bash = Bun.which("bash");
+if (!bash) throw new Error("Onboarding regressions require Bash on PATH");
 const buildWithPython = (installed: string) => {
   writeFileSync(join(pyBin, "version"), `Python ${installed}\n`);
   writeFileSync(join(pyBin, "calls"), "");
-  const result = spawnSync("bash", ["-c", buildScript({ runtimes: { python: "3.12" }, setup: ["true"], checks: {} }, pyBin, { checks: false })], {
-    env: { ...process.env, PATH: `${pyBin}:/usr/bin:/bin` },
+  const result = spawnSync(bash, ["-c", buildScript({ runtimes: { python: "3.12" }, setup: ["true"], checks: {} }, pyBinSh, { checks: false })], {
+    env: { ...process.env, PATH: `${pyBinSh}:/usr/bin:/bin` },
     encoding: "utf8",
   });
   return { code: result.status, calls: readFileSync(join(pyBin, "calls"), "utf8"), out: result.stdout };

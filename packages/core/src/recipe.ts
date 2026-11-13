@@ -159,7 +159,8 @@ export const BUILD_EXIT: Record<number, string> = {
  * encoded, so no quoting in them can break the script.
  */
 export function buildScript(recipe: Recipe, repoDir: string, { checks }: { checks: boolean }) {
-  const lines = ["#!/bin/bash", "set -uo pipefail", "export DEBIAN_FRONTEND=noninteractive", `cd ${repoDir} || exit 20`];
+  // Quoted: a checkout path with spaces would otherwise split, and a quote in it would end the word.
+  const lines = ["#!/bin/bash", "set -uo pipefail", "export DEBIAN_FRONTEND=noninteractive", `cd '${repoDir.replaceAll("'", "'\\''")}' || exit 20`];
   if (recipe.system?.length) lines.push(`apt-get update && apt-get install -y --no-install-recommends ${recipe.system.join(" ")} || exit 10`);
   lines.push(...runtimeSteps(recipe.runtimes));
   recipe.setup.forEach((cmd, i) => lines.push(`echo "== setup ${i + 1}: $(echo ${b64(cmd)} | base64 -d)"`, `${run(cmd)} || exit 20`));

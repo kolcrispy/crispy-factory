@@ -191,7 +191,7 @@ try {
 
   const prUrl = `https://github.com/ski043/factory-demo/pull/${stamp}`;
   const prReply = await first.report({ stage: "pr", summary: "PR is up.", prUrl, assessment });
-  assert.match(prReply, /^Recorded stage pr\. Prove the pushed commit with `bun \/\S+\/hooks\/verify\.ts` \(factory-verify\)/, "pr and verifying name this checkout's factory-verify");
+  assert.match(prReply, /^Recorded stage pr\. Prove the pushed commit with `bun (?:[A-Za-z]:)?[\/\\]\S+[\/\\]hooks[\/\\]verify\.ts` \(factory-verify\)/, "pr and verifying name this checkout's factory-verify");
   job = await row(CODEX);
   assert.deepEqual([job.stage, job.pr_url, job.merge_assessment?.recommendation], ["pr", prUrl, "handover"], "the PR URL and the merge assessment land like Claude's");
   assert.deepEqual(job.merge_assessment?.confidence, { confident: false, reason: "Proven: n" }, "stored in the current shape");
@@ -244,7 +244,7 @@ try {
   assert.equal((await row(CLAUDE)).stage, "implementing", "delivered by the next hook");
 
   // The runner flushes a sandbox's outbox through its host before hibernating or ending it, and on wake.
-  const sandboxOutbox = `${SANDBOX_STATE_DIR}/outbox`;
+  const sandboxOutbox = outboxDir(SANDBOX_STATE_DIR);
   const slot = mkdtempSync(join(dir, "slot-"));
   writeFileSync(join(slot, "auth.json"), `{"slot":"x"}`, { mode: 0o600 });
   const logs: { event: string; detail: Record<string, unknown> }[] = [];
@@ -258,9 +258,11 @@ try {
   fake.answer = (sandbox, argv) => {
     const [command, ...args] = argv;
     const path = args.at(-1)!;
+    // Sandbox paths are built with path.join, so a Windows checkout reads them with backslashes.
+    const under = (f: string) => f.startsWith(`${path}/`) || f.startsWith(`${path}\\`);
     if (command === "t3" && args[0] === "thread" && args[1] === "show") return { stdout: JSON.stringify({ thread: { archived: false, worktreePath: null, activeRunId: null, branch: null } }) };
-    if (command === "test" && path.startsWith(SANDBOX_STATE_DIR)) return { code: [...sandbox.files.keys()].some((f) => f === path || f.startsWith(`${path}/`)) ? 0 : 1 };
-    if (command === "ls") return { stdout: [...sandbox.files.keys()].filter((f) => f.startsWith(`${path}/`)).map((f) => f.slice(path.length + 1)).filter((f) => !f.includes("/")).join("\n") };
+    if (command === "test" && path.startsWith(SANDBOX_STATE_DIR)) return { code: [...sandbox.files.keys()].some((f) => f === path || under(f)) ? 0 : 1 };
+    if (command === "ls") return { stdout: [...sandbox.files.keys()].filter(under).map((f) => f.slice(path.length + 1)).filter((f) => !/[/\\]/.test(f)).join("\n") };
     if (command === "rm") sandbox.files.delete(path);
     return {};
   };
@@ -268,7 +270,7 @@ try {
   outboxClient.send = async (batch) => (sandboxIngestDown ? { kind: "failed", reason: "ingest answered 503" } : { kind: "delivered", spend: (await ingest(db, batch)).spend });
   const sandboxFor = async (k: string) =>
     (await fakeModal.create({ name: `job-${k}-a1`, tags: { job: k, attempt: "1", label: config.factory.label, machine: TEST_MACHINE_ID }, imageId: "im-test", secrets: {}, env: {}, encryptedPorts: [], limits: config.factory.sandbox })) as FakeSandbox;
-  const queue = (sandbox: FakeSandbox, event: FactoryEvent, n: number) => sandbox.files.set(`${sandboxOutbox}/${String(n).padStart(15, "0")}-1-000000.json`, JSON.stringify(event));
+  const queue = (sandbox: FakeSandbox, event: FactoryEvent, n: number) => sandbox.files.set(join(sandboxOutbox, `${String(n).padStart(15, "0")}-1-000000.json`), JSON.stringify(event));
   const eventIds = async (ids: string[]) => (await db.select({ id: events.event_id }).from(events).where(inArray(events.event_id, ids))).map((e) => e.id);
 
   const UP = await insert("UP", {});
@@ -332,7 +334,7 @@ try {
     outboxClient.send = realSend;
   }
   assert.deepEqual(await eventIds([`abc${stamp}after`]), [`abc${stamp}after`], "the event after the refused one is delivered");
-  assert.ok([...sbRefused.files.keys()].some((f) => f.startsWith(`${SANDBOX_STATE_DIR}/outbox-rejected/`)), "and the refused one waits in the sandbox's outbox-rejected");
+  assert.ok([...sbRefused.files.keys()].some((f) => f.startsWith(`${rejectedDir(SANDBOX_STATE_DIR)}/`) || f.startsWith(`${rejectedDir(SANDBOX_STATE_DIR)}\\`)), "and the refused one waits in the sandbox's outbox-rejected");
 
   console.log("outbox regressions passed");
 } catch (error) {
