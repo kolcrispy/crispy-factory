@@ -6,6 +6,9 @@ const OWNER = "owner@example.com";
 process.env.FACTORY_OWNER_EMAILS = OWNER;
 process.env.NEON_AUTH_BASE_URL ??= "https://auth.invalid/neondb/auth";
 process.env.NEON_AUTH_COOKIE_SECRET ??= "x".repeat(32);
+// The panel builds a Realtime client at import time; this regression supplies its own credential
+// instead of depending on a developer"s .env.local.
+process.env.NEON_REALTIME_SECRET = `nrt_live_1${Buffer.alloc(32).toString("base64url")}`;
 
 const { auth, assertOwner } = await import("../apps/dashboard/lib/auth/server");
 const REFRESHED = "x-session-refreshed";
