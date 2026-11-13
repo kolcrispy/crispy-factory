@@ -336,6 +336,8 @@ export const repoSettings = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     /** The T3 provider instance this repo's jobs start on without a Harness label; null means Settings. */
     provider: text("provider"),
+    /** Model override for the explicitly selected harness; null inherits its default. */
+    model: text("model"),
     /** Where this repo's jobs run without a Runs on label; null means Settings. */
     autonomy: text("autonomy").$type<Autonomy>().notNull().default("off"),
     /** Globs a PR may not touch to merge on its own; null means the defaults. */

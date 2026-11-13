@@ -97,7 +97,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
     const requested = job.source_state.requestedProvider;
     const selected = requested ? harnesses?.find(harness => harness.id === requested && harness.enabled) : null;
     if (requested && !selected) continue;
-    const harness = selected ? { provider: selected.id, model: selected.models[0]?.slug ?? defaults.harness.model } : defaults.harness;
+    const harness = selected && selected.id !== defaults.harness.provider ? { provider: selected.id, model: selected.models[0]?.slug ?? defaults.harness.model } : defaults.harness;
     if (harness.provider === "omp" && !harnesses.some(runtime => runtime.id === "omp" && runtime.enabled && runtime.models.some(model => model.slug === harness.model))) continue;
     entries.push({ ...entry, harness, base: `origin/${repository.default_branch}` });
   }

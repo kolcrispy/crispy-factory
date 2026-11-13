@@ -21,18 +21,18 @@ export const defaultRepo = (registry: Registry) => registry.find((r) => r.is_def
 
 export type LaunchDefaults = { harness: EffectiveHarness };
 
-/**
- * The repo's default harness and place over Settings; the ticket's labels then go over these. A
- * default harness other than the Settings one starts on its first current model, as a Harness
- * label does. One that no runner reports enabled is a problem and Settings apply.
- */
+/** Repository harness/model overrides Settings; unavailable choices fall back with a problem. */
 export function withRepoDefaults(settings: LaunchDefaults, repo: RepoSettingsRow | undefined, harnesses: readonly Harness[] | null) {
   const problems: string[] = [];
   let harness = settings.harness;
-  if (repo?.provider && repo.provider !== settings.harness.provider) {
-    const model = harnesses?.find((h) => h.id === repo.provider && h.enabled)?.models[0]?.slug;
-    if (model) harness = { provider: repo.provider, model, from: "repo" };
-    else problems.push(`${repo.repo} defaults to harness ${repo.provider}, which no runner reports enabled with a model, so its jobs start on the Settings harness.`);
+  if (repo?.provider && (repo.model || repo.provider !== settings.harness.provider)) {
+    const selected = harnesses?.find((h) => h.id === repo.provider && h.enabled);
+    const model = repo.model ?? (repo.provider === settings.harness.provider ? settings.harness.model : selected?.models[0]?.slug);
+    if (model && selected?.models.some((candidate) => candidate.slug === model)) {
+      harness = { provider: repo.provider, model, from: "repo" };
+    } else {
+      problems.push(`${repo.repo} defaults to harness ${repo.provider}${repo.model ? ` and model ${repo.model}` : ""}, which no runner reports available, so its jobs start on the Settings harness.`);
+    }
   }
   return { defaults: { harness }, problems };
 }
@@ -108,6 +108,8 @@ export const repositoryInputSchema = z.object({
   enabled: z.boolean(),
   /** A harness's provider instance id; null means Settings decide. */
   provider: z.string().trim().min(1).nullable(),
+  /** Model overrides belong to an explicit harness; null inherits its default. */
+  model: z.string().trim().min(1).nullable().default(null),
   autonomy: autonomySchema,
   requireBugbot: z.boolean({ error: "Say whether pull requests wait for Bugbot." }),
 });
@@ -124,6 +126,7 @@ export async function writeRepository(database: Db, choice: RepositoryChoice, by
       display_name: same(choice.displayName, repoName(choice.repo)) ? null : choice.displayName,
       enabled: choice.enabled,
       provider: choice.provider,
+      model: choice.model,
       autonomy: choice.autonomy,
       require_bugbot: choice.requireBugbot,
       updated_at: at,
@@ -163,6 +166,12 @@ export async function saveRepository(deps: RepositoryDeps, input: unknown): Prom
   if (row.is_default && !choice.enabled) return invalid("The default repository can't be disabled. Make another one the default first.");
   const taken = registry.find((r) => r.repo !== choice.repo && (same(displayName(r), choice.displayName) || same(r.repo, choice.displayName)));
   if (taken) return invalid(`${taken.repo} is already named ${choice.displayName}.`);
+  if (choice.model && !choice.provider) return invalid("Pick a repository harness before choosing its model.");
+  if (choice.model && (choice.model !== row.model || choice.provider !== row.provider)) {
+    const harness = (await deps.harnesses())?.find((h) => h.id === choice.provider && h.enabled);
+    if (!harness) return invalid(`No machine reports an enabled harness ${choice.provider}.`);
+    if (!harness.models.some((m) => m.slug === choice.model)) return invalid(`${harness.name} has no model ${choice.model}.`);
+  }
   // Only a changed harness is checked: one kept from before may no longer be reported, and other edits must still save.
   if (choice.provider && choice.provider !== row.provider) {
     const harnesses = await deps.harnesses();

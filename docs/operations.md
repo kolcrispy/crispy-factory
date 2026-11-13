@@ -51,6 +51,10 @@ Registration is asynchronous.
 2. The runner validates push access and archived state, clones or adopts a checkout, and records the canonical name, default branch, and trusted `.factory/setup.json` recipe.
 3. Only then does the repository become ready for jobs.
 
+Repository settings include a default harness and optional default model. Models must belong to the selected enabled harness in runner inventory. Selecting Settings default clears the repository model override. With no model override, the Settings model applies when the harness matches Settings; a different harness uses its first reported model. Explicitly selecting the same harness on a job preserves the repository model; a different job harness uses its first reported model. Unavailable repository choices fall back to Settings at launch, while unchanged saved choices may be retained during unrelated edits.
+
+The CLI `repositories save` JSON accepts `model` (a reported model slug or `null` to inherit) alongside `provider`. Apply migration `0050_lame_mandroid.sql` before running this revision of the dashboard or runner, then restart the runner. Existing repository rows inherit defaults through a null model.
+
 A failed registration keeps its error on the row; replaying the same request is idempotent. Existing checkouts are adopted without resetting or cleaning user files.
 
 ## Dashboard
