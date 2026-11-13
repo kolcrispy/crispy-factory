@@ -32,7 +32,9 @@ const slotA = mkdtempSync(join(dir, "slot-a-"));
 const slotB = mkdtempSync(join(dir, "slot-b-"));
 const slotC = mkdtempSync(join(dir, "slot-c-"));
 const healthPath = join(dir, "codex-slots.json");
-for (const slot of [slotA, slotB, slotC]) writeFileSync(join(slot, "auth.json"), `{"slot":"${slot}","v":1}`, { mode: 0o600 });
+// A Windows slot path carries backslashes, so the login text must be real JSON, not a template.
+const login = (slot: string, v: number) => JSON.stringify({ slot, v });
+for (const slot of [slotA, slotB, slotC]) writeFileSync(join(slot, "auth.json"), login(slot, 1), { mode: 0o600 });
 const authOf = (slot: string) => readFileSync(join(slot, "auth.json"), "utf8");
 
 const events: { event: string; detail: Record<string, unknown> }[] = [];
@@ -86,7 +88,7 @@ async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
 try {
   // Hibernate: a pr job whose thread settled gives its sandbox up; its refreshed login goes back first.
   const sbH = await sandboxFor(key("H"));
-  sbH.files.set(CODEX_AUTH, `{"slot":"${slotA}","v":2}`);
+  sbH.files.set(CODEX_AUTH, login(slotA, 2));
   sbH.files.set("/work/repo/marker.txt", "kept");
   const H = await insert("H", { stage: "pr", t3_thread_id: "thread-H", sandbox_id: sbH.sandboxId, codex_slot: slotA, pr_url: `https://github.com/ski043/factory-demo/pull/${stamp}` });
   const sbRun = await sandboxFor(key("RUN"));
@@ -99,8 +101,9 @@ try {
   assert.deepEqual(hibernated, [`${H}:hibernated`], JSON.stringify(hibernated));
   const h = await row(H);
   assert.deepEqual([h.sandbox_id, h.codex_slot, h.sandbox_snapshot], [null, null, "im-snap-1"], "snapshot recorded, sandbox and slot cleared");
-  assert.equal(authOf(slotA), `{"slot":"${slotA}","v":2}`, "the sandbox's refreshed login is written back to the slot");
-  assert.equal(statSync(join(slotA, "auth.json")).mode & 0o777, 0o600, "owner-only");
+  assert.equal(authOf(slotA), login(slotA, 2), "the sandbox's refreshed login is written back to the slot");
+  // Windows has no mode bits; the owner-only check is meaningful where it does.
+  if (process.platform !== "win32") assert.equal(statSync(join(slotA, "auth.json")).mode & 0o777, 0o600, "owner-only");
   assert.ok(sbH.terminated, "the sandbox is terminated");
   const opsH = fake.ops.filter((o) => o.startsWith(`${sbH.sandboxId}:`));
   const at = (needle: string) => opsH.findIndex((o) => o.includes(needle));
@@ -157,7 +160,7 @@ try {
   assert.ok(!sbRun.execs.some((e) => e.argv.join(" ").includes("ghs_fake")), "the token never appears in a command line");
 
   // Teardown: a merged job writes its login back, ends its sandbox and frees its slot, once.
-  sbW.files.set(CODEX_AUTH, `{"slot":"${slotA}","v":3}`);
+  sbW.files.set(CODEX_AUTH, login(slotA, 3));
   await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, H));
   const snapGone = await insert("GONE", { stage: "failed", t3_thread_id: "thread-GONE", sandbox_snapshot: "im-snap-expired", stop_event_id: `stop:${key("GONE")}:1:x` });
   fake.images.set("im-snap-kept", new Map());
@@ -167,7 +170,7 @@ try {
   assert.equal(await sqlReclaims(SNAP), false, "SQL agrees");
   const torn = await teardownFinished();
   assert.ok(Array.isArray(torn) && [H, snapGone, SNAP].every((k) => torn.includes(`${k}:torn down`)), JSON.stringify(torn));
-  assert.equal(authOf(slotA), `{"slot":"${slotA}","v":3}`, "written back before the sandbox ends");
+  assert.equal(authOf(slotA), login(slotA, 3), "written back before the sandbox ends");
   assert.ok(sbW.terminated);
   for (const k of [H, snapGone, SNAP]) {
     const r = await row(k);
@@ -303,7 +306,7 @@ try {
 
   // An answer to a hibernated job whose thread is gone once woken: the woken sandbox and its slot go, so it relaunches.
   const slotD = mkdtempSync(join(dir, "slot-d-"));
-  writeFileSync(join(slotD, "auth.json"), `{"slot":"${slotD}","v":1}`, { mode: 0o600 });
+  writeFileSync(join(slotD, "auth.json"), login(slotD, 1), { mode: 0o600 });
   sandboxRuntime.slots = () => [slotD];
   const answered = new Set<string>();
   SOURCES.linear.replies = async (job) =>

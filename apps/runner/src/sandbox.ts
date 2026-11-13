@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { FactoryConfig, SandboxLimits } from "@factory/core/config";
 import type { ExecError } from "@factory/platform/exec";
 import { sandboxTokens, type RepoName } from "@factory/integrations/github/app";
@@ -44,7 +44,12 @@ const CODEX = "codex";
 /** Writes through a temp file and a rename, owner-only, so a reader never sees half a file. */
 function writeAtomic(path: string, text: string) {
   // A regression may only write login and health files it made in the temp dir.
-  if (inTestMode() && ![tmpdir(), realpathSync(tmpdir())].some((dir) => resolve(path).startsWith(`${dir}/`))) {
+  const target = resolve(path);
+  const inside = (dir: string) => {
+    const rel = relative(dir, target);
+    return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  };
+  if (inTestMode() && ![tmpdir(), realpathSync(tmpdir())].some(inside)) {
     throw new Error(`a regression run tried to write ${path} outside the temp dir`);
   }
   mkdirSync(dirname(path), { recursive: true });
