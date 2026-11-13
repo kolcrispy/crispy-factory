@@ -10,6 +10,8 @@ Shared packages, including source adapters, reject dashboard-framework imports t
 
 Use JSON `--input` or `--stdin`; repository secrets require stdin. Retain the UUID `requestId` for durable actions. Acceptance means persisted work, not completed execution. `requests show` takes `intentId`; `--wait SECONDS` exits 2 on timeout without cancelling queued work. Runner downtime delays execution, not configuration writes or queries.
 
+`notifications test` also queues while runners are offline. A Slack-capable runner sends it after reconnecting; inspect the returned intent rather than treating acceptance as delivery.
+
 Run the gateway locally with `bun apps/gateway/src/serve.ts` (port 3008). Deploy `apps/gateway/src/index.ts` independently of Vercel. Slack URLs use this gateway's `/api/slack/commands` and `/api/slack/interactions`. Set `FACTORY_PANEL_URL` to an empty string when no dashboard exists. Dashboard builds never migrate; explicitly run `bun run db:migrate` against the intended direct database target.
 
 Production migrations require explicit `FACTORY_MIGRATION_TARGET=production bun run db:migrate` after verifying both database URLs. Preview/development environments cannot use this acknowledgment to migrate production. A production Vercel environment alone grants no migration permission. Headless rollout inherits the same variable when intentionally targeting production.

@@ -97,8 +97,6 @@ export async function readNotifications(database: Pick<Db, "select">): Promise<N
 export type NotificationDeps = {
   db: Db;
   user: () => Promise<SessionUser | null | undefined>;
-  /** Whether an online runner reports a Slack token. */
-  slackConfigured: () => Promise<boolean>;
   now?: () => Date;
 };
 
@@ -129,7 +127,6 @@ export async function requestSlackTest(deps: NotificationDeps, requestId: string
   const user = await deps.user();
   if (!user || !isOwner(user)) return { ok: false, message: OWNER_ONLY };
   if (!requestIdSchema.safeParse(requestId).success) return { ok: false, message: "The request is not valid." };
-  if (!(await deps.slackConfigured())) return { ok: false, message: "No online runner has a Slack token. Add SLACK_BOT_TOKEN to the runner's .env.local and restart it." };
   const id = `panel:slack_test:${requestId}`;
   await deps.db
     .insert(intents)

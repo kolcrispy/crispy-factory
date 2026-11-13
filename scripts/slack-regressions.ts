@@ -429,9 +429,11 @@ try {
 
   // --- the test message, from Settings to the runner
   const user = async () => ({ email: OWNER, emailVerified: true });
-  const deps = { db, user, slackConfigured: async () => true };
+  const deps = { db, user };
   assert.equal((await requestSlackTest({ ...deps, user: async () => ({ email: "x@example.com", emailVerified: true }) }, randomUUID())).ok, false, "owner only");
-  assert.match(JSON.stringify(await requestSlackTest({ ...deps, slackConfigured: async () => false }, randomUUID())), /No online runner has a Slack token/);
+  const offlineRequest = await requestSlackTest(deps, randomUUID());
+  assert.ok(offlineRequest.ok, "notification tests are durably accepted without an online runner");
+  assert.deepEqual(await slackTestOutcome(deps, offlineRequest.intentId), { status: "pending" });
   const requested = await requestSlackTest(deps, randomUUID());
   assert.ok(requested.ok);
   const [intent] = await db.select().from(intents).where(eq(intents.id, requested.intentId));

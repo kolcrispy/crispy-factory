@@ -11,7 +11,7 @@ import { archiveJobs, unarchiveJobs } from "@factory/core/archive-actions";
 import { newJobDeps } from "@factory/core/new-job-deps";
 import { createJob } from "@factory/core/new-job";
 import { readSettings, saveSettings, writeSettings } from "@factory/core/settings";
-import { reportedHarnesses, reportedSlack } from "@factory/core/machine";
+import { reportedHarnesses } from "@factory/core/machine";
 import { readRegistry, saveRepository, writeRepository, makeDefaultRepo, writeDefaultRepo } from "@factory/core/repositories";
 import { readNotifications, saveNotifications, requestSlackTest } from "@factory/core/notifications";
 import { installationRepos } from "@factory/integrations/github/installation";
@@ -30,7 +30,7 @@ export async function operator(resource: string, action: string, raw: unknown, a
   const deps = inboxDeps(user);
   const registry = () => readRegistry(db);
   const harnesses = async () => reportedHarnesses(await db.select().from(machines), Date.now());
-  const notificationDeps = { db, user, slackConfigured: async () => Boolean(reportedSlack(await db.select().from(machines), Date.now())?.configured) };
+  const notificationDeps = { db, user };
   let result: Result;
   const key = `${resource} ${action}`;
   switch (key) {

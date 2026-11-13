@@ -1,9 +1,7 @@
 "use server";
 
 import { db } from "@factory/storage/client";
-import { machines } from "@factory/storage/schema";
 import { auth } from "../../lib/auth/server";
-import { reportedSlack } from "@factory/core/machine";
 import {
   requestSlackTest,
   saveNotifications as save,
@@ -17,7 +15,6 @@ const user = async () => (await auth.getSession()).data?.user;
 const deps: NotificationDeps = {
   db,
   user,
-  slackConfigured: async () => reportedSlack(await db.select().from(machines), Date.now())?.configured ?? false,
 };
 
 export async function saveNotifications(input: NotificationInput) {
