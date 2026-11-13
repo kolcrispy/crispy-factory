@@ -2,7 +2,7 @@ import "./test-guard";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, verify } from "node:crypto";
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appCredentials, appJwt, installationTokens, readAppFile, tokenSource } from "@factory/integrations/github/app";
@@ -223,7 +223,7 @@ async function setupScriptEndToEnd(api: string) {
     ) as Record<string, unknown>;
     assert.deepEqual(
       [manifest.name, manifest.public, manifest.hook_attributes, manifest.redirect_url, manifest.setup_url, manifest.default_events],
-      ["marshal-factory-ski043", false, { url: "https://ingest.invalid/webhooks/github", active: true }, `${base}/callback`, `${base}/installed`, ["pull_request", "pull_request_review", "push", "issues"]],
+      ["crispy-factory", false, { url: "https://ingest.invalid/webhooks/github", active: true }, `${base}/callback`, `${base}/installed`, ["pull_request", "pull_request_review", "push", "issues"]],
     );
     assert.deepEqual(manifest.default_permissions, { metadata: "read", contents: "write", pull_requests: "write", checks: "write", issues: "write", statuses: "read" });
 
@@ -232,7 +232,10 @@ async function setupScriptEndToEnd(api: string) {
     const callback = await fetch(`${base}/callback?code=good-code&state=${state}`, { redirect: "manual" });
     assert.equal(callback.status, 302);
     assert.equal(callback.headers.get("location"), `${api}/apps/factory-stub/installations/new`, "the callback sends the human on to install");
-    assert.equal(statSync(path).mode & 0o777, 0o600, "the app file is created with mode 600");
+    // Windows has no mode bits: file protection there would be an ACL, which this project does not manage.
+    const posix = process.platform !== "win32";
+    if (posix) assert.equal(statSync(path).mode & 0o777, 0o600, "the app file is created with mode 600");
+    else assert.ok(existsSync(path), "the app file is created");
     assert.equal((await fetch(`${base}/callback?code=good-code&state=${state}`)).status, 400, "the state works once");
     assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), app, "it keeps the id, slug, client id, key and webhook secret, not the client secret");
 
@@ -241,7 +244,7 @@ async function setupScriptEndToEnd(api: string) {
     chmodSync(path, 0o644);
     assert.equal((await fetch(`${base}/installed?installation_id=7`)).status, 200);
     assert.equal(JSON.parse(readFileSync(path, "utf8")).installation_id, 7, "the installation id is recorded");
-    assert.equal(statSync(path).mode & 0o777, 0o600, "the updated app file is mode 600 again");
+    if (posix) assert.equal(statSync(path).mode & 0o777, 0o600, "the updated app file is mode 600 again");
     assert.deepEqual(readdirSync(join(dir, "config")), ["github-app.json"], "no temp file is left behind");
     assert.equal(await exited, 0, "the script exits once the app is installed");
     for (const secret of ["BEGIN", "stub-webhook-secret", "stub-client-secret", "good-code", "ghs_"]) {
