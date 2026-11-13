@@ -6,6 +6,8 @@ Reference for how each part of the factory behaves once it is installed. For ins
 
 Runner, gateway, CLI, and optional dashboard are separate Bun workspaces. Backend-only install/build commands are in the README. `bun run cli --help` lists commands. Local `DATABASE_URL` credentials grant trusted operator access without a dashboard account; `--actor` records attribution, not authentication. Browser routes still require a verified owner.
 
+Shared packages, including source adapters, reject dashboard-framework imports through ESLint. Adapter composition may import concrete source integrations without relaxing that framework boundary.
+
 Use JSON `--input` or `--stdin`; repository secrets require stdin. Retain the UUID `requestId` for durable actions. Acceptance means persisted work, not completed execution. `requests show` takes `intentId`; `--wait SECONDS` exits 2 on timeout without cancelling queued work. Runner downtime delays execution, not configuration writes or queries.
 
 Run the gateway locally with `bun apps/gateway/src/serve.ts` (port 3008). Deploy `apps/gateway/src/index.ts` independently of Vercel. Slack URLs use this gateway's `/api/slack/commands` and `/api/slack/interactions`. Set `FACTORY_PANEL_URL` to an empty string when no dashboard exists. Dashboard builds never migrate; explicitly run `bun run db:migrate` against the intended direct database target.

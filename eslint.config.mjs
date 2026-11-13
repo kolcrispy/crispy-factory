@@ -32,7 +32,7 @@ export default defineConfig([
     { selector: "CallExpression[callee.name='sourceFor'] > Literal.arguments", message: sourceMessage },
     { selector: "CallExpression[callee.name='sourceFor'] > TemplateLiteral.arguments", message: sourceMessage },
   ] } },
-  { files: ["packages/core/src/sources/**/*.ts", "packages/integrations/src/sources/**/*.ts"], rules: { "no-restricted-imports": "off" } },
+  { files: ["packages/core/src/sources/**/*.ts", "packages/integrations/src/sources/**/*.ts"], rules: { "no-restricted-imports": ["error", { patterns: [{ regex: "^(next|react)(/|$)", message: "Shared backend modules must not depend on the dashboard framework." }] }] } },
   { files: ["scripts/**/*.ts"], rules: { "no-restricted-imports": ["error", { patterns: [paths[0]] }], "no-restricted-syntax": ["error", ...syntax.slice(0, 2)] } },
   { files: ["scripts/linear-regressions.ts"], rules: { "no-restricted-imports": "off", "no-restricted-syntax": "off" } },
 ]);

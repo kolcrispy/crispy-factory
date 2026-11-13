@@ -15,6 +15,8 @@ const cases: { file: string; code: string; want: string[] }[] = [
   { file: "apps/runner/src/x.ts", code: 'import { sourceFor } from "@factory/core/sources/index";\nexport const s = sourceFor("linear");\n', want: ["no-restricted-syntax"] },
   { file: "packages/core/src/x.ts", code: 'import { after } from "next/server";\nvoid after;\n', want: ["no-restricted-imports"] },
   { file: "packages/integrations/src/x.ts", code: 'import { useState } from "react";\nvoid useState;\n', want: ["no-restricted-imports"] },
+  { file: "packages/core/src/sources/index.ts", code: 'import { after } from "next/server";\nvoid after;\n', want: ["no-restricted-imports"] },
+  { file: "packages/integrations/src/sources/linear.ts", code: 'import { useState } from "react";\nvoid useState;\n', want: ["no-restricted-imports"] },
   { file: "apps/runner/src/x.ts", code: 'import { sourceFor } from "@factory/core/sources/index";\nimport type { Job } from "@factory/core/sources/types";\nexport const s = (job: Job) => sourceFor(job.source);\n', want: [] },
   { file: "packages/core/src/sources/index.ts", code: 'import { linear } from "@factory/integrations/sources/linear";\nexport const s = linear;\n', want: [] },
   { file: "packages/integrations/src/sources/linear.ts", code: 'import { linearClient } from "../linear";\nvoid linearClient;\n', want: [] },
