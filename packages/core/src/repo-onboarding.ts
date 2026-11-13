@@ -24,7 +24,7 @@ const FORBIDDEN = { ok: false, status: 403, message: "Only the factory owner can
 const invalid = (message: string) => ({ ok: false, status: 400, message }) as const;
 const failed = (what: string, error: unknown) => ({ ok: false, status: 502, message: `Could not ${what}: ${error instanceof Error ? error.message : String(error)}` }) as const;
 
-const repoInput = z.object({ repo: z.string().regex(REPO_NAME, "Name the repo as owner/name.") });
+const repoInput = z.object({ repo: z.string().regex(REPO_NAME, "Name the repo as owner/name."), requestId: z.uuid().default(() => randomUUID()) });
 
 export type AddableOutcome = { ok: true; repos: Installable["repos"]; manageUrl: string } | { ok: false; status: number; message: string };
 
@@ -33,7 +33,8 @@ export type AddRepositoryDeps = {
   registry: () => Promise<Registry>;
   installable: () => Promise<Installable>;
   /** The registry row and its onboard_repo intent, in one transaction. */
-  create: (repo: string, by: string) => Promise<void>;
+  create: (repo: string, by: string, requestId: string) => Promise<string>;
+  replay: (kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string) => Promise<string | null>;
   syncLabels: (groups: readonly LabelGroupSpec[]) => Promise<{ created: string[]; problems: string[] }>;
 };
 
@@ -50,7 +51,7 @@ export async function listAddable(deps: Pick<AddRepositoryDeps, "user" | "regist
   }
 }
 
-export type AddOutcome = { ok: true; labelNote?: string } | { ok: false; status: number; message: string };
+export type AddOutcome = { ok: true; intentId: string; labelNote?: string } | { ok: false; status: number; message: string };
 
 /**
  * Registers a repo the App reaches, enabled and not the default, and asks a runner to onboard it.
@@ -61,7 +62,9 @@ export async function addRepository(deps: AddRepositoryDeps, input: unknown): Pr
   if (!user || !isOwner(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
-  const { repo } = parsed.data;
+  const { repo, requestId } = parsed.data;
+  const existing = await deps.replay("onboard_repo", repo, requestId);
+  if (existing) return { ok: true, intentId: existing };
   const registry = await deps.registry();
   if (registry.some((r) => r.repo.toLowerCase() === repo.toLowerCase())) return invalid(`${repo} is already registered.`);
   if (registry.some((r) => (r.display_name ?? repoName(r.repo)).toLowerCase() === repoName(repo).toLowerCase())) {
@@ -74,23 +77,33 @@ export async function addRepository(deps: AddRepositoryDeps, input: unknown): Pr
     return failed("list the GitHub App's repositories", error);
   }
   if (!installable.repos.some((r) => r.repo.toLowerCase() === repo.toLowerCase())) return invalid(`The GitHub App cannot reach ${repo}. Grant it access first.`);
+  let intentId: string;
   try {
-    await deps.create(repo, user.email);
+    intentId = await deps.create(repo, user.email, requestId);
   } catch (error) {
     return failed("add the repository", error);
   }
   try {
     const synced = await deps.syncLabels([{ group: REPOSITORY_GROUP, children: [repoName(repo)] }]);
-    return synced.problems.length > 0 ? { ok: true, labelNote: synced.problems.join(" ") } : { ok: true };
+    return synced.problems.length > 0 ? { ok: true, intentId, labelNote: synced.problems.join(" ") } : { ok: true, intentId };
   } catch (error) {
-    return { ok: true, labelNote: `The Repository label was not added: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: true, intentId, labelNote: `The Repository label was not added: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
-const intentRow = (kind: IntentKind, repo: string, at: Date) => ({ id: `panel:${kind}:${repo}:${randomUUID()}`, kind, detail: repo, created_at: at });
+const intentRow = (kind: IntentKind, repo: string, at: Date, requestId: string = randomUUID()) => ({ id: `panel:${kind}:${repo}:${requestId}`, kind, detail: repo, created_at: at });
 
-export async function writeNewRepository(database: Db, repo: string, by: string, at: Date) {
+export async function repositoryRequest(database: Db, kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string): Promise<string | null> {
+  const id = intentRow(kind, repo, new Date(0), requestId).id;
+  const [existing] = await database.select({ id: intents.id }).from(intents).where(eq(intents.id, id));
+  return existing?.id ?? null;
+}
+
+export async function writeNewRepository(database: Db, repo: string, by: string, at: Date, requestId: string = randomUUID()): Promise<string> {
+  const intent = intentRow("onboard_repo", repo, at, requestId);
   await database.transaction(async (tx) => {
+    const inserted = await tx.insert(intents).values(intent).onConflictDoNothing().returning({ id: intents.id });
+    if (!inserted.length) return;
     await tx.insert(repoSettings).values({
       repo,
       enabled: true,
@@ -102,8 +115,8 @@ export async function writeNewRepository(database: Db, repo: string, by: string,
       updated_at: at,
       updated_by: by,
     });
-    await tx.insert(intents).values(intentRow("onboard_repo", repo, at));
   });
+  return intent.id;
 }
 
 export const secretsInputSchema = z.object({
@@ -186,32 +199,37 @@ export async function recordSecretNames(database: Db, repo: string, names: reado
 export type RepoActionDeps = {
   user: () => Promise<SessionUser | null | undefined>;
   registry: () => Promise<Registry>;
-  request: (kind: "onboard_repo" | "rebuild_repo_image", repo: string) => Promise<void>;
+  request: (kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string) => Promise<string>;
+  replay: AddRepositoryDeps["replay"];
 };
 
 /** Starts onboarding again from the recipe: the committed one if main has it now, else an agent writes one. */
-export async function retryOnboarding(deps: RepoActionDeps, input: unknown): Promise<SettingsOutcome> {
+export async function retryOnboarding(deps: RepoActionDeps, input: unknown): Promise<AddOutcome> {
   const user = await deps.user();
   if (!user || !isOwner(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
   if (!parsed.success) return invalid("Name the repo as owner/name.");
+  const existing = await deps.replay("onboard_repo", parsed.data.repo, parsed.data.requestId);
+  if (existing) return { ok: true, intentId: existing };
   const row = (await deps.registry()).find((r) => r.repo === parsed.data.repo);
   if (!row) return invalid(`${parsed.data.repo} is not a registered repository.`);
   if (parseDetail(row.onboarding_detail).run) return invalid(`A runner is still working on ${row.repo}. Wait for it to finish.`);
   try {
-    await deps.request("onboard_repo", row.repo);
-    return { ok: true };
+    const intentId = await deps.request("onboard_repo", row.repo, parsed.data.requestId);
+    return { ok: true, intentId };
   } catch (error) {
     return failed("start onboarding", error);
   }
 }
 
 /** Builds the warm image again from the recipe on the row; the current image serves until it is ready. */
-export async function rebuildRepoImage(deps: RepoActionDeps, input: unknown): Promise<SettingsOutcome> {
+export async function rebuildRepoImage(deps: RepoActionDeps, input: unknown): Promise<AddOutcome> {
   const user = await deps.user();
   if (!user || !isOwner(user)) return FORBIDDEN;
   const parsed = repoInput.safeParse(input);
   if (!parsed.success) return invalid("Name the repo as owner/name.");
+  const existing = await deps.replay("rebuild_repo_image", parsed.data.repo, parsed.data.requestId);
+  if (existing) return { ok: true, intentId: existing };
   const row = (await deps.registry()).find((r) => r.repo === parsed.data.repo);
   if (!row) return invalid(`${parsed.data.repo} is not a registered repository.`);
   const detail = parseDetail(row.onboarding_detail);
@@ -219,16 +237,19 @@ export async function rebuildRepoImage(deps: RepoActionDeps, input: unknown): Pr
   const missing = missingEnv(detail.recipe, detail.secretsSet ?? []);
   if (missing.length > 0) return invalid(`Save ${missing.join(", ")} first.`);
   try {
-    await deps.request("rebuild_repo_image", row.repo);
-    return { ok: true };
+    const intentId = await deps.request("rebuild_repo_image", row.repo, parsed.data.requestId);
+    return { ok: true, intentId };
   } catch (error) {
     return failed("request the rebuild", error);
   }
 }
 
 /** Retry resets the row to analyzing with the intent; a rebuild leaves the state to the runner. */
-export async function writeRepoRequest(database: Db, kind: "onboard_repo" | "rebuild_repo_image", repo: string, at: Date) {
+export async function writeRepoRequest(database: Db, kind: "onboard_repo" | "rebuild_repo_image", repo: string, at: Date, requestId: string = randomUUID()): Promise<string> {
+  const intent = intentRow(kind, repo, at, requestId);
   await database.transaction(async (tx) => {
+    const inserted = await tx.insert(intents).values(intent).onConflictDoNothing().returning({ id: intents.id });
+    if (!inserted.length) return;
     if (kind === "onboard_repo") {
       await tx
         .update(repoSettings)
@@ -240,6 +261,6 @@ export async function writeRepoRequest(database: Db, kind: "onboard_repo" | "reb
         })
         .where(eq(repoSettings.repo, repo));
     }
-    await tx.insert(intents).values(intentRow(kind, repo, at));
   });
+  return intent.id;
 }

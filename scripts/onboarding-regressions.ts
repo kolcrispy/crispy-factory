@@ -226,7 +226,8 @@ try {
     user: async () => user,
     registry: async () => db.select().from(repoSettings),
     installable: async () => installable,
-    create: (repo: string, by: string) => actions.writeNewRepository(db, repo, by, new Date()),
+    create: (repo: string, by: string, requestId: string) => actions.writeNewRepository(db, repo, by, new Date(), requestId),
+    replay: (kind: "onboard_repo" | "rebuild_repo_image", repo: string, requestId: string) => actions.repositoryRequest(db, kind, repo, requestId),
     syncLabels: async (groups: unknown) => (labels.push(groups), { created: [], problems: [] }),
   });
   for (const user of [null, { email: "x@example.com", emailVerified: true }]) {
@@ -238,7 +239,10 @@ try {
   assert.equal(listed.ok && listed.manageUrl, "https://github.com/settings/installations/1");
   assert.match(JSON.stringify(await actions.addRepository(addDeps(), { repo: `${NS}/taken` })), /already registered/);
   assert.match(JSON.stringify(await actions.addRepository(addDeps(), { repo: `${NS}/unreachable` })), /cannot reach/);
-  assert.deepEqual(await actions.addRepository(addDeps(), { repo: `${NS}/fresh` }), { ok: true });
+  const addInput = { repo: `${NS}/fresh`, requestId: crypto.randomUUID() };
+  const accepted = await actions.addRepository(addDeps(), addInput);
+  assert.ok(accepted.ok);
+  assert.deepEqual(await actions.addRepository(addDeps(), addInput), accepted, "replay returns the same request after registration");
   const fresh = await row(`${NS}/fresh`);
   assert.deepEqual([fresh.enabled, fresh.is_default, fresh.onboarding_state, fresh.updated_by], [true, false, "analyzing", OWNER]);
   const freshIntents = await db.select().from(intents).where(eq(intents.detail, `${NS}/fresh`));
