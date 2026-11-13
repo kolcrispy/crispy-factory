@@ -90,10 +90,10 @@ function interruptStep(results: readonly { threadId: string; outcome: InterruptO
   const refused = results.find((r) => r.outcome.kind === "refused" || r.outcome.kind === "error");
   const asked = results.filter((r) => r.outcome.kind === "requested").length;
   if (refused && "reason" in refused.outcome) {
-    const verb = refused.outcome.kind === "refused" ? "T3 refused to interrupt" : "Could not reach T3 to interrupt";
+    const verb = refused.outcome.kind === "refused" ? "Runtime refused to interrupt" : "Could not reach runtime to interrupt";
     return `${verb} ${refused.threadId}: ${refused.outcome.reason}`;
   }
-  return asked > 0 ? `Asked T3 to interrupt ${plural(asked, "thread")}.` : "Nothing was left to interrupt.";
+  return asked > 0 ? `Asked runtime to interrupt ${plural(asked, "thread")}.` : "Nothing was left to interrupt.";
 }
 
 /** One look at a bound local thread, and the step it calls for. */
@@ -107,8 +107,8 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
   let subagents: SubagentThread[];
   try {
     parent = await threads.activity(threadId, host);
-    if (parent.state === "gone") return (await settle(row, stop, "confirmed", "T3 no longer has the thread, so nothing of it runs.", now)) && "confirmed";
-    if (!parent.projectId) throw new Error("T3 did not say which project the thread is in, so its subagent threads can't be listed");
+    if (parent.state === "gone") return (await settle(row, stop, "confirmed", "Runtime no longer has the thread, so nothing of it runs.", now)) && "confirmed";
+    if (!parent.projectId) throw new Error("Runtime did not identify the execution project, so its subagent threads can't be listed");
     subagents = await threads.subagents(threadId, parent.projectId, host);
   } catch (error) {
     const step = `Could not read the thread: ${message(error)}`;
@@ -121,7 +121,7 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
     const quietSince = stop.quietSince ?? iso;
     if (now - ms(quietSince) >= timings.settleMs) {
       const tree = subagents.length > 0 ? `its ${plural(subagents.length, "subagent thread")} ${subagents.length === 1 ? "has" : "have"} settled` : "it has no subagent threads";
-      const evidence = `T3 showed the thread with no active run for ${Math.round((now - ms(quietSince)) / 1000)} s, and ${tree}.`;
+      const evidence = `Runtime showed the thread with no active run for ${Math.round((now - ms(quietSince)) / 1000)} s, and ${tree}.`;
       return (await settle(row, stop, "confirmed", evidence, now)) && "confirmed";
     }
     return (await advance(row.id, stop, { ...stop, checkedAt: iso, quietSince, step: "No active run; checking that it stays that way." })) && "quiet";

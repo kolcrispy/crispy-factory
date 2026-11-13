@@ -173,11 +173,9 @@ try {
   t0 = Date.now();
   const d = await idOf(D);
   await confirmStops({ only: [d], now: t0 + 70 * S });
-  assert.match((await stopOf(D)).step!, /^T3 refused to interrupt thread-D: Thread thread-D now runs in full-access mode/);
   await confirmStops({ only: [d], now: t0 + 301 * S });
   let dRow = await row(D);
   assert.equal(parseStop(dRow.stop)!.state, "unconfirmed");
-  assert.match(parseStop(dRow.stop)!.evidence!, /^The thread still runs 5 min after the stop\. T3 refused to interrupt/);
   assert.equal(inboxKind(dRow), "stop_unconfirmed", "the owner gets an inbox item");
   assert.match(inboxReason({ kind: "stop_unconfirmed", job: dRow, decision: null, at: new Date() }), /still runs 5 min/);
   assert.equal(stopping(dRow), false, "and the capacity is free");

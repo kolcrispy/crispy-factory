@@ -1,22 +1,22 @@
 # marshal-factory
 
-An internal software factory: create a job in the dashboard or CLI, and a local runner executes it with T3 Code in an isolated git worktree, then opens a pull request with your authenticated `gh`.
+An internal software factory: create a job in the dashboard or CLI, and a local runner executes it with T3 Code or direct OMP in an isolated git worktree, then opens a pull request with your authenticated `gh`.
 
 PostgreSQL is authoritative. The dashboard only records commands and reads projections; it never runs `gh` and holds no GitHub credentials.
 
 ## Pieces
 
 - `apps/dashboard/` - optional owner-protected Next.js supervision UI.
-- `apps/runner/` - the single foreground executor. Owns T3, git, `gh`, repository preparation, recovery, merges, and evidence.
+- `apps/runner/` - the single foreground executor. Owns T3/OMP sessions, git, `gh`, repository preparation, recovery, merges, and evidence.
 - `apps/cli/` - trusted operator access for owner provisioning and job control.
-- `packages/reporting/` - Claude Code hooks and the `factory-report` MCP server.
+- `packages/reporting/` - Claude Code hooks, the `factory-report` MCP server, and the explicit OMP reporting extension.
 - `packages/core/` - domain models, projections, and pure contracts.
 - `playbooks/factory.md` - instructions every attempt follows.
 
 ## Requirements
 
 - Bun 1.4.4, PostgreSQL 17, git, and GitHub CLI.
-- T3 Code installed and running, with its CLI discoverable (`T3CODE_CLI_PATH` overrides).
+- T3 Code installed and running for T3-backed harnesses (`T3CODE_CLI_PATH` overrides), or authenticated OMP installed locally for harness `omp` (`FACTORY_OMP_PATH` overrides). OMP jobs do not require T3.
 - `gh auth login` completed on the runner machine.
 - Linux or Windows. No service installer is required; run the runner in the foreground.
 

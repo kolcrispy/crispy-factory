@@ -6,7 +6,8 @@ import { listThreads, showThread, startThread as t3Start } from "@factory/integr
 import type { HarnessChoice } from "@factory/core/settings";
 import { withRepoDefaults, readRegistry } from "@factory/core/repositories";
 import { db } from "@factory/storage/client";
-import { readHarnesses } from "@factory/integrations/t3-state";
+import { readHarnesses } from "./harnesses";
+import { recoverOmp, startOmp } from "./omp";
 import { PENDING } from "./binding";
 import { thisMachine } from "./heartbeat";
 import { bindThread, claimLaunch, config, factoryCheckouts, launchSettings, machineInFlight, pendingLaunches, releaseLaunch, toLaunch } from "./ops";
@@ -33,6 +34,7 @@ export type LaunchDeps = {
 };
 export function maybeStarted(error: unknown) {
   if (error instanceof MaybeStartedError) return true;
+  if (error instanceof Error && "executionUncertain" in error && error.executionUncertain === true) return true;
   const failure = error as ExecError;
   if (failure?.code === "ENOENT") return false;
   return Boolean(failure?.killed || failure?.stdinError);
@@ -60,6 +62,16 @@ export async function recoverPending(checkouts: ReadonlyMap<string, string>) {
   const recovered = [];
   for (const pending of await pendingLaunches()) {
     if (!checkouts.has(pending.repo) || Date.now() - Number(pending.marker.slice(PENDING.length)) < 120_000) continue;
+    if (pending.provider === "omp") {
+      try {
+        const id = await recoverOmp(pending.key, pending.attempt);
+        await bindThread(pending.key, id);
+        recovered.push({ key: pending.key, threadId: id });
+      } catch (error) {
+        recovered.push({ key: pending.key, held: true, error: String(error) });
+      }
+      continue;
+    }
     const list = z.array(z.object({ threadId: z.string() })).parse(await listThreads(localHost, checkouts.get(pending.repo)!));
     let found: string | undefined;
     for (const thread of list) {
@@ -86,6 +98,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
     const selected = requested ? harnesses?.find(harness => harness.id === requested && harness.enabled) : null;
     if (requested && !selected) continue;
     const harness = selected ? { provider: selected.id, model: selected.models[0]?.slug ?? defaults.harness.model } : defaults.harness;
+    if (harness.provider === "omp" && !harnesses.some(runtime => runtime.id === "omp" && runtime.enabled && runtime.models.some(model => model.slug === harness.model))) continue;
     entries.push({ ...entry, harness, base: `origin/${repository.default_branch}` });
   }
   const slot = { id: machine.id, repos: [...checkouts.keys()], maxInFlight: config.factory.maxInFlight };
@@ -97,7 +110,9 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
       await localHost.run("git", ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "fetch", "origin", "--prune"], { cwd: checkout, timeoutMs: 120_000 });
       const inputs = await localizeJobImages(entry.message, config.factory.workRoot, entry.key, entry.attempt);
       const message = await withPlaybook(inputs, localHost, checkout);
-      const threadId = await startThread(localHost, checkout, entry.branch, entry.threadTitle, message, entry.harness, entry.base);
+      const threadId = entry.harness.provider === "omp"
+        ? await startOmp({ ...entry, message }, checkout, config.factory.workRoot)
+        : await startThread(localHost, checkout, entry.branch, entry.threadTitle, message, entry.harness, entry.base);
       onWorktree({ key: entry.key, threadId, base: entry.base });
       return threadId;
     },

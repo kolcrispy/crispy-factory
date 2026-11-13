@@ -129,7 +129,7 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
             title="New jobs"
             description={
               <>
-                The T3 harness and model the runner starts new factory threads on. Threads already running keep theirs. A
+                The harness and model the runner starts new factory sessions on. Sessions already running keep theirs. A
                 repository can override these, and sets how far the factory merges, on{" "}
                 <Link href="/repositories" className="underline underline-offset-2">
                   Repositories
@@ -168,7 +168,7 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
                             ))}
                           </SelectPopup>
                         </Select>
-                        <FieldDescription>The enabled T3 providers your machines report.</FieldDescription>
+                        <FieldDescription>The enabled agent runtimes your machines report, including direct OMP.</FieldDescription>
                       </Field>
                       <Field>
                         <FieldLabel htmlFor="settings-model">Model</FieldLabel>

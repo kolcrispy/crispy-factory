@@ -9,6 +9,7 @@ import { STAGE_META } from "./stages";
 /** A local thread whose stop couldn't be confirmed opens in its machine's T3. */
 function stopT3Href(card: BoardCard, machines: ReadonlyMap<string, MachineRow>) {
   if (card.stop?.view.kind !== "unconfirmed" || !card.stop.thread || !card.runsOn) return undefined;
+  if (card.stop.thread.startsWith("omp:")) return undefined;
   return t3ThreadLink(card.stop.thread, t3EnvironmentId(machines.get(card.runsOn.machineId)));
 }
 

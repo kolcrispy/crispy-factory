@@ -246,6 +246,7 @@ if (process.argv.includes("--once")) {
   await queue.drain();
   await verificationsSettled();
   await beat();
+  await ops.closeOmpSessions();
   await reportServer.stop();
   await releaseOwnership();
   await db.$client.end();
@@ -296,6 +297,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       await Promise.allSettled([...background]);
       await queue.drain();
       await verificationsSettled();
+      await ops.closeOmpSessions();
       await reportServer.stop();
       await releaseOwnership();
       await db.$client.end();

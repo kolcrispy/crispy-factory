@@ -4,6 +4,8 @@ Accepted after the owner confirmed the complete cutover contract. Factory owns j
 
 One active foreground runner uses its machine's authenticated `gh` CLI for every GitHub operation and executes T3 locally in attempt-isolated git worktrees. Linux is the primary runtime and native Windows is also supported; platform-specific process, launcher, and path behavior belongs at the runtime boundary, not in job logic. No systemd or Windows Service installer is required by this cutover.
 
+ADR 0004 revises the T3-only execution choice by adding a direct OMP adapter; all local runner and ownership requirements remain.
+
 The dashboard remains optional and may be hosted separately. It shares PostgreSQL with the runner, writes requests, and reads projections; it neither invokes runner-local tools nor receives the runner's GitHub token. Repository registration accepts owner/repo or a GitHub URL, then asynchronously becomes pending, ready, or failed after runner validation and checkout preparation. Local CLI registration may adopt an existing checkout without resetting or deleting user changes.
 
 The runner owns an authenticated loopback-only agent reporting endpoint and durable report delivery. Removing public ingress must not remove evidence, auditability, lease protection, recovery, attempt isolation, or optional safe auto-merge/auto-revert. Preserve PostgreSQL owner accounts and session authentication from ADR 0002; remote browser access still requires HTTPS, and both runner and dashboard require connectivity to the same database.

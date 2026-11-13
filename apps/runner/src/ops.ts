@@ -27,6 +27,8 @@ import { thisMachine } from "./heartbeat";
 import { confirmStops, stopDelivered } from "./stops";
 import { postEvent } from "./ingest-client";
 import { recordCodexUsage } from "./codex-usage";
+import { isOmp, reconcileOmpUsage } from "./omp";
+export { closeOmpSessions } from "./omp";
 
 export { ingestClient, postEvent } from "./ingest-client";
 import { threads } from "./threads";
@@ -326,6 +328,11 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
   const fixed: string[] = [];
   for (const { run, stage } of recent) {
     try {
+      if (isOmp(run.session_id)) {
+        await reconcileOmpUsage(run.session_id);
+        fixed.push(run.job_key!);
+        continue;
+      }
       const host = localHost;
       // A merged or failed job's thread is done, so its subagents are settled.
       const final = stage === "merged" || stage === "failed";
@@ -470,7 +477,18 @@ export async function cleanup(dryRun = false) {
   const reports = [];
   const errors: { repo: string; step: string; error: string }[] = [];
   const steps = [
-    ["factory", (repo: string) => cleanupRepo(repo, byKey, config.factory.cleanupGraceDays, { dryRun })],
+    ["factory", async (repo: string) => {
+      const remote = await checkoutRepo(repo);
+      const directBranches = new Map<string, boolean>();
+      for (const job of all.filter(job => job.repo === remote && job.provider === "omp")) {
+        let running = true;
+        if (job.t3_thread_id && !job.t3_thread_id.startsWith(PENDING)) {
+          try { running = (await threads.state(job.t3_thread_id, localHost)) === "running"; } catch { /* Unknown ownership holds the worktree. */ }
+        }
+        directBranches.set(attemptBranch(job.key, job.attempt), running);
+      }
+      return cleanupRepo(repo, byKey, config.factory.cleanupGraceDays, { dryRun, directBranches });
+    }],
     ["subagents", (repo: string) => cleanupSubagentWorktrees(repo, config.factory.subagentIdleHours, { dryRun })],
   ] as const;
   for (const repo of config.factory.repos) {
@@ -663,6 +681,8 @@ export async function pendingLaunches() {
     marker: i.t3_thread_id!,
     branch: attemptBranch(i.key, i.attempt),
     stage: i.stage,
+    provider: i.provider,
+    attempt: i.attempt,
   }));
 }
 

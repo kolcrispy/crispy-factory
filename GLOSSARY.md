@@ -39,3 +39,11 @@ _Avoid_: cloud worker
 **Intent**:
 A durable request for the runner to perform an action, distinct from confirmation that the action succeeded.
 _Avoid_: completed action
+
+**Harness**:
+The kind of coding agent selected to carry out an attempt, independently of the model it uses.
+_Avoid_: model, T3 provider
+
+**Agent session**:
+The continuing conversation and execution history belonging to one attempt. Resuming it continues that attempt; retrying creates a new attempt and session.
+_Avoid_: job, replacement attempt

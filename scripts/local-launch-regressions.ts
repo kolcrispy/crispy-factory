@@ -13,6 +13,11 @@ try {
   const ambiguous = await launchEntries([entry], { ...deps, start: async () => { throw new MaybeStartedError("start response lost"); } });
   assert.deepEqual(released, [], "an ambiguous start must not create a second thread on the next pass");
   assert.equal(ambiguous[0]!.retry, "after launch recovery");
+  const omp = await launchEntries([{ ...entry, harness: { provider: "omp", model: "test/model" } }], {
+    ...deps, start: async () => { throw Object.assign(new Error("OMP prompt acknowledgement lost"), { executionUncertain: true }); },
+  });
+  assert.deepEqual(released, [], "uncertain OMP prompt delivery retains ownership instead of launching twice");
+  assert.equal(omp[0]!.retry, "after launch recovery");
   const refused = await launchEntries([entry], { ...deps, start: async () => { throw Object.assign(new Error("executable missing"), { code: "ENOENT" }); } });
   assert.deepEqual(released, [entry.key], "a definite pre-launch failure releases ownership");
   assert.equal(refused[0]!.retry, "next pass");

@@ -177,7 +177,7 @@ export function RunDetail({
     formatUsd(runCost(run, agentRows))
   );
   const t3Link =
-    run.t3_thread_id
+    run.t3_thread_id && !run.t3_thread_id.startsWith("omp:")
       ? { label: machineName ? `Open in T3 on ${machineName}` : "Open in T3", href: t3ThreadLink(run.t3_thread_id, environmentId) }
       : null;
 
@@ -234,7 +234,7 @@ export function RunDetail({
           <span className="font-mono">{spend}</span>
         </p>
       </div>
-      {job && <StopBanner job={job} t3Href={stopThread ? t3ThreadLink(stopThread, environmentId) : null} />}
+      {job && <StopBanner job={job} t3Href={stopThread && !stopThread.startsWith("omp:") ? t3ThreadLink(stopThread, environmentId) : null} />}
       {job?.nudged_at && job.nudged_stage === job.stage && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs">
           <span className="font-semibold text-warning">Stuck</span> · the

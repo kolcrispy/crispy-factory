@@ -3,8 +3,9 @@ import { HostGoneError, type JobHost } from "@factory/core/host";
 import type { ThreadState } from "@factory/core/watchdog";
 import { bindingOf } from "./binding";
 import { interruptThread, listSubagents, sendMessage, showThread as showCli, type InterruptOutcome, type SubagentThread } from "@factory/integrations/t3-client";
+import { interruptOmp, isOmp, ompSubagents, readOmp, sendOmp } from "./omp";
 
-/** What `t3 thread show` says about a thread: its state, the status of its last run, and its last assistant message. */
+/** Shared execution observation: activity, last run status, and last assistant message. */
 export type ThreadRead = { state: ThreadState; status: string | null; lastMessage: string | null };
 
 /** The thread as a stop sees it: whether a run is active, and the project its subagent threads are listed under. */
@@ -32,6 +33,7 @@ const shown = z.object({
 async function showThread(threadId: string | null, host: JobHost): Promise<{ read: ThreadRead; activity: ThreadActivity }> {
   const gone: { read: ThreadRead; activity: ThreadActivity } = { read: GONE, activity: { state: "gone", activeRunId: null, projectId: null } };
   if (!threadId) return gone;
+  if (isOmp(threadId)) return readOmp(threadId);
   // A launch in progress; the runner records the real id or clears the marker.
   if (bindingOf(threadId) === "pending") return { read: { state: "running", status: null, lastMessage: null }, activity: { state: "running", activeRunId: null, projectId: null } };
   let raw: unknown;
@@ -62,7 +64,7 @@ export const threads = {
   read: async (threadId: string | null, host: JobHost) => (await showThread(threadId, host)).read,
   activity: async (threadId: string | null, host: JobHost) => (await showThread(threadId, host)).activity,
   state: async (threadId: string | null, host: JobHost) => (await threads.read(threadId, host)).state,
-  send: (threadId: string, message: string, host: JobHost) => sendMessage(host, threadId, message),
-  subagents: (threadId: string, projectId: string, host: JobHost) => listSubagents(host, threadId, projectId),
-  interrupt: (threadId: string, requestId: string, reason: string, host: JobHost) => interruptThread(host, threadId, requestId, reason),
+  send: (threadId: string, message: string, host: JobHost) => isOmp(threadId) ? sendOmp(threadId, message) : sendMessage(host, threadId, message),
+  subagents: (threadId: string, projectId: string, host: JobHost) => isOmp(threadId) ? ompSubagents(threadId) : listSubagents(host, threadId, projectId),
+  interrupt: (threadId: string, requestId: string, reason: string, host: JobHost) => isOmp(threadId) ? interruptOmp(threadId) : interruptThread(host, threadId, requestId, reason),
 };

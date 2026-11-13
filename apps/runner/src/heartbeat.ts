@@ -9,7 +9,8 @@ import { db } from "@factory/storage/client";
 import { machines } from "@factory/storage/schema";
 import { loadConfig } from "@factory/core/config";
 import { UNKNOWN, type Heartbeat, type Inventory } from "@factory/core/machine";
-import { connectStatus, readHarnesses, readProjects, readT3Runtime } from "@factory/integrations/t3-state";
+import { connectStatus, readProjects, readT3Runtime } from "@factory/integrations/t3-state";
+import { readHarnesses } from "./harnesses";
 import { message, withTimeout } from "./queue";
 
 const run = promisify(execFile);

@@ -9,6 +9,7 @@ import type { JobId } from "@factory/core/sources/shapes";
 export async function openT3(id: JobId): Promise<PairingResult> {
   const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
   if (!job?.t3_thread_id || job.t3_thread_id.startsWith("pending:")) return { refused: "This job has no running T3 thread." };
+  if (job.provider === "omp") return { refused: "OMP sessions run directly and cannot open in T3." };
   const { stdout } = await localHost.run(localHost.t3, ["auth", "pairing", "create", "--ttl", `${PAIRING_TTL_MINUTES}m`, "--label", "factory-panel", "--json"], { timeoutMs: 60_000 });
   let parsed: unknown;
   try { parsed = JSON.parse(stdout); } catch { throw new Error("T3 returned no pairing response."); }

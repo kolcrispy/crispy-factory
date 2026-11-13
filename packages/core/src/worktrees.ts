@@ -104,13 +104,13 @@ export async function cleanupRepo(
   repo: string,
   jobsByKey: Map<string, ClaimedJob>,
   graceDays: number,
-  { now = new Date(), dryRun = false, host = localHost } = {},
+  { now = new Date(), dryRun = false, host = localHost, directBranches = new Map<string, boolean>() } = {},
 ): Promise<CleanupReport> {
   const report: CleanupReport = { removed: [], held: [], archive: [] };
   const [remote, trees, threads, branchList] = await Promise.all([
     checkoutRepo(repo, host),
     linkedWorktrees(repo, host),
-    projectThreads(repo, host),
+    directBranches.size ? Promise.resolve([] as Thread[]) : projectThreads(repo, host),
     sh(host, "git", ["branch", "--list", "factory/*", "--format=%(refname:short)"], repo),
   ]);
   const localBranches = new Set(branchList ? branchList.split("\n") : []);
@@ -124,6 +124,11 @@ export async function cleanupRepo(
     try {
       if (branch === checkedOut) {
         report.held.push({ key, reason: "checked out in the main repo" });
+        continue;
+      }
+      // Direct runtime cleanup never needs T3. Unobserved legacy branches remain held.
+      if (directBranches.size && !directBranches.has(branch)) {
+        report.held.push({ key, reason: "execution ownership was not observed for this branch" });
         continue;
       }
       const worktreePath = trees.get(branch) ?? null;
@@ -140,7 +145,7 @@ export async function cleanupRepo(
         ...(await outcomeOf(remote, branch, jobsByKey.get(key), head)),
         dirtyFiles: worktreePath && (await host.exists(worktreePath)) ? await countLines(host, "git", ["status", "--porcelain"], worktreePath) : 0,
         unpushedCommits: local ? await countLines(host, "git", ["rev-list", branch, "--not", "--remotes"], repo) : 0,
-        threadRunning: branchThreads.some((t) => t.running),
+        threadRunning: directBranches.get(branch) ?? branchThreads.some((t) => t.running),
       };
       const plan = planCleanup(state, now, graceDays);
       if (plan.kind === "hold") report.held.push({ key, reason: plan.reason });
