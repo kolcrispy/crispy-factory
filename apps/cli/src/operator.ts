@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { hostname, userInfo } from "node:os";
 import { z } from "zod";
 import { db } from "@factory/storage/client";
-import { jobs, machines, jobEvidence, intents, events, auditLog } from "@factory/storage/schema";
+import { jobs, machines, jobEvidence, intents, events, auditLog, runs } from "@factory/storage/schema";
 import { trustedOperator } from "@factory/core/auth/owner";
 import { inboxDeps } from "@factory/core/inbox-deps";
 import * as inbox from "@factory/core/inbox-actions";
@@ -40,11 +40,12 @@ export async function operator(resource: string, action: string, raw: unknown, a
       const id = parseJobId(text(input, "jobId")).id;
       const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
       if (!job) return { ok: false, message: "No such job." };
-      const [history, audit] = await Promise.all([
+      const [history, audit, attempts] = await Promise.all([
         db.select().from(events).where(eq(events.job_key, job.key)).orderBy(desc(events.at)).limit(200),
         db.select().from(auditLog).where(eq(auditLog.job_id, id)).orderBy(desc(auditLog.at)).limit(50),
+        db.select().from(runs).where(eq(runs.job_key, job.key)).orderBy(desc(runs.last_event_at)).limit(200),
       ]);
-      result = { job, history, audit };
+      result = { job, history, audit, attempts };
       break;
     }
     case "machines list": result = { machines: await db.select().from(machines) }; break;
