@@ -197,7 +197,7 @@ export type InteractionDeps = {
   inbox: InboxDeps;
   panelUrl: string;
   secrets: readonly string[];
-  /** Runs work after the ack; next/server's after in the route. */
+  /** The hosting transport keeps this work alive after acknowledging the request. */
   after: (task: () => Promise<void>) => void;
   now?: () => number;
   /** How often, and how long, an action follows its intent; once it stops following, the notifier has the last word. */

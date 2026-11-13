@@ -243,9 +243,11 @@ try {
   const O = await insert("O", { stage: "queued", machine_id: null, t3_thread_id: null, attempt: 2 });
   assert.deepEqual(await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 1 }), { refused: "The job has moved to another attempt." });
   assert.equal((await row(O)).stage, "queued", "a stale operator request must not stop a newer attempt");
+  SOURCES.linear.confirmStop = async () => ({ stop: false });
   await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 2 });
   assert.equal((await row(O)).stage, "failed", "the current attempt accepts explicit cancellation");
   assert.equal((await stopOf(O)).state, "confirmed", "no thread needs confirmation when cancellation precedes launch");
+  SOURCES.linear.confirmStop = async () => ({ stop: true, reopen: true });
 
   // --- write-back waits for the stop to settle
   const W = await insert("W", {
