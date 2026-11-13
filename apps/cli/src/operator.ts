@@ -12,7 +12,7 @@ import { newJobDeps } from "@factory/core/new-job-deps";
 import { createJob } from "@factory/core/new-job";
 import { readSettings, saveSettings, writeSettings } from "@factory/core/settings";
 import { reportedHarnesses } from "@factory/core/machine";
-import { readRegistry, saveRepository, writeRepository, makeDefaultRepo, writeDefaultRepo } from "@factory/core/repositories";
+import { deleteRepository, makeDefaultRepo, readRegistry, readRepoStats, removeRepository, saveRepository, writeDefaultRepo, writeRepository } from "@factory/core/repositories";
 import { requestRepository } from "@factory/core/repository-registration";
 import { parseJobId } from "@factory/core/sources/shapes";
 
@@ -50,6 +50,7 @@ export async function operator(resource: string, action: string, raw: unknown, a
     case "repositories list": result = { repositories: await registry() }; break;
     case "repositories save": result = await saveRepository({ user, registry, harnesses, save: (choice, by) => writeRepository(db, choice, by, new Date()) }, input); break;
     case "repositories default": result = await makeDefaultRepo({ user, registry, save: (repo, by) => writeDefaultRepo(db, repo, by, new Date()) }, input); break;
+    case "repositories remove": result = await removeRepository({ user, registry, openJobs: async (repo) => (await readRepoStats(db)).find((s) => s.repo === repo)?.open ?? 0, remove: (repo) => deleteRepository(db, repo) }, input); break;
     case "repositories add":
     case "repositories retry": result = { ok: true, ...await requestRepository(db, input, actor) }; break;
     case "jobs create": result = await createJob(newJobDeps(user), input); break;

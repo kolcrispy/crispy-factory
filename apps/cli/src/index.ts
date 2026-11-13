@@ -20,7 +20,7 @@ Resources:
   evidence list
   inbox list
   settings show|save
-  repositories list|add|save|default|retry
+  repositories list|add|save|default|remove|retry
   requests show
   owners create|reset|disable (email input; passwords prompted in terminal)
 
@@ -34,7 +34,7 @@ const COMMANDS = new Set([
   ..."list show create answer changes stop approve close dismiss retry retry-stop archive unarchive follow-up".split(" ").map(action => `jobs ${action}`),
   "machines list", "evidence list", "inbox list", "requests show",
   ..."show save".split(" ").map(action => `settings ${action}`),
-  ..."list add save default retry".split(" ").map(action => `repositories ${action}`),
+  ..."list add save default remove retry".split(" ").map(action => `repositories ${action}`),
   "owners create", "owners reset", "owners disable",
 ]);
 

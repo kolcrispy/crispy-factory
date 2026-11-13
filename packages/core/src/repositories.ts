@@ -1,8 +1,8 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type * as schema from "@factory/storage/schema";
-import { jobs, repoSettings, type RepoSettingsRow } from "@factory/storage/schema";
+import { intents, jobs, repoSettings, type RepoSettingsRow } from "@factory/storage/schema";
 import { isOwner, type SessionUser } from "./auth/owner";
 import type { Harness } from "./harness";
 import { autonomySchema } from "./merge-decision";
@@ -170,6 +170,44 @@ export async function saveRepository(deps: RepositoryDeps, input: unknown): Prom
   }
   try {
     await deps.save(choice, user.email);
+    return { ok: true };
+  } catch (error) {
+    return failed(error);
+  }
+}
+
+/** Unregisters a repo; its local checkout and past jobs stay on disk and in the log. */
+export async function deleteRepository(database: Db, repo: string) {
+  await database.transaction(async (tx) => {
+    await tx
+      .delete(intents)
+      .where(and(eq(intents.kind, "onboard_repo"), isNull(intents.handled_at), sql`${intents.detail}::jsonb->>'repo' = ${repo}`));
+    await tx.delete(repoSettings).where(eq(repoSettings.repo, repo));
+  });
+}
+
+export type RemoveRepoDeps = {
+  user: () => Promise<SessionUser | null | undefined>;
+  registry: () => Promise<Registry>;
+  /** Jobs that are not merged or failed; removing their repo would leave the runner without it. */
+  openJobs: (repo: string) => Promise<number>;
+  remove: (repo: string) => Promise<void>;
+};
+
+/** Removes one non-default repo from the dashboard. The local checkout is not deleted. */
+export async function removeRepository(deps: RemoveRepoDeps, input: unknown): Promise<SettingsOutcome> {
+  const user = await deps.user();
+  if (!user || !isOwner(user)) return FORBIDDEN;
+  const parsed = defaultRepoInputSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error.issues[0]?.message ?? "The repository is not valid.");
+  const repo = parsed.data.repo;
+  const row = (await deps.registry()).find((r) => r.repo === repo);
+  if (!row) return invalid(`${repo} is not a registered repository.`);
+  if (row.is_default) return invalid("The default repository can't be removed. Make another one the default first.");
+  const open = await deps.openJobs(repo);
+  if (open > 0) return invalid(`${repo} has ${open} open ${open === 1 ? "job" : "jobs"}. Close or archive them before removing it.`);
+  try {
+    await deps.remove(repo);
     return { ok: true };
   } catch (error) {
     return failed(error);

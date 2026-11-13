@@ -1,10 +1,11 @@
 "use client";
 
-import { ExternalLinkIcon, XIcon } from "lucide-react";
+import { ExternalLinkIcon, Trash2Icon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
-import { makeDefaultRepository, saveRepository } from "../../app/actions/repositories";
+import { makeDefaultRepository, removeRepository, saveRepository } from "../../app/actions/repositories";
+import { AlertDialog, AlertDialogClose, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogPopup, AlertDialogTitle, AlertDialogTrigger } from "../ui/alert-dialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
@@ -131,6 +132,7 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
   const [requireBugbot, setRequireBugbot] = useState(row.require_bugbot);
   const [failure, setFailure] = useState<string | null>(null);
   const [savedNow, setSavedNow] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const id = (field: string) => `repo-${field}`;
 
@@ -167,6 +169,22 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
         requireBugbot,
       }),
     );
+  };
+
+  const remove = () => {
+    setFailure(null);
+    setSavedNow(false);
+    startTransition(async () => {
+      const outcome = await removeRepository({ repo: row.repo });
+      if (!outcome.ok) {
+        setRemoveOpen(false);
+        setFailure(outcome.message);
+        return;
+      }
+      router.replace("/repositories");
+      router.refresh();
+      window.dispatchEvent(new Event("factory:refresh"));
+    });
   };
 
   return (
@@ -290,6 +308,28 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
           Save
         </Button>
         {savedNow && !pending && <span className="text-sm text-muted-foreground">Saved. New jobs use it.</span>}
+        {!row.is_default && (
+          <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
+            <AlertDialogTrigger disabled={pending} render={<Button variant="destructive-outline" className="ml-auto" />}>
+              <Trash2Icon data-icon="inline-start" />
+              Remove
+            </AlertDialogTrigger>
+            <AlertDialogPopup>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove {displayName(row)}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The dashboard stops offering {row.repo} for new jobs. Its local checkout and past jobs stay, and adding it again registers a fresh configuration.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                <Button variant="destructive" loading={pending} onClick={remove}>
+                  Remove
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogPopup>
+          </AlertDialog>
+        )}
       </div>
     </aside>
   );

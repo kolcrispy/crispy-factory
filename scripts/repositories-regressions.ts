@@ -4,7 +4,7 @@ import { eq, inArray, like } from "drizzle-orm";
 import type { NewJobDeps } from "@factory/core/new-job";
 
 const { db } = await import("@factory/storage/client");
-const { auditLog, jobs, repoSettings } = await import("@factory/storage/schema");
+const { auditLog, intents, jobs, repoSettings } = await import("@factory/storage/schema");
 type RepoRow = typeof repoSettings.$inferSelect;
 const repos = await import("@factory/core/repositories");
 const { repoFilter } = await import("@factory/core/repo-filter");
@@ -100,6 +100,30 @@ assert.ok(!("protectedPaths" in (saved.at(-1) as object)) && !("maxChangedLines"
 assert.equal(await refused({ requireBugbot: false }), "saved");
 assert.equal((saved.at(-1) as { requireBugbot: boolean }).requireBugbot, false, "a repo without Bugbot saves as such");
 assert.equal((await repos.makeDefaultRepo({ ...deps(), save: async () => {} }, { repo: OFF })).ok, false, "a disabled repo cannot become the default");
+
+// Removing a repository is owner-only, never the default, and only when it has no open jobs.
+const removed: string[] = [];
+const removeDeps = (over: Partial<Parameters<typeof repos.removeRepository>[0]> = {}) => ({
+  user: async () => owner,
+  registry: async () => registry,
+  openJobs: async () => 0,
+  remove: async (repo: string) => void removed.push(repo),
+  ...over,
+});
+for (const user of [null, { email: "x@example.com", emailVerified: true }]) {
+  assert.equal((await repos.removeRepository(removeDeps({ user: async () => user }), { repo: B })).ok, false, `${user?.email ?? "signed out"} cannot remove`);
+}
+assert.equal(removed.length, 0, "and nothing is removed");
+const refusedRemoval = async (over: Partial<Parameters<typeof repos.removeRepository>[0]> = {}) => {
+  const outcome = await repos.removeRepository(removeDeps(over), { repo: B });
+  return outcome.ok ? "removed" : `${outcome.status} ${outcome.message}`;
+};
+assert.equal(await refusedRemoval({ registry: async () => registry.filter((r) => r.repo !== B) }), `400 ${B} is not a registered repository.`);
+assert.equal(await refusedRemoval({ registry: async () => registry.map((r) => (r.repo === B ? { ...r, is_default: true } : r)) }), "400 The default repository can't be removed. Make another one the default first.");
+assert.equal(await refusedRemoval({ openJobs: async () => 2 }), `400 ${B} has 2 open jobs. Close or archive them before removing it.`);
+assert.equal(removed.length, 0);
+assert.equal(await refusedRemoval(), "removed");
+assert.deepEqual(removed, [B]);
 assert.equal((await repos.makeDefaultRepo({ ...deps(), save: async () => {} }, { repo: B })).ok, true);
 
 // New job: the issue always gets its Repository label, the default one when none is picked.
@@ -142,6 +166,14 @@ try {
   await repos.registerRepos(db, [dupA, dupB], "runner", new Date());
   const dupRows = await db.select().from(repoSettings).where(inArray(repoSettings.repo, [dupA, dupB]));
   assert.deepEqual(dupRows.map((r) => [r.repo, r.display_name]).sort(), [[dupA, null], [dupB, dupB]].sort(), "the second repo with a taken name is named by its full name");
+
+  const removable = `${OWNER_NS}/removable`;
+  const intentId = `repository:test-${stamp}`;
+  await db.insert(repoSettings).values({ repo: removable, updated_at: new Date(), updated_by: "test" });
+  await db.insert(intents).values({ id: intentId, kind: "onboard_repo", detail: JSON.stringify({ repo: removable, actor: OWNER }), created_at: new Date() });
+  await repos.deleteRepository(db, removable);
+  assert.equal((await db.select().from(repoSettings).where(eq(repoSettings.repo, removable))).length, 0, "removal deletes the registry row");
+  assert.equal((await db.select().from(intents).where(eq(intents.id, intentId))).length, 0, "and its pending registration");
 
   await repos.writeRepository(db, { repo: B, displayName: "shop", enabled: true, provider: null, autonomy: "trial", requireBugbot: false }, OWNER, new Date());
   const [shopRow] = await db.select().from(repoSettings).where(eq(repoSettings.repo, B));

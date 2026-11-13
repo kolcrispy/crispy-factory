@@ -7,13 +7,25 @@ import { getOwner } from "../../lib/auth/server";
 import { isOwner } from "@factory/core/auth/owner";
 import { reportedHarnesses } from "@factory/core/machine";
 import { requestRepository } from "@factory/core/repository-registration";
-import { makeDefaultRepo, readRegistry, saveRepository as save, writeDefaultRepo, writeRepository, type DefaultRepoInput, type RepositoryInput } from "@factory/core/repositories";
+import { deleteRepository, makeDefaultRepo, readRegistry, readRepoStats, removeRepository as remove, saveRepository as save, writeDefaultRepo, writeRepository, type DefaultRepoInput, type RepositoryInput } from "@factory/core/repositories";
 
 const user = getOwner;
 const registry = () => readRegistry(db);
 
 export async function saveRepository(input: RepositoryInput) {
   return save({ user, registry, harnesses: async () => reportedHarnesses(await db.select().from(machines), Date.now()), save: (choice, by) => writeRepository(db, choice, by, new Date()) }, input);
+}
+
+export async function removeRepository(input: { repo: string }) {
+  return remove(
+    {
+      user,
+      registry,
+      openJobs: async (repo) => (await readRepoStats(db)).find((s) => s.repo === repo)?.open ?? 0,
+      remove: (repo) => deleteRepository(db, repo),
+    },
+    input,
+  );
 }
 
 export async function makeDefaultRepository(input: DefaultRepoInput) {
