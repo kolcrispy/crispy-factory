@@ -107,7 +107,7 @@ async function requestResult(intentId: string, wait?: number): Promise<Result> {
         return { intentId, status: "failed", message: "The runner's stored result could not be read." };
       }
       const refused = Object.values(result).some(value => value && typeof value === "object" && ("refused" in value || "blocked" in value));
-      return { intentId, status: result.error ? "failed" : refused ? "refused" : "done", result };
+      return { intentId, status: "error" in result ? "failed" : refused ? "refused" : "done", result };
     }
     if (wait === undefined) return { intentId, status: "queued" };
     if (Date.now() >= end) return { intentId, status: "timeout", message: "Accepted work remains queued; waiting timed out." };

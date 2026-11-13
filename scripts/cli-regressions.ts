@@ -44,6 +44,10 @@ try {
   const done = await cli({ intentId: id });
   assert.equal(done.code, 0);
   assert.equal(done.value.status, "done");
+  await db.update(intents).set({ result: JSON.stringify({ error: "" }) }).where(eq(intents.id, id));
+  const emptyError = await cli({ intentId: id });
+  assert.equal(emptyError.code, 1);
+  assert.equal(emptyError.value.status, "failed", "failure envelope does not depend on error text truthiness");
   await db.update(intents).set({ result: JSON.stringify({ stop: { refused: "attempt changed" } }) }).where(eq(intents.id, id));
   const refused = await cli({ intentId: id });
   assert.equal(refused.code, 1);
