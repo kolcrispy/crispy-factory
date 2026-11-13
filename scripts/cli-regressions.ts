@@ -1,6 +1,8 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { intents, notificationSettings } from "@factory/storage/schema";
@@ -9,9 +11,9 @@ const id = `cli-regression:${randomUUID()}`;
 const slackRequestId = randomUUID();
 const slackIntentId = `panel:slack_test:${slackRequestId}`;
 const [savedNotifications] = await db.select().from(notificationSettings).where(eq(notificationSettings.id, "factory"));
-async function cli(input: object, wait?: string, resource = "requests", action = "show") {
+async function cli(input: object, wait?: string, resource = "requests", action = "show", extra: Record<string, string> = {}) {
   const child = Bun.spawn([process.execPath, "apps/cli/src/index.ts", resource, action, "--actor", "local:cli-regression", "--input", JSON.stringify(input), ...(wait === undefined ? [] : ["--wait", wait])], {
-    env: process.env,
+    env: { ...process.env, ...extra },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -26,6 +28,10 @@ try {
   const configuration = await cli({}, undefined, "notifications", "show");
   assert.equal(configuration.value.notifications.config.target, "off", "actual CLI persists configuration without a dashboard");
   assert.equal(configuration.value.notifications.updated_by, "local:cli-regression", "configuration records the trusted operator actor");
+  const missingApp = join(tmpdir(), `missing-app-${randomUUID()}.json`);
+  const addable = await cli({}, undefined, "repositories", "addable", { MARSHAL_FACTORY_GITHUB_APP: missingApp });
+  assert.equal(addable.code, 1, "an absent GitHub App is an actionable refusal, not empty success");
+  assert.match(addable.value.message, /no GitHub App at .*run bun scripts\/setup-github-app\.ts/);
   const notification = await cli({ requestId: slackRequestId }, undefined, "notifications", "test");
   assert.equal(notification.code, 0);
   assert.equal(notification.value.intentId, slackIntentId);
