@@ -16,3 +16,7 @@
 - [ ] Buktikan independensi melalui pemasangan/build artefak backend tanpa dependency Next.js, bukan pemeriksaan source text atau folder snapshot.
 - [ ] Verifikasi dashboard aktual untuk surface yang dipindahkan, termasuk owner access dan satu operasi/query representatif; jalankan regresi migration guard dan kontrak terkait secara terisolasi.
 - [ ] Dokumentasikan install/run/deploy terpisah, migration ownership, credential responsibilities, dan prosedur cutover/recovery. Tidak boleh tersisa langkah dashboard wajib untuk bootstrap atau operasi backend.
+
+## Verification progress
+
+Backend-only install/build without Next.js and dashboard production build with isolated auth configuration passed. Browser inspection covered sign-in only. Explicit headless production migration acknowledgment, preview refusal, and malformed URL refusal passed direct proofs. Guarded migration regressions and authorized dashboard query/operation proof remain outstanding. Ticket remains open.

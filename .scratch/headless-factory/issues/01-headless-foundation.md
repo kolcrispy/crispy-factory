@@ -16,3 +16,7 @@
 - [ ] Pertahankan SourceAdapter, JobHost, dan dependency injection existing. Regression harness Neon terisolasi tetap berjalan; jangan bypass test guards.
 - [ ] Buktikan CLI aktual untuk query dan perubahan konfigurasi dengan dependency/environment uji terisolasi. Uji hasil observable, refusal, actor attribution, dan tidak bocornya secret, bukan susunan folder/source text.
 - [ ] Perbarui dokumentasi instalasi, konfigurasi, dan command yang berubah. Ikuti spec induk dan ADR-0001; Windows serta penggantian T3 bukan bagian tiket ini.
+
+## Verification progress
+
+Backend-only filtered install/build and compiled CLI help passed without Next.js. TypeScript and focused lint passed. CLI proofs exercised trusted actor, refusal/failure, replay, and execution-history output with injected storage. Actual CLI database query/configuration regression remains unexecuted: project `tiny-firefly-89834288` has no authenticated local Neon profile; interactive auth is unavailable in the agent runtime. Ticket remains open.

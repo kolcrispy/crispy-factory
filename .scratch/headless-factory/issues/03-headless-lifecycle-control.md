@@ -16,3 +16,7 @@
 - [ ] CLI, dashboard, dan Slack memakai use cases bersama. Pertahankan owner authorization untuk transport existing dan trusted actor CLI tanpa public unauthenticated control endpoint.
 - [ ] Uji consumer-visible outcomes melalui injected source/hosts dan isolated database harness, mengikuti prior art inbox, stop/retry, owner, merge-decision, dan archive. Cakup replay, offline submission lalu processing, stale attempt, refusal, serta timeout tanpa cancellation.
 - [ ] Launch CLI aktual untuk command/result scenarios dan periksa output/exit status tanpa mengandalkan wording incidental atau wiring assertions. Perbarui dokumentasi command dan recovery.
+
+## Verification progress
+
+CLI proofs distinguish queued, timeout, completion, refusal, and execution failure. Explicit operator stop preserves attempt pinning. Stored intent/receipt results no longer truncate JSON. Guarded lifecycle regressions and live stop/retry/merge/recovery acceptance remain unexecuted pending isolated Neon authentication and designated test infrastructure. Ticket remains open.

@@ -16,3 +16,7 @@
 - [ ] Tambahkan/adaptasi regresi perilaku mengikuti prior art repository, onboarding, new-job, launch, dan evidence; jalankan melalui harness database terisolasi ketika menulis state.
 - [ ] Smoke CLI aktual membuktikan onboarding/submission dan output failure secara deterministik; verifikasi eksternal hanya pada repository dan layanan uji terisolasi. Laporkan batas proof live secara eksplisit.
 - [ ] Perbarui panduan bootstrap dan submission headless. Pengujian tiket ini tetap wajib meski penerimaan lintas jalur dilakukan lagi di tiket 06.
+
+## Verification progress
+
+Repository add/retry/rebuild now expose stable intent IDs and replay before changed-state checks. Injected use-case/storage and CLI proofs passed, including conflict deduplication. Guarded onboarding regressions and live Linear/T3/evidence/PR acceptance remain unexecuted pending isolated Neon authentication and designated external test infrastructure. Ticket remains open.

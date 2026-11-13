@@ -17,3 +17,7 @@
 - [ ] Jalankan regresi focused yang mencakup perubahan, mengikuti harness guards. Bukti fake-based tidak boleh dilaporkan sebagai bukti live end-to-end; catat command, hasil, lingkungan uji, dan batas verifikasi sebenarnya tanpa secret.
 - [ ] Perbaiki gap consumer-visible yang ditemukan sampai acceptance terpenuhi; jangan menutup tiket dengan stub, fake fallback, atau scope diam-diam dipersempit. Jika layanan/credential uji tidak tersedia, laporkan blocker tepat dan jangan mengklaim penerimaan lengkap.
 - [ ] Lengkapi dokumentasi operasi headless, status command, recovery, deployment/migration, serta cleanup artefak dan resource uji. Windows dan replacement T3 tetap pekerjaan terpisah.
+
+## Verification progress
+
+No live end-to-end acceptance claimed. Neon CLI is available, but project `tiny-firefly-89834288` has no local credentials; project access returned `Cannot run interactive auth in CI`. Operator selected authentication unavailable. Do not bypass the isolated branch harness or use production credentials/jobs. Designated local/Modal/T3/Linear/GitHub/Slack test infrastructure and authorized dashboard proof are still required. Tickets 01-06 remain open.

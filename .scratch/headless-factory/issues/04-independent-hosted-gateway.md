@@ -16,3 +16,7 @@
 - [ ] Setelah cutover hapus endpoint/wiring obsolete, tanpa ingress atau business logic duplikat permanen. Dokumentasikan perubahan URL dan konfigurasi eksternal yang diperlukan.
 - [ ] Adaptasi regresi ingest, webhook, outbox, Slack source/actions/request validation; gunakan fake/injected external clients dan harness database terisolasi yang sudah ada.
 - [ ] Smoke surface HTTP aktual untuk ingress dan Slack dengan dashboard mati; buktikan valid request bekerja, invalid auth ditolak, dan replay tidak menggandakan efek. Proof live hanya memakai test deployment dan data terisolasi.
+
+## Verification progress
+
+Independent gateway builds and actual HTTP smoke passed: unauthorized ingest rejected, signed owner Slack help accepted, stranger denied, stale signature rejected. Offline notification acceptance and replay passed with injected storage. Authorized ingress persistence/replay and hosted Slack interactions remain unproven pending isolated Neon authentication and designated test deployment. Ticket remains open.
