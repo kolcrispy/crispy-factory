@@ -1,0 +1,73 @@
+{
+  "skill_name": "factory-jobs",
+  "evals": [
+    {
+      "id": 1,
+      "name": "explicit-submission",
+      "prompt": "Di repo acme/web, halaman billing crash kalau invoice punya lebih dari 50 line item. Error-nya RangeError: Maximum call stack size exceeded dari formatTotals, dan ini kejadian di production. Tolong file job ke factory buat benerin, sekalian tambah tes regresi. Jangan ubah apa-apa di laptop ini.",
+      "expected_output": "One job filed to acme/web with a concrete brief containing the crash context, acceptance criteria, and verification; the agent reports JOB-7 as filed, not finished.",
+      "files": [],
+      "expectations": [
+        "Exactly one Factory job is submitted",
+        "The job targets acme/web",
+        "The brief preserves the crash context",
+        "The brief states acceptance criteria",
+        "The brief names verification or regression tests",
+        "The request id is a UUID",
+        "The report presents JOB-7 as filed, not finished"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "unregistered-checkout",
+      "prompt": "Pagination di endpoint /invoices kadang balik 500 kalau page-nya di luar range. Tolong delegasikan ke factory ya, sekalian minta agent-nya nulis tes.",
+      "expected_output": "No job filed: the checkout's origin acme/unknown is not registered, so the agent reports that and asks whether to register it or choose a registered repo instead of falling back to the default.",
+      "files": [],
+      "expectations": [
+        "No job is submitted to an unregistered repository",
+        "The job is not silently filed to the default acme/web repo",
+        "The report identifies acme/unknown as unregistered",
+        "The agent asks how to proceed instead of guessing"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "duplicate-work",
+      "prompt": "Tambahin rate limiting ke public API dong, kita udah kena abuse. File job-nya.",
+      "expected_output": "No new job: the existing running JOB-3 already covers rate limiting, so the agent reports it and asks whether to continue that job instead.",
+      "files": [],
+      "expectations": [
+        "No new job is submitted",
+        "The existing JOB-3 is identified",
+        "The agent asks before duplicating the work"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "no-authorization",
+      "prompt": "Menurutmu gimana kalau kita tambahin export CSV di halaman invoices? Mungkin berguna buat finance.",
+      "expected_output": "No job filed. The agent discusses the idea, asks the missing product questions, and offers to draft or file a job later.",
+      "files": [],
+      "expectations": [
+        "No job is submitted without an explicit request",
+        "The report does not claim a job was filed",
+        "The agent engages with the CSV idea",
+        "The agent asks a product question or proposes a next step"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "model-is-not-a-harness",
+      "prompt": "Di repo acme/web, tambahin tombol export CSV di halaman invoices. File job-nya, pakai model claude-sonnet-4 ya biar hasilnya bagus.",
+      "expected_output": "One job filed to acme/web without an invalid provider value; the agent explains that a model is selected through a harness or Settings, not by putting a model slug in the job.",
+      "files": [],
+      "expectations": [
+        "Exactly one Factory job is submitted",
+        "The job targets acme/web",
+        "The job does not carry an invalid provider value",
+        "The report explains harness versus model selection",
+        "The report presents the job as filed, not finished"
+      ]
+    }
+  ]
+}
