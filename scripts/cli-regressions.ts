@@ -6,6 +6,8 @@ import { db } from "@factory/storage/client";
 import { intents, notificationSettings } from "@factory/storage/schema";
 
 const id = `cli-regression:${randomUUID()}`;
+const slackRequestId = randomUUID();
+const slackIntentId = `panel:slack_test:${slackRequestId}`;
 const [savedNotifications] = await db.select().from(notificationSettings).where(eq(notificationSettings.id, "factory"));
 async function cli(input: object, wait?: string, resource = "requests", action = "show") {
   const child = Bun.spawn([process.execPath, "apps/cli/src/index.ts", resource, action, "--actor", "local:cli-regression", "--input", JSON.stringify(input), ...(wait === undefined ? [] : ["--wait", wait])], {
@@ -24,6 +26,12 @@ try {
   const configuration = await cli({}, undefined, "notifications", "show");
   assert.equal(configuration.value.notifications.config.target, "off", "actual CLI persists configuration without a dashboard");
   assert.equal(configuration.value.notifications.updated_by, "local:cli-regression", "configuration records the trusted operator actor");
+  const notification = await cli({ requestId: slackRequestId }, undefined, "notifications", "test");
+  assert.equal(notification.code, 0);
+  assert.equal(notification.value.intentId, slackIntentId);
+  assert.equal(notification.value.status, "queued", "offline notification acceptance remains inspectable");
+  const notificationReplay = await cli({ requestId: slackRequestId }, undefined, "notifications", "test");
+  assert.deepEqual(notificationReplay, notification, "actual CLI replays the same notification intent");
   await db.insert(intents).values({ id, kind: "claim", created_at: new Date() });
   const queued = await cli({ intentId: id });
   assert.equal(queued.code, 0);
@@ -49,6 +57,7 @@ try {
 } finally {
   delete process.env.CLI_REGRESSION_SECRET;
   await db.delete(intents).where(eq(intents.id, id));
+  await db.delete(intents).where(eq(intents.id, slackIntentId));
   await db.delete(notificationSettings).where(eq(notificationSettings.id, "factory"));
   if (savedNotifications) await db.insert(notificationSettings).values(savedNotifications);
   await db.$client.end();
