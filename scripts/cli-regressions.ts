@@ -39,7 +39,7 @@ try {
   await db.update(intents).set({ result: JSON.stringify({ stop: { refused: "attempt changed" } }) }).where(eq(intents.id, id));
   const refused = await cli({ intentId: id });
   assert.equal(refused.code, 1);
-  assert.equal(refused.value.status, "failed");
+  assert.equal(refused.value.status, "refused");
   process.env.CLI_REGRESSION_SECRET = "isolated-cli-secret-value";
   await db.update(intents).set({ result: JSON.stringify({ error: "isolated-cli-secret-value" }) }).where(eq(intents.id, id));
   const failed = await cli({ intentId: id });

@@ -58,7 +58,7 @@ export async function main(argv: string[]) {
   const result = await operator(resource, action, { ...input, requestId }, values.actor ?? `local:${userInfo().username}@${hostname()}`, wait);
   const secrets = secretValues(process.env);
   console.log(JSON.stringify(result, (_key, value) => typeof value === "string" ? redact(value, secrets) : value, 2));
-  return result.ok === false || result.status === "failed" ? 1 : result.status === "timeout" ? 2 : 0;
+  return result.ok === false || result.status === "failed" || result.status === "refused" ? 1 : result.status === "timeout" ? 2 : 0;
 }
 
 if (import.meta.main) {

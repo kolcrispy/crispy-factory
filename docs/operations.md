@@ -12,6 +12,8 @@ Run the gateway locally with `bun apps/gateway/src/serve.ts` (port 3008). Deploy
 
 Production migrations require explicit `FACTORY_MIGRATION_TARGET=production bun run db:migrate` after verifying both database URLs. Preview/development environments cannot use this acknowledgment to migrate production. A production Vercel environment alone grants no migration permission. Headless rollout inherits the same variable when intentionally targeting production.
 
+CLI request statuses are `queued`, `timeout`, `done`, `refused`, and `failed`. Refusal means the runner rejected the domain action; failure means execution or result decoding failed. Both exit 1; wait timeout exits 2 and leaves the intent untouched.
+
 
 ## Parts
 
