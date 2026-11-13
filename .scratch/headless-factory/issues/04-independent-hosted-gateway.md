@@ -20,3 +20,5 @@
 ## Verification progress
 
 Independent gateway builds and actual HTTP smoke passed: unauthorized ingest rejected, signed owner Slack help accepted, stranger denied, stale signature rejected. Offline notification acceptance and replay passed with injected storage. Authorized ingress persistence/replay and hosted Slack interactions remain unproven pending isolated Neon authentication and designated test deployment. Ticket remains open.
+
+PostgreSQL-default update: actual HTTP authenticated ingest and replay now pass against a disposable PostgreSQL 17 cluster with no runner/dashboard process. One event persists after two identical requests; signature/owner/missing-secret checks also pass. Hosted external Slack intervention acceptance remains outstanding.
