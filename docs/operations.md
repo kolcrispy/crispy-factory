@@ -16,6 +16,8 @@ Repository add, onboarding retry, and image rebuild return an `intentId` and acc
 
 `jobs show` includes `attempts`: up to 200 recent execution sessions for the job, including their branches and usage, alongside event history and audit records.
 
+Durable intent results retain complete JSON; log presentation limits must not truncate stored results or turn successful execution into a decoding failure.
+
 Run the gateway locally with `bun apps/gateway/src/serve.ts` (port 3008). Deploy `apps/gateway/src/index.ts` independently of Vercel. Slack URLs use this gateway's `/api/slack/commands` and `/api/slack/interactions`. Set `FACTORY_PANEL_URL` to an empty string when no dashboard exists. Dashboard builds never migrate; explicitly run `bun run db:migrate` against the intended direct database target.
 
 Production migrations require explicit `FACTORY_MIGRATION_TARGET=production bun run db:migrate` after verifying both database URLs. Preview/development environments cannot use this acknowledgment to migrate production. A production Vercel environment alone grants no migration permission. Headless rollout inherits the same variable when intentionally targeting production.

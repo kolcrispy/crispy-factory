@@ -169,7 +169,7 @@ async function runIntent(intent: IntentRow) {
       handled_at: failed && attempts < INTENT_ATTEMPTS[intent.kind] ? null : new Date(),
       // 30 s, 1 min, 2 min, ... then every 30 min: about a day of retries before it gives up.
       retry_at: failed ? new Date(Date.now() + Math.min(30_000 * 2 ** (attempts - 1), 1_800_000)) : null,
-      result: JSON.stringify(result).slice(0, 2000),
+      result: JSON.stringify(result),
       // A retry may go to any machine the route allows; a handled intent keeps the one that handled it.
       leased_by: failed ? null : machine.id,
       lease_until: null,

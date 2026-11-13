@@ -137,7 +137,7 @@ export async function receiptIntent(id: string, machineId: string) {
 export async function recordReceipt(id: string, machineId: string, result: unknown) {
   await db
     .update(intentReceipts)
-    .set({ result: JSON.stringify(result).slice(0, 2000) })
+    .set({ result: JSON.stringify(result) })
     .where(and(eq(intentReceipts.intent_id, id), eq(intentReceipts.machine_id, machineId)));
 }
 
