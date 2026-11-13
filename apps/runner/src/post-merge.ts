@@ -32,7 +32,7 @@ export const revertDeps: {
 };
 
 const CREDENTIALS = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"];
-const IDENTITY = ["-c", "user.name=marshal-factory", "-c", "user.email=marshal-factory@users.noreply.github.com"];
+const IDENTITY = ["-c", "user.name=crispy-factory", "-c", "user.email=crispy-factory@users.noreply.github.com"];
 const KEEP_MS = 2 * 86_400_000;
 
 const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split("\n")[0]!;
@@ -49,7 +49,7 @@ export async function revertMerge(prUrl: string, merged: FactoryMerge, failed: r
   if (!checkout) return { ok: false, reason: `This machine has no checkout of ${repo}.`, url: null };
 
   const { host } = revertDeps;
-  const dir = join(revertDeps.dir, `marshal-factory-revert-${repo.replace("/", "-")}-${number}`);
+  const dir = join(revertDeps.dir, `crispy-factory-revert-${repo.replace("/", "-")}-${number}`);
   const git = async (args: string[], cwd = dir, env?: Record<string, string>) =>
     (await host.run("git", args, { cwd, env, timeoutMs: 120_000, maxBuffer: 16 * 1024 * 1024 })).stdout.trim();
   const clean = async () => {

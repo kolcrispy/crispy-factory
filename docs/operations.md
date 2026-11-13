@@ -1,6 +1,16 @@
-# Operating marshal-factory
+# Operating crispy-factory
 
 Runtime reference for the local factory. PostgreSQL is authoritative shared state.
+
+## Branding cutover
+
+This release changes persistent runner and job-creation advisory-lock identities. Stop every old runner and dashboard before starting the renamed revision; mixed revisions do not share these locks. Wait for graceful runner shutdown and in-flight requests to settle. Do not reset the database for this branding-only change.
+
+Rename custom environment overrides to `CRISPY_FACTORY_ENV` and `CRISPY_FACTORY_CONFIG` in service definitions and local environment files. Old override names are no longer read. Default config and state directories remain `~/.config/crispy-factory` and `~/.local/state/crispy-factory`.
+
+On macOS, run the old checkout's `bun scripts/install-runner.ts --uninstall` before switching revisions, then install from the new checkout. The new LaunchAgent label is `com.crispy-factory.runner`; its installer does not unload an older label.
+
+Reporting startup replaces the existing owned Codex MCP block even when its marker uses a previous product name. Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained.
 
 ## Runner
 

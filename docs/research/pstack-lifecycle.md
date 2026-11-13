@@ -47,7 +47,7 @@ Program-scale variants (these are the closest things to a factory):
 - `autopilot-full.md`: a queue of independent PRs; one background owner subagent per PR (own worktree) carries build -> PR -> self-proof -> bot triage -> deslop -> rebase -> babysit to merge-ready; root runs a swarm verification (parallel lanes: gates rerun, live behaviour on the real surface, diff audit, regression vs trunk) on the exact head SHA; hourly audit tick via `/loop` dynamic mode; owner pushes after every verifiable unit; fresh owner per next queue item. The operator clicks every merge.
 - `autopilot-stack.md`: same but verified PRs are appended by the root (sole topology writer) into one linear base-branch stack for the operator to land.
 - `orchestrate.md`: standing coordinator for multi-day, dozens-to-hundreds of subagents. Store at `~/.claude/orchestrate/<slug>/` with preferences.md (standing orders), units.tsv, frontier.json, ledger.tsv (verdicts keyed PR+head SHA: live-ui-verified | unit-test-verified | type-check-only | verifier-blocked | verifier-failed), inbox/, gates.md, decisions.tsv, status.md. `orch` CLI (orch.ts) manages it. Brief template GOAL/SCOPE/CONTEXT/ACCEPTANCE/VERIFY/TIMEBOX/FORBIDDEN/REPORT/STANDING. Pilot-one-unit-first rule. Retry policy by failure mode (cap-hit: smaller scope; network: retry; tool-error: other model; two retries then abandon). Coordinator never writes code.
-  Evidence this has been used on this machine: ~/.claude/orchestrate/linear-feel/ (decisions.tsv, owner-brief.md, swarm/, trails/, todo.md) and video-marshal/.
+  Evidence this has been used on this machine: ~/.claude/orchestrate/linear-feel/ (decisions.tsv, owner-brief.md, swarm/, trails/, todo.md).
 
 ## 2. Human touchpoints and the "never block" principle
 

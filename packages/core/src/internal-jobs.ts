@@ -21,7 +21,7 @@ export async function fileInternalJob(database: Database, input: unknown, actor:
   if (!actor.trim()) throw new Error("A job requires an audit actor.");
   const id = `internal:${draft.requestId}` as const;
   return database.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('marshal-factory internal-jobs'))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('crispy-factory internal-jobs'))`);
     const [existing] = await tx.select().from(jobs).where(eq(jobs.id, id));
     if (existing) {
       const state = existing.source_state as { actor?: string; requestedProvider?: string };

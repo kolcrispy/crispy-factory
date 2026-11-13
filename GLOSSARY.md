@@ -1,6 +1,6 @@
-# Marshal Factory
+# Crispy Factory
 
-Marshal Factory turns internally managed jobs into agent-built pull requests under human supervision.
+Crispy Factory turns internally managed jobs into agent-built pull requests under human supervision.
 
 ## Language
 

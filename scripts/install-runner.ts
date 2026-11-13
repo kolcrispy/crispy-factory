@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 // to ~/Library/Logs/crispy-factory/runner.log. Re-running with nothing changed leaves it alone.
 //   bun scripts/install-runner.ts [--uninstall]
 
-export const LABEL = "com.marshal-factory.runner";
+export const LABEL = "com.crispy-factory.runner";
 const root = join(import.meta.dirname, "..");
 const plistPath = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
 const logPath = join(homedir(), "Library/Logs/crispy-factory/runner.log");

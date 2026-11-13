@@ -15,11 +15,11 @@ const write = (path: string, text: string) => {
   writeFileSync(path, text);
 };
 
-write(join(home, ".config/marshal-factory/config.json"), JSON.stringify({ factory: { budgetUsd: 1 } }));
+write(join(home, ".config/crispy-factory/config.json"), JSON.stringify({ factory: { budgetUsd: 1 } }));
 const worktree = join(home, "worktree");
 write(join(worktree, ".git/HEAD"), "ref: refs/heads/factory/TST-1\n");
 // What the old reporter cached for the old hook: far over the old config's cap.
-write(join(home, ".cache/marshal-factory/spend/factory_TST-1.json"), JSON.stringify({ usd: 50, at: Date.now() }));
+write(join(home, ".cache/crispy-factory/spend/factory_TST-1.json"), JSON.stringify({ usd: 50, at: Date.now() }));
 
 function runHook(toolName: string) {
   const result = spawnSync("bun", [hook], {
@@ -39,7 +39,7 @@ try {
 
   assert.ok(!("budgetUsd" in factorySchema.parse({ budgetUsd: 5 })), "and the key is ignored");
 
-  const root = "/opt/marshal-factory";
+  const root = "/opt/crispy-factory";
   const old = {
     hooks: {
       PreToolUse: [

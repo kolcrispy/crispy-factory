@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Marshal Factory",
-  description: "Supervision panel for the Claude Code software factory",
+  title: "Crispy Factory",
+  description: "Supervision panel for Crispy Factory",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

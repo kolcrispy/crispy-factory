@@ -58,7 +58,7 @@ const configPath = join(dir, "config.json");
 writeFileSync(configPath, JSON.stringify({ ingestUrl: `http://localhost:${server.port}/ingest`, secret: SECRET }));
 const state = join(dir, "state");
 const childEnv = (over: Record<string, string> = {}) => {
-  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, MARSHAL_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: state, ...over };
+  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, CRISPY_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: state, ...over };
   for (const name of ["CLAUDECODE", "FACTORY_REPORTER", "FACTORY_JOB_KEY", "FACTORY_ATTEMPT", "FACTORY_SESSION_ID"]) if (!(name in over)) delete env[name];
   return env as NodeJS.ProcessEnv & Record<string, string>;
 };

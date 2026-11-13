@@ -94,7 +94,7 @@ const pullJson = (p: Pull, sha: string) => ({
   mergeable: true,
   title: p.title,
   commits: 1,
-  merged_by: p.merged ? (p.mergedBy ?? { login: "marshal-factory[bot]", type: "Bot" }) : null,
+  merged_by: p.merged ? (p.mergedBy ?? { login: "crispy-factory[bot]", type: "Bot" }) : null,
   html_url: `https://github.com/${p.repo}/pull/${p.number}`,
 });
 const merged = (sha: string) => (p: Pull) => (Object.assign(p, { state: "closed", merged: sha }), { status: 200, body: { sha } });
@@ -360,13 +360,13 @@ try {
   assert.deepEqual(putsTo(MERGE_ONLY, revertPull.number).map((w) => [w.body.sha, w.body.merge_method]), [["revert-head", "merge"]], "the revert merges at once");
 
   // The production code joins the dir, so on Windows the expectation carries backslashes too.
-  const dir = join(revertDeps.dir, `marshal-factory-revert-${MERGE_ONLY.replace("/", "-")}-5`);
+  const dir = join(revertDeps.dir, `crispy-factory-revert-${MERGE_ONLY.replace("/", "-")}-5`);
   const argv = gitCalls.map((c) => c.args.filter((a) => !a.startsWith("credential.helper=!")).join(" "));
   const expect = [
     `fetch origin main`,
     `worktree add -B factory/revert-5 ${dir} origin/main`,
     `rev-list --parents -n 1 m5`,
-    `-c user.name=marshal-factory -c user.email=marshal-factory@users.noreply.github.com revert --no-edit -m 1 m5`,
+    `-c user.name=crispy-factory -c user.email=crispy-factory@users.noreply.github.com revert --no-edit -m 1 m5`,
     `rev-parse HEAD`,
     `-c credential.helper= -c push --force https://github.com/${MERGE_ONLY}.git HEAD:refs/heads/factory/revert-5`,
   ];

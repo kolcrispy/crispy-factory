@@ -185,7 +185,7 @@ const configPath = join(dir, "config.json");
 writeFileSync(configPath, JSON.stringify({ ingestUrl: `http://localhost:${server.port}/ingest`, secret: SECRET }));
 const verifyScript = join(import.meta.dirname, "../packages/reporting/src/hooks/verify.ts");
 const childEnv = (over: Record<string, string> = {}) => {
-  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, MARSHAL_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: join(dir, "state"), ...over };
+  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, CRISPY_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: join(dir, "state"), ...over };
   // These repos' check scripts are POSIX shell, which is what a sandbox or the Mac runs. Windows'
   // npm would hand them to cmd.exe, where "exit 3" and "true" mean something else.
   const bash = process.platform === "win32" ? Bun.which("bash") : null;

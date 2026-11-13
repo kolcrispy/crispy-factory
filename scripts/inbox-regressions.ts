@@ -152,7 +152,7 @@ const server = await serve(0, async (request) => {
       title: `Title ${p.number}`,
       commits: 1,
       merge_commit_sha: p.merged,
-      merged_by: p.merged ? { login: "marshal-factory[bot]", type: "Bot" } : null,
+      merged_by: p.merged ? { login: "crispy-factory[bot]", type: "Bot" } : null,
     });
   }
   if ((m = /^\/repos\/([^/]+\/[^/]+)\/compare\/main\.\.\.(.+)$/.exec(path))) {

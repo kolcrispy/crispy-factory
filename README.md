@@ -1,4 +1,4 @@
-# marshal-factory
+# crispy-factory
 
 An internal software factory: create a job in the dashboard or CLI, and a local runner executes it with T3 Code or direct OMP in an isolated git worktree, then opens a pull request with your authenticated `gh`.
 
@@ -37,7 +37,7 @@ bun run cli owners create --input '{"email":"you@example.com"}'
 
 Set `FACTORY_DASHBOARD_URL` when serving the dashboard. Production origins require HTTPS; loopback may use HTTP.
 
-Configure the runner at `~/.config/crispy-factory/config.json` (override with `MARSHAL_FACTORY_CONFIG`):
+Configure the runner at `~/.config/crispy-factory/config.json` (override with `CRISPY_FACTORY_CONFIG`):
 
 ```json
 {

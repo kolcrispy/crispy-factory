@@ -71,7 +71,7 @@ async function rpc(method, params, notify) {
 }
 (async () => {
   try {
-    await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "marshal-factory", version: "1.0.0" } });
+    await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "crispy-factory", version: "1.0.0" } });
     await rpc("notifications/initialized", {}, true);
     const result = await rpc("tools/call", { name: input.tool, arguments: input.args });
     process.stdout.write(JSON.stringify(result));
@@ -101,7 +101,7 @@ async function withMcp<T>(host: JobHost, scopes: readonly Scope[], work: (call: 
   const { origin } = runtimeFile.parse(JSON.parse(runtime));
   const { stdout } = await host.run(
     host.t3,
-    ["auth", "session", "issue", ...scopes.flatMap((scope) => ["--scope", scope]), "--ttl", "5m", "--label", "marshal-factory", "--json"],
+    ["auth", "session", "issue", ...scopes.flatMap((scope) => ["--scope", scope]), "--ttl", "5m", "--label", "crispy-factory", "--json"],
     { timeoutMs: 30_000 },
   );
   let session: z.infer<typeof issued>;

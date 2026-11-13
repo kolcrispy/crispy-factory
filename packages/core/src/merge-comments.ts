@@ -6,7 +6,7 @@ import type { MergeDecision } from "./merge-decision";
 // The comments a merge decision leaves on its PR and in its source. Each body follows from the
 // decision alone, so the runner posts one only when its fingerprint changes.
 
-export const DECISION_MARKER = "<!-- marshal-factory:decision -->";
+export const DECISION_MARKER = "<!-- crispy-factory:decision -->";
 
 export const fingerprint = (body: string) => createHash("sha256").update(body).digest("hex").slice(0, 16);
 

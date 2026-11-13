@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Marshal Factory turns internally managed jobs into agent-built pull requests. An optional Next.js panel exposes stages, evidence, spend, and owner decisions; a single Bun runner executes T3-backed harnesses or direct OMP locally in attempt-isolated worktrees. Spend is measured, not capped.
+Crispy Factory turns internally managed jobs into agent-built pull requests. An optional Next.js panel exposes stages, evidence, spend, and owner decisions; a single Bun runner executes T3-backed harnesses or direct OMP locally in attempt-isolated worktrees. Spend is measured, not capped.
 
 ## Architecture & Data Flow
 
@@ -63,7 +63,7 @@ bun run db:migrate               # Apply migrations to configured database
 
 - `apps/dashboard/app/layout.tsx`, `apps/dashboard/app/(panel)/layout.tsx`: UI roots; `apps/dashboard/components/panel/realtime-root.tsx`: client subscriptions.
 - `apps/runner/src/index.ts`, `packages/core/src/ingest.ts`, `packages/storage/src/schema.ts`: orchestration, projections, persistence.
-- `packages/core/src/config.ts`: machine configuration; default file `~/.config/crispy-factory/config.json`, overridable with `MARSHAL_FACTORY_CONFIG`.
+- `packages/core/src/config.ts`: machine configuration; default file `~/.config/crispy-factory/config.json`, overridable with `CRISPY_FACTORY_CONFIG`.
 - `eslint.config.mjs`, `tsconfig.json`: architecture boundaries and compiler settings.
 - `apps/runner/src/threads.ts`, `apps/runner/src/omp.ts`, `apps/runner/src/harnesses.ts`: shared lifecycle dispatch, direct OMP runtime, and combined harness inventory.
 - `drizzle.config.ts`, `scripts/migrate-guard.ts`: migration connection and production-branch protection.

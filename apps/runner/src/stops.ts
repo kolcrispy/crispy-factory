@@ -143,10 +143,10 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
     ...(parent.state === "running" ? [{ threadId, runId: parent.activeRunId }] : []),
     ...running.map((s) => ({ threadId: s.threadId, runId: s.latestRunId })),
   ];
-  const reason = `marshal-factory stopped ${row.key}: ${stop.reason}`;
+  const reason = `crispy-factory stopped ${row.key}: ${stop.reason}`;
   const results = [];
   for (const target of targets) {
-    const requestId = `marshal-factory:stop:${row.id}:${stop.requestedAt}:retry-${stop.retries}:${target.threadId}:${target.runId ?? "latest"}`;
+    const requestId = `crispy-factory:stop:${row.id}:${stop.requestedAt}:retry-${stop.retries}:${target.threadId}:${target.runId ?? "latest"}`;
     const outcome = await threads.interrupt(target.threadId, requestId, reason, host).catch((error: unknown) => ({ kind: "error" as const, reason: message(error) }));
     results.push({ threadId: target.threadId, outcome });
   }

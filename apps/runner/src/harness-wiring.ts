@@ -12,8 +12,8 @@ import { json, withHooks, type Json } from "@factory/core/target-wiring";
  * Both files are merged, not replaced: unrelated settings survive, and running again changes
  * nothing once the factory entries are present. `home` is injectable for regressions.
  */
-const CODEX_BEGIN = "# marshal-factory reporting: begin";
-const CODEX_END = "# marshal-factory reporting: end";
+const CODEX_BEGIN = "# crispy-factory reporting: begin";
+const CODEX_END = "# crispy-factory reporting: end";
 
 export type WireOutcome = { changed: string[]; unchanged: string[]; failed: { path: string; error: string }[] };
 
@@ -39,10 +39,10 @@ function readJson(path: string): Json {
 
 /** The Codex block this module owns: everything between its markers, replaced wholesale. */
 function codexConfig(current: string, reportingRoot: string, outcomes: WireOutcome, path: string) {
-  const begin = current.indexOf(CODEX_BEGIN);
-  const end = current.indexOf(CODEX_END);
-  const before = begin >= 0 && end > begin ? current.slice(0, begin) : current.replace(/\s*$/, "\n");
-  const after = begin >= 0 && end > begin ? current.slice(end + CODEX_END.length).replace(/^\s*\n?/, "") : "";
+  // Recognize the owned server block independently of the product name on its markers.
+  const managed = /^# ([\w-]+) reporting: begin\r?\n\[mcp_servers\.factory-report\]\r?\n[\s\S]*?^# \1 reporting: end\r?$/m.exec(current);
+  const before = managed ? current.slice(0, managed.index) : current.replace(/\s*$/, "\n");
+  const after = managed ? current.slice(managed.index + managed[0].length).replace(/^\s*\n?/, "") : "";
   const server = [
     CODEX_BEGIN,
     "[mcp_servers.factory-report]",
