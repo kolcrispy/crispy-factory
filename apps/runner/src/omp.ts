@@ -279,8 +279,12 @@ export async function closeOmpSessions() {
 export async function readOmpHarness(): Promise<Harness | null> {
   const rpc = new OmpRpc({ command: ompRuntime.command(), args: [...baseArgs(homedir()), "--allow-home", "--no-session"], cwd: homedir() });
   try {
-    const result = z.object({ models: z.array(z.object({ provider: z.string(), id: z.string(), name: z.string().optional() })) }).parse(await rpc.request({ type: "get_available_models" }));
-    return { id: "omp", driver: "omp", name: "OMP", enabled: true,
+    const [available, current] = await Promise.all([rpc.request({ type: "get_available_models" }), rpc.request({ type: "get_state" })]);
+    const result = z.object({ models: z.array(z.object({ provider: z.string(), id: z.string(), name: z.string().optional() })) }).parse(available);
+    const state = z.object({ model: z.object({ provider: z.string(), id: z.string() }).optional() }).parse(current);
+    const defaultModel = state.model ? `${state.model.provider}/${state.model.id}` : undefined;
+    if (!defaultModel || !result.models.some(m => `${m.provider}/${m.id}` === defaultModel)) return null;
+    return { id: "omp", driver: "omp", name: "OMP", enabled: true, defaultModel,
       models: result.models.map(m => ({ slug: `${m.provider}/${m.id}`, name: m.name ?? `${m.provider}/${m.id}` })) };
   } catch { return null; }
   finally { await rpc.close(); }

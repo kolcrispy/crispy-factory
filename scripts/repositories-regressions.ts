@@ -50,6 +50,10 @@ assert.deepEqual([skipped.defaults.harness.provider, skipped.problems.length], [
 assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "claudeAgent", model: "claude-second" }), harnesses).defaults.harness.model, "claude-second", "repo model overrides Settings even for the same harness");
 assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "codex", model: "gpt-second" }), harnesses).defaults.harness.model, "gpt-second", "repo model overrides the harness first model");
 assert.deepEqual(repos.withRepoDefaults(settings, row(B, { provider: "codex", model: "gone" }), harnesses).defaults.harness, settings.harness, "removed models fall back to Settings");
+const native = { ...harness("omp", "OMP", ["first", "native", "override"]), defaultModel: "native" };
+assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "omp" }), [native]).defaults.harness.model, "native", "OMP inherits its native selection rather than inventory order");
+assert.equal(repos.withRepoDefaults({ harness: { provider: "omp", model: "first", from: "settings" } }, row(B, { provider: "omp" }), [native]).defaults.harness.model, "native", "explicit repository harness default uses native OMP even when Settings uses OMP");
+assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "omp", model: "override" }), [native]).defaults.harness.model, "override", "explicit repository model overrides native OMP");
 
 
 // Filter: an explicit ?repo wins over the cookie; anything else shows every repo.

@@ -12,6 +12,8 @@ export const harnessSchema = z.object({
   name: z.string(),
   enabled: z.boolean(),
   models: z.array(z.object({ slug: z.string(), name: z.string() })),
+  /** Runtime-selected model when no explicit repository override is configured. */
+  defaultModel: z.string().optional(),
 });
 export type Harness = z.infer<typeof harnessSchema>;
 
