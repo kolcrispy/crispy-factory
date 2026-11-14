@@ -1,5 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
+import { mock } from "bun:test";
 import { resolveReviewPolicy, reviewAllowsPublication, reviewConfigurationProblem, reviewVerdictSchema, type AttemptReview } from "@factory/core/review";
 
 const builder = { provider: "omp", model: "builder-model" };
@@ -40,6 +41,7 @@ try {
   assert.ok(JSON.stringify(outcome).includes("Independent review PASS"));
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.stage, "verifying");
 } finally { await db.delete(jobs).where(eq(jobs.key, key)); }
+mock.module("../apps/runner/src/harnesses", () => ({ readHarnesses: async () => [{ id: "t3-review", driver: "codex", name: "Isolated reviewer", enabled: true, models: [{ slug: "review-model", name: "Review" }] }] }));
 const { reviewJobs, handleReviewAction } = await import("@factory/runner/review");
 const { threads } = await import("@factory/runner/threads");
 const { hosts } = await import("@factory/core/host");
@@ -164,6 +166,27 @@ try {
     assert.equal(settled!.attempt_review!.state, "held");
     assert.equal(settled!.attempt_review!.delivery!.state, "uncertain");
     assert.equal(deliveries, 1, "restart after ambiguous delivery never sends repair twice");
+    await db.delete(jobs).where(eq(jobs.key, key));
+  }
+  {
+    const active = structuredClone(review);
+    active.policy = { enabled: true, provider: "t3-review", model: "review-model" };
+    active.state = "building";
+    active.rounds = [];
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", t3_thread_id: "builder", attempt_review: active }));
+    threads.read = async () => ({ state: "stopped", status: "completed", checkout: "builder-checkout", lastMessage: "Ready" });
+    let launches = 0;
+    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
+      if (args.includes("start")) { launches++; return { stdout: JSON.stringify({ threadId: "immediate-reviewer" }), stderr: "" }; }
+      return { stdout: args.includes("status") ? "" : sha, stderr: "" };
+    } });
+    await reviewJobs();
+    const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
+    assert.equal(settled!.attempt_review!.rounds[0]!.threadId, "immediate-reviewer", "a committed builder handoff launches review in the same pass");
+    assert.equal(launches, 1);
+    threads.read = async () => ({ state: "running", status: null, checkout: "review-checkout", lastMessage: null });
+    await reviewJobs();
+    assert.equal(launches, 1, "subsequent wake never duplicates the reviewer");
     await db.delete(jobs).where(eq(jobs.key, key));
   }
 } finally {

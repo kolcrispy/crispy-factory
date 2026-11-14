@@ -39,6 +39,7 @@ const { startReportServer } = await import("./report-server");
 const { prepareRepository } = await import("./repository-registration");
 const { wireHarnessReporting } = await import("./harness-wiring");
 const { reviewJobs, handleReviewAction } = await import("./review");
+const { listenForWork, wakeScheduler } = await import("./wake");
 const reportServer = startReportServer(ops.config.ingestUrl, ops.config.secret);
 
 const machine = await thisMachine();
@@ -55,6 +56,15 @@ process.on("unhandledRejection", (reason) =>
 );
 const serial = queue.serial;
 let stopping = false;
+const work = wakeScheduler(
+  run => { void serial("work", run); },
+  async () => {
+    if (stopping) return;
+    takeIntents(await openIntents());
+    await tick();
+    await launchAndAnnounce();
+  },
+);
 const recheckTimers = new Set<ReturnType<typeof setTimeout>>();
 
 /** Launches what this machine has room for, then tells each source about the jobs it now holds. */
@@ -273,8 +283,13 @@ const heartbeatTimer = setInterval(() => { if (!stopping) track(beat()); }, ops.
 // Before the first claim, so a fresh install has its checkouts registered and a default repo.
 await serial("registry", ops.registerCheckouts);
 await serial("reconcile", startupReconcile);
+const stopListening = await listenForWork(db.$client, work.wake, error => {
+  log("work:connection-lost", { error: error.message });
+  process.exit(1);
+});
 track(beat());
 takeIntents(await openIntents());
+work.wake();
 
 
 const hourlyCleanup = everyAtMost(3_600_000, () => ops.cleanup());
@@ -293,6 +308,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
     if (stopping) return;
     stopping = true;
+    work.stop();
     clearInterval(heartbeatTimer);
     clearInterval(tickTimer);
     for (const timer of recheckTimers) clearTimeout(timer);
@@ -303,6 +319,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       await verificationsSettled();
       await ops.closeOmpSessions();
       await reportServer.stop();
+      await stopListening();
       await releaseOwnership();
       await db.$client.end();
       process.exit(0);

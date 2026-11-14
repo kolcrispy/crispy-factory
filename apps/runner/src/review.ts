@@ -76,8 +76,7 @@ async function runReview(job: JobRow) {
     review.builderSessionId = job.session_id;
     review.rounds.push({ round: review.rounds.length + 1, sha, base, threadId: null, sessionId: null, checkout: null, state: "pending", startedAt: Date.now() });
     review.state = "pending";
-    await save(job, review);
-    return;
+    if (!(await save(job, review))) return;
   }
   const round = review.rounds.at(-1);
   if (!round) throw new Error("Review round is missing.");
