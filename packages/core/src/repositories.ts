@@ -8,6 +8,7 @@ import type { Harness } from "./harness";
 import { autonomySchema } from "./merge-decision";
 import { displayName, REPO_NAME, repoName } from "./repo-name";
 import type { EffectiveHarness, SettingsOutcome } from "./settings";
+import { reviewOverridesSchema } from "./review";
 
 // Internal submissions select a registered repository directly, falling back to its default.
 
@@ -111,6 +112,7 @@ export const repositoryInputSchema = z.object({
   provider: z.string().trim().min(1).nullable(),
   /** Model overrides belong to an explicit harness; null inherits its default. */
   model: z.string().trim().min(1).nullable().default(null),
+  review: reviewOverridesSchema.optional(),
   autonomy: autonomySchema,
   requireBugbot: z.boolean({ error: "Say whether pull requests wait for Bugbot." }),
 });
@@ -128,6 +130,7 @@ export async function writeRepository(database: Db, choice: RepositoryChoice, by
       enabled: choice.enabled,
       provider: choice.provider,
       model: choice.model,
+      ...(choice.review !== undefined && { review: choice.review }),
       autonomy: choice.autonomy,
       require_bugbot: choice.requireBugbot,
       updated_at: at,

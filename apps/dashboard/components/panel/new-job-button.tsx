@@ -27,6 +27,7 @@ import type { Harness } from "@factory/core/harness";
 import { displayName } from "@factory/core/repo-name";
 import { cn } from "../../lib/utils";
 import { JOB_IMAGE_TYPES, MAX_JOB_IMAGE_BYTES, newJobSchema, type ImageUploadOutcome, type NewJob, type NewJobOutcome } from "@factory/core/new-job-schema";
+import { ReviewSettings } from "./review-settings";
 
 const blank = (): NewJob => ({ title: "", description: "", requestId: crypto.randomUUID() });
 
@@ -281,6 +282,9 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                     )}
                   />
                 </div>
+                <Controller control={form.control} name="review" render={({ field }) => (
+                  <ReviewSettings value={field.value ?? {}} onChange={field.onChange} harnesses={harnesses} />
+                )} />
                 <div className="flex flex-wrap items-start gap-2">
                   {images.map((image) => (
                     <div key={image.id} className="flex flex-col gap-1">

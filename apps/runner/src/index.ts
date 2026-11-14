@@ -38,6 +38,7 @@ type IntentRow = typeof intents.$inferSelect;
 const { startReportServer } = await import("./report-server");
 const { prepareRepository } = await import("./repository-registration");
 const { wireHarnessReporting } = await import("./harness-wiring");
+const { reviewJobs, handleReviewAction } = await import("./review");
 const reportServer = startReportServer(ops.config.ingestUrl, ops.config.secret);
 
 const machine = await thisMachine();
@@ -106,6 +107,8 @@ async function handle(intent: IntentRow) {
       const attempt = await retryJob(intent.job_id!, retryDetailSchema.parse(JSON.parse(intent.detail ?? "null")));
       return { attempt, ...("started" in attempt ? await launchAndAnnounce() : {}) };
     }
+    case "review_action":
+      return handleReviewAction(intent);
     default: {
       const unhandled: never = intent.kind;
       throw new Error(`no handler for intent ${String(unhandled)}`);
@@ -207,6 +210,7 @@ async function tick() {
     queued: await isolated(ops.queuedJobs),
     // An answer can land before its question reached the source, and its intent then finds nothing.
     resumed: await isolated(ops.resumeAnswered),
+    reviews: await isolated(reviewJobs),
     stopsDelivered: await isolated(() => ops.deliverStops()),
     pullRequests: await isolated(ops.checkPullRequests),
     githubSnapshots: await isolated(refreshGithubSnapshots),

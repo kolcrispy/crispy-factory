@@ -14,7 +14,7 @@ Crispy Factory turns a written job into an unattended agent attempt: isolated wo
 
 Submit only when the user clearly asks for the work to be done. "What do you think about adding X", "could we refactor Y", or a discussion of a plan is not authorization. If the intent is ambiguous, draft the brief and show it; do not submit.
 
-Never write SQL, call dashboard endpoints, or drive the forms. The CLI is the only supported surface. Never answer, approve, merge, close, retry, or stop a job unless the user asked for that specific action on that job: those are owner decisions with external effects. In particular, `jobs approve` merges the pull request.
+Never write SQL, call dashboard endpoints, or drive the forms. The CLI is the only supported surface. Change job/configuration state only when the user authorizes that specific action, including review recovery and future-attempt review settings. In particular, `jobs approve` merges the pull request; it is not a pre-PR reviewer action and cannot bypass independent PASS.
 
 ## Invocation
 
@@ -71,6 +71,14 @@ Compare requested work against every job whose stage is neither `merged` nor `fa
 An explicit repository model wins. For a repository explicitly selecting OMP with a null model (Harness default), Factory reads the installed OMP runtime's native default model, not its first available model, even when Settings also uses OMP. Settings default instead inherits Factory Settings/config. Existing attempts keep their recorded model.
 
 Neither job submission command accepts a per-job `model`. If the user requires a model, inspect repository settings, Factory Settings and `machines list` inventory. Submit only when the effective selection satisfies that requirement. Otherwise explain the mismatch and ask before changing shared defaults; do not silently drop a required model or put it in `provider`. An explicitly required unavailable harness likewise blocks submission.
+
+### 4. Preserve independent review policy
+
+Independent pre-PR review defaults to enabled for newly claimed attempts. Resolve `review.enabled`, `review.provider`, and `review.model` independently: job overrides repository, then global settings. Null/omitted fields inherit; globally absent harness/model follow the builder. The claim freezes the policy; configuration changes affect future attempts, including retries, not the current snapshot. Legacy running attempts keep their old contract.
+
+`jobs create` accepts a `review` object, for example `"review":{"enabled":true,"provider":"omp","model":"provider/model-id"}`. These fields select the reviewer, not the builder. Check `machines list` for availability when a reviewer is explicitly requested; invalid combinations hold rather than silently falling back. For issue import, use the edited `jobs create` path with `issueUrl` when per-job review overrides are needed.
+
+The builder implements, tests, commits, runs verification, reports `verifying`, and stops without self-review or PR publication. A fresh report-only reviewer inspects the captured base-to-builder diff and related source in a separate checkout. Only PASS for that exact attempt and SHA lets the runner push and publish/update the PR. FIX resumes the builder for substantive blockers; two automatic repair cycles are allowed. BLOCKED, errors, uncertain delivery, or exhausted repairs hold for the owner in Inbox. A held review is not permission to disable review or publish manually.
 
 ## Write the brief
 
@@ -163,7 +171,7 @@ This command immediately creates a job from the current title and description. I
 
 ## Report back
 
-Give the job key, repository, and dashboard link (`${FACTORY_DASHBOARD_URL:-http://localhost:3000}` + the returned `url`). Describe what happens next and who acts: the runner starts it, the agent may ask a question through the inbox, and the pull request waits for the owner's review unless repository autonomy allows merging.
+Give the job key, repository, and dashboard link (`${FACTORY_DASHBOARD_URL:-http://localhost:3000}` + the returned `url`). Describe what happens next: the runner starts the builder, questions and held independent reviews appear in Inbox, and review-enabled attempts publish a PR only after independent PASS. The published PR then follows repository merge autonomy or owner approval.
 
 Do not claim completion from a queued job. When the user asks for status, read it:
 
@@ -188,6 +196,9 @@ Each durable action takes a UUID `requestId` and prints an intent id. Add `--wai
 | `jobs stop` | Interrupt the running attempt |
 | `jobs archive` / `unarchive` | Hide or restore a finished job |
 | `jobs follow-up` | File a fix when a post-merge revert failed |
+| `jobs review` | Request another independent review on a held attempt; requires `jobId`, `attempt`, `requestId` |
+| `jobs review-changes` | Send explicit builder changes on a held attempt; also requires nonempty `body` |
+| `jobs review-settings` | Save `review` overrides for future attempts only; requires `jobId`, takes effect on a new claim/retry |
 
 Example:
 
@@ -203,6 +214,15 @@ bun run --cwd "$FACTORY_HOME" cli requests show --input '{"intentId":"<intent-id
 ```
 
 Reusing the same request id safely replays a lost response; it does not repeat the side effect.
+
+Review recovery example, only after the user requests it:
+
+```sh
+bun run --cwd "$FACTORY_HOME" cli jobs review \
+  --input '{"jobId":"internal:<id>","attempt":1,"requestId":"<uuid>"}' --wait 60
+```
+
+Read `jobs show` before acting to obtain the current attempt and held reason. Review recovery never bypasses PASS or resets the automatic repair allowance. An ambiguous session launch/delivery must be inspected and reconciled, not replaced blindly. `jobs review-settings --input '{"jobId":"internal:<id>","review":{"enabled":false}}'` changes only a future attempt, and needs explicit authorization to disable review. Unlike durable recovery actions, this settings save is immediate and does not return an intent id.
 
 ## Failure messages
 

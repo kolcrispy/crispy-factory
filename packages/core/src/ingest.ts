@@ -8,7 +8,7 @@ import { normalizeAssessment } from "./assessment";
 import { attemptBranchSql } from "./branch-sql";
 import { parseBranch } from "./factory";
 import { branchSpend } from "./spend";
-import { decideStage, type StageVerdict } from "./stages";
+import { causeOf, decideStage, type StageVerdict } from "./stages";
 
 type Db = NodePgDatabase<typeof schema>;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -333,7 +333,7 @@ async function linkSession(tx: Tx, event: Extract<FactoryEvent, { kind: "session
       updated_at: when(event.at),
     })
     // Only the job's current attempt branch, so an older attempt's thread cannot move a retry.
-    .where(and(eq(jobs.key, key), eq(attemptBranchSql, event.branch!)));
+    .where(and(eq(jobs.key, key), eq(attemptBranchSql, event.branch!), sql`coalesce(${jobs.attempt_review}->>'state', '') not in ('reviewing', 'pending', 'held')`));
 }
 
 /** Moves the claimed job the event names; undefined when it names none. */
@@ -342,6 +342,13 @@ async function moveJob(tx: Tx, event: Extract<FactoryEvent, { kind: "stage" }>):
   const [job] = await tx.select().from(jobs).where(eq(jobs.key, event.jobKey)).for("update");
   if (!job) return;
   const at = when(event.at);
+  const review = job.attempt_review;
+  if (review?.policy.enabled && review.attempt === job.attempt && causeOf(event.eventId) === "report") {
+    if (review.state === "reviewing" || (review.builderSessionId && review.builderSessionId !== event.sessionId)) {
+      return { outcome: "refuse", cause: "report", reason: "Only the active builder may report job stages outside independent review." };
+    }
+    if (event.stage === "pr") return { outcome: "refuse", cause: "report", reason: "Independent review PASS is required; only the runner publishes the reviewed PR." };
+  }
   const verdict = decideStage(job, { stage: event.stage, at, eventId: event.eventId, branch: event.branch });
   if (verdict.outcome !== "apply") return verdict;
   await tx

@@ -24,6 +24,7 @@ import type { ScreenshotType } from "@factory/core/screenshots";
 import type { Recipe } from "@factory/core/recipe";
 import type { JobId, JobSource } from "@factory/core/sources/shapes";
 import type { StopRecord } from "@factory/core/stop";
+import type { AttemptReview, ReviewOverrides } from "@factory/core/review";
 
 
 export const runStatus = pgEnum("run_status", ["active", "idle", "ended"]);
@@ -73,6 +74,7 @@ export const runs = pgTable(
     branch: text("branch"),
     job_key: text("job_key"),
     t3_thread_id: text("t3_thread_id"),
+    role: text("role").$type<"builder" | "reviewer">().notNull().default("builder"),
     title: text("title"),
     status: runStatus("status").notNull().default("active"),
     stage: runStage("stage"),
@@ -159,6 +161,9 @@ export const jobs = pgTable(
     /** The T3 provider instance and model this attempt's thread was launched with; null before a launch. */
     provider: text("provider"),
     model: text("model"),
+    review_overrides: jsonb("review_overrides").$type<ReviewOverrides>(),
+    attempt_review: jsonb("attempt_review").$type<AttemptReview>(),
+    review_history: jsonb("review_history").$type<AttemptReview[]>().notNull().default([]),
     session_id: text("session_id"),
     /** The agent's assessment from its latest pr report on this attempt; rows from before the six checks were dropped keep that shape, so read it with parseAssessment. */
     merge_assessment: jsonb("merge_assessment").$type<AssessmentInput>(),
@@ -251,6 +256,7 @@ export const intentKind = pgEnum("intent_kind", [
   "close_job",
   "onboard_repo",
   "retry_stop",
+  "review_action",
   "retry_job",
 ]);
 
@@ -308,6 +314,7 @@ export const settings = pgTable("settings", {
   /** The T3 provider instance new threads start on. */
   provider: text("provider").notNull(),
   model: text("model").notNull(),
+  review: jsonb("review").$type<ReviewOverrides>(),
   updated_at: ts("updated_at").notNull(),
   /** The owner's email. */
   updated_by: text("updated_by").notNull(),
@@ -338,6 +345,7 @@ export const repoSettings = pgTable(
     provider: text("provider"),
     /** Model override for the explicitly selected harness; null inherits its default. */
     model: text("model"),
+    review: jsonb("review").$type<ReviewOverrides>(),
     /** Where this repo's jobs run without a Runs on label; null means Settings. */
     autonomy: text("autonomy").$type<Autonomy>().notNull().default("off"),
     /** Globs a PR may not touch to merge on its own; null means the defaults. */

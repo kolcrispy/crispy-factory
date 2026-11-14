@@ -26,6 +26,7 @@ const row = (repo: string, over: Partial<RepoRow> = {}): RepoRow => ({
   enabled: true,
   provider: null,
   model: null,
+  review: null,
   autonomy: "off",
   protected_paths: null,
   max_changed_lines: null,

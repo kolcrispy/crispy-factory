@@ -13,7 +13,7 @@ import type { LaunchEntry } from "./launch";
 import type { InterruptOutcome, SubagentThread, ThreadActivity, ThreadRead } from "./threads";
 
 const recordSchema = z.object({
-  id: z.string(), key: z.string(), attempt: z.number().int().positive(), repo: z.string(),
+  id: z.string(), key: z.string(), attempt: z.number().int().positive(), repo: z.string(), role: z.enum(["builder", "reviewer"]).optional(),
   branch: z.string(), cwd: z.string(), model: z.string(), sessionDir: z.string(),
   sessionId: z.string().optional(), sessionFile: z.string().optional(), pid: z.number().optional(),
   started: z.boolean(), pendingMessage: z.string().optional(), delivery: z.enum(["uncertain", "accepted"]).optional(),
@@ -103,7 +103,7 @@ async function connect(record: AttemptRecord) {
   if (record.sessionFile) args.push("--resume", record.sessionFile);
   if (record.model) args.push("--model", record.model);
   const rpc = new OmpRpc({ command: ompRuntime.command(), args, cwd: record.cwd,
-    env: { ...process.env, FACTORY_JOB_KEY: record.key, FACTORY_ATTEMPT: String(record.attempt), FACTORY_SESSION_ID: record.id, FACTORY_REPO: record.repo.split("/").pop()!, FACTORY_REPORTER: "mcp" },
+    env: { ...process.env, FACTORY_JOB_KEY: record.role === "reviewer" ? "" : record.key, FACTORY_ATTEMPT: String(record.attempt), FACTORY_SESSION_ID: record.id, FACTORY_REPO: record.repo.split("/").pop()!, FACTORY_REPORTER: "mcp" },
     onEvent: frame => {
       const item = active.get(record.id);
       if (!item) return;
@@ -144,7 +144,7 @@ async function connect(record: AttemptRecord) {
     save(record);
     await ompRuntime.report([{
       eventId: `omp-start:${record.id}`, sessionId: record.id, at: Date.now(), kind: "session_start",
-      cwd: record.cwd, branch: record.branch, repo: record.repo.split("/").pop()!, model: record.model,
+      cwd: record.cwd, branch: record.role === "reviewer" ? undefined : record.branch, repo: record.repo.split("/").pop()!, model: record.model,
       t3ThreadId: record.id, transcriptPath: record.sessionFile,
     }]);
     if (record.needsResume && record.delivery === "accepted" && state.isSettled) {
@@ -173,18 +173,18 @@ async function owned(id: string) {
   return connected;
 }
 
-export async function startOmp(entry: LaunchEntry, checkout: string, workRoot: string) {
-  const id = ompIdentity(entry.key, entry.attempt);
+export async function startOmp(entry: LaunchEntry, checkout: string, workRoot: string, review?: { id: string; cwd: string }) {
+  const id = review?.id ?? ompIdentity(entry.key, entry.attempt);
   let record: AttemptRecord;
   if (existsSync(fileOf(id))) record = readRecord(id);
   else {
-    const cwd = join(workRoot, ".factory-worktrees", entry.key, String(entry.attempt));
+    const cwd = review?.cwd ?? join(workRoot, ".factory-worktrees", entry.key, String(entry.attempt));
     mkdirSync(dirname(cwd), { recursive: true });
     // Record the reservation before filesystem effects. Partial creation must never launch twice.
-    record = { id, key: entry.key, attempt: entry.attempt, repo: entry.repo, branch: entry.branch, cwd,
-      model: entry.harness.model, sessionDir: join(ompRuntime.root, "sessions", entry.key, String(entry.attempt)), started: false, needsResume: false, children: {}, pendingMessage: entry.message };
+    record = { id, key: entry.key, attempt: entry.attempt, repo: entry.repo, branch: entry.branch, cwd, ...(review && { role: "reviewer" as const }),
+      model: entry.harness.model, sessionDir: join(ompRuntime.root, "sessions", entry.key, String(entry.attempt), ...(review ? [id.replaceAll(":", "-")] : [])), started: false, needsResume: false, children: {}, pendingMessage: entry.message };
     save(record);
-    await exec("git", ["worktree", "add", "-b", entry.branch, cwd, entry.base], { cwd: checkout, timeoutMs: 120_000 });
+    if (!review) await exec("git", ["worktree", "add", "-b", entry.branch, cwd, entry.base], { cwd: checkout, timeoutMs: 120_000 });
   }
   const current = await owned(id);
   if (current.record.pendingMessage) {
@@ -207,8 +207,8 @@ export async function startOmp(entry: LaunchEntry, checkout: string, workRoot: s
   return id;
 }
 
-export async function recoverOmp(key: string, attempt: number) {
-  const id = ompIdentity(key, attempt);
+export async function recoverOmp(key: string, attempt: number, identity = ompIdentity(key, attempt)) {
+  const id = identity;
   if (!existsSync(fileOf(id))) throw new Error(`OMP launch ${id} has no durable record; inspect before retrying.`);
   const record = readRecord(id);
   if (record.pendingMessage) throw new Error(`OMP launch ${id} was not delivered; inspect before retrying.`);
@@ -221,7 +221,7 @@ export async function readOmp(id: string): Promise<{ read: ThreadRead; activity:
   const item = await owned(id);
   const state: State = stateSchema.parse(await item.rpc.request({ type: "get_state" }));
   const stateName = state.isSettled ? "stopped" : "running";
-  return { read: { state: stateName, status: item.status, lastMessage: item.lastMessage },
+  return { read: { state: stateName, status: item.status, lastMessage: item.lastMessage, checkout: item.record.cwd },
     activity: { state: stateName, activeRunId: state.isSettled ? null : state.sessionId, projectId: item.record.id } };
 }
 

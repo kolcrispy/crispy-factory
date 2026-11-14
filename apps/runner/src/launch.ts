@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { jobs } from "@factory/storage/schema";
 import type { ExecError } from "@factory/platform/exec";
 import { localHost, type JobHost } from "@factory/core/host";
 import { withPlaybook } from "@factory/core/playbook";
@@ -109,7 +111,8 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
       const checkout = checkouts.get(entry.repo)!;
       await localHost.run("git", ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "fetch", "origin", "--prune"], { cwd: checkout, timeoutMs: 120_000 });
       const inputs = await localizeJobImages(entry.message, config.factory.workRoot, entry.key, entry.attempt);
-      const message = await withPlaybook(inputs, localHost, checkout);
+      const [claimed] = await db.select().from(jobs).where(eq(jobs.key, entry.key));
+      const message = `${await withPlaybook(inputs, localHost, checkout)}${claimed?.attempt_review?.policy.enabled ? "\n\n## Independent review gate\nThis attempt requires independent review BEFORE any PR exists. This section overrides playbook publication/self-review steps. Implement and test only; do not perform a self-review stage. Commit the attempt branch, run factory-verify, report verifying with a completion summary and test evidence, then end the turn. Never open a PR or report pr: the runner publishes the exact commit after reviewer PASS. Subsequent repair requests follow the same rule." : ""}`;
       const threadId = entry.harness.provider === "omp"
         ? await startOmp({ ...entry, message }, checkout, config.factory.workRoot)
         : await startThread(localHost, checkout, entry.branch, entry.threadTitle, message, entry.harness, entry.base);

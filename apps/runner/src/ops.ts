@@ -18,6 +18,7 @@ import { factoryPlaybook } from "@factory/core/playbook";
 import { isTracked } from "@factory/core/harness";
 import { readHarnesses } from "@factory/integrations/t3-state";
 import { readSettings, resolveHarness, type HarnessChoice } from "@factory/core/settings";
+import { resolveReviewPolicy } from "@factory/core/review";
 import { registerRepos } from "@factory/core/repositories";
 import { HostGoneError, hosts, localHost, type JobHost } from "@factory/core/host";
 import { requestedStop } from "@factory/core/stop";
@@ -126,7 +127,8 @@ async function sendBackForConflict(job: Job, head: string) {
       });
       return true;
     }
-    await threads.send(job.t3_thread_id!, conflictMessage(job.key, job.pr_url!, factoryPlaybook()), host);
+    if (job.attempt_review?.policy.enabled) await db.update(jobs).set({ attempt_review: { ...job.attempt_review, state: "repairing", delivery: undefined } }).where(and(eq(jobs.id, job.id), eq(jobs.attempt, job.attempt)));
+    await threads.send(job.t3_thread_id!, `${conflictMessage(job.key, job.pr_url!, factoryPlaybook())}${job.attempt_review?.policy.enabled ? "\nIndependent review overrides publication steps: resolve, test, commit, report verifying, stop. Do not self-review or push; runner updates the PR after fresh PASS." : ""}`, host);
   } catch (error) {
     await release();
     throw error;
@@ -216,6 +218,7 @@ export async function watchdog() {
   const actions: string[] = [];
   const drivers = harnessDrivers();
   for (const { job, lastEventAt } of working) {
+    if (job.attempt_review?.policy.enabled && ["held", "reviewing", "pending"].includes(job.attempt_review.state)) continue;
     const now = new Date();
     const host = hosts.forJob(job);
     const action = watch(
@@ -632,6 +635,13 @@ export async function claimLaunch(
   harness?: HarnessChoice,
 ) {
   if (machine.repos.length === 0) return false;
+  const [candidate] = await db.select().from(jobs).where(eq(jobs.key, key));
+  if (!candidate) return false;
+  const [global, repository] = await Promise.all([
+    readSettings(db),
+    db.select().from(repoSettings).where(eq(repoSettings.repo, candidate.repo)).then(rows => rows[0]),
+  ]);
+  const policy = resolveReviewPolicy(harness ?? config.factory, global?.review, repository?.review, candidate.review_overrides);
   const working = sql.join(IN_FLIGHT.map((stage) => sql`${stage}`), sql`, `);
   const claimed = await db
     .update(jobs)
@@ -639,10 +649,15 @@ export async function claimLaunch(
       t3_thread_id: marker,
       machine_id: machine.id,
       ...(harness && { provider: harness.provider, model: harness.model }),
+      attempt_review: candidate.attempt_review?.attempt === candidate.attempt ? candidate.attempt_review : {
+        attempt: candidate.attempt, policy, state: policy.enabled ? "building" : "skipped",
+        builderThreadId: null, builderSessionId: null, automaticRepairs: 0, rounds: [],
+      },
     })
     .where(
       and(
         eq(jobs.key, key),
+        eq(jobs.attempt, candidate.attempt),
         isNull(jobs.t3_thread_id),
         isNull(jobs.session_id),
         isNull(jobs.machine_id),

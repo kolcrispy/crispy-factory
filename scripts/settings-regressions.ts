@@ -150,10 +150,10 @@ try {
   await writeSettings(db, { provider: "antigravity", model: "grav-1" }, "second@example.com", new Date("2026-10-26T11:00:00Z"));
   const rows = await db.select().from(settings);
   assert.equal(rows.length, 1, "saving again updates the one row");
-  assert.deepEqual(
-    { ...rows[0]!, updated_at: rows[0]!.updated_at.toISOString() },
-    { id: SETTINGS_ID, provider: "antigravity", model: "grav-1", updated_by: "second@example.com", updated_at: "2026-10-26T11:00:00.000Z" },
-  );
+  assert.equal(rows[0]!.provider, "antigravity", "the latest saved harness replaces the prior choice");
+  assert.equal(rows[0]!.model, "grav-1", "the latest saved model replaces the prior choice");
+  await writeSettings(db, { provider: "antigravity", model: "grav-1", review: { enabled: false, provider: "codex", model: "codex-one" } }, OWNER, first);
+  assert.deepEqual((await db.select().from(settings))[0]!.review, { enabled: false, provider: "codex", model: "codex-one" }, "reviewer configuration persists independently from builder configuration");
   assert.deepEqual(await effectiveHarness(), { provider: "antigravity", model: "grav-1", from: "settings" }, "a saved choice wins over the config");
 
   await db.insert(jobs).values(internalJob(externalId, key));

@@ -6,6 +6,7 @@ import { jobs, repoSettings } from "@factory/storage/schema";
 import { REPO_NAME } from "./repo-name";
 import { issueUrlSchema } from "./github-issue-schema";
 import { SOURCE_SHAPES } from "./sources/shapes";
+import { reviewOverridesSchema } from "./review";
 
 const inputSchema = z.object({
   requestId: z.uuid(),
@@ -14,6 +15,7 @@ const inputSchema = z.object({
   repo: z.string().regex(REPO_NAME),
   provider: z.string().trim().min(1).optional(),
   issueUrl: issueUrlSchema.optional(),
+  review: reviewOverridesSchema.optional(),
 });
 
 type Database = NodePgDatabase<typeof schema>;
@@ -28,7 +30,7 @@ export async function fileInternalJob(database: Database, input: unknown, actor:
     const [existing] = await tx.select().from(jobs).where(eq(jobs.id, id));
     if (existing) {
       const state = SOURCE_SHAPES.internal.sourceState.parse(existing.source_state);
-      if (existing.title !== draft.title || existing.description !== draft.description || existing.repo !== draft.repo || state.actor !== actor || state.requestedProvider !== draft.provider || state.issueUrl !== draft.issueUrl) {
+      if (existing.title !== draft.title || existing.description !== draft.description || existing.repo !== draft.repo || state.actor !== actor || state.requestedProvider !== draft.provider || state.issueUrl !== draft.issueUrl || JSON.stringify(existing.review_overrides ?? {}) !== JSON.stringify(draft.review ?? {})) {
         throw new Error("This request ID already belongs to a different job submission.");
       }
       return { key: existing.key, url: existing.url };
@@ -55,6 +57,7 @@ export async function fileInternalJob(database: Database, input: unknown, actor:
       writeback: {},
       source_state: { actor, requestedProvider: draft.provider, ...(draft.issueUrl ? { issueUrl: draft.issueUrl } : {}) },
       provider: draft.provider,
+      review_overrides: draft.review ?? null,
       claimed_at: now,
       updated_at: now,
     });

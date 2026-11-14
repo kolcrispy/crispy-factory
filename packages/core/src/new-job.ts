@@ -5,12 +5,13 @@ import type { FiledJob, ImageFile } from "./sources/types";
 import { defaultRepo, type Registry } from "./repositories";
 import { fetchGithubIssue } from "./github-issue-client";
 import type { GithubIssue } from "./github-issue-schema";
+import type { ReviewOverrides } from "./review";
 
 // Dashboard and CLI submissions commit directly to the shared job queue.
 
 export type NewJobDeps = {
   user: () => Promise<SessionUser | null | undefined>;
-  file: (draft: { requestId: string; title: string; description: string; repo: string; provider?: string; issueUrl?: string }, actor: string) => Promise<FiledJob>;
+  file: (draft: { requestId: string; title: string; description: string; repo: string; provider?: string; issueUrl?: string; review?: ReviewOverrides }, actor: string) => Promise<FiledJob>;
   /** What the machines report; null when none has reported its harnesses yet. */
   harnesses: () => Promise<Harness[] | null>;
   registry: () => Promise<Registry>;

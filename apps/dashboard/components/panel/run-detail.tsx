@@ -28,6 +28,7 @@ import { useFeed, type Feed } from "./sealed";
 import { StageTimeline } from "./stage-timeline";
 import { Time } from "./time";
 import { STAGE_META } from "./stages";
+import { JobReview } from "./job-review";
 
 /** The job's audit feed. */
 function JobRecords({ feed, path }: { feed: Feed<AuditRow>; path: string }) {
@@ -232,6 +233,7 @@ export function RunDetail({
           {run.repo && <span className="min-w-0 truncate">{run.repo}</span>}
           {place && <span>{place}</span>}
           <span className="font-mono">{spend}</span>
+          <span>{run.role} session · {formatUsd(runCost(run, agentRows))}</span>
         </p>
       </div>
       {job && <StopBanner job={job} t3Href={stopThread && !stopThread.startsWith("omp:") ? t3ThreadLink(stopThread, environmentId) : null} />}
@@ -267,6 +269,7 @@ export function RunDetail({
         </div>
       )}
       {job && <MergeDecisionSection job={job} />}
+      {job && <JobReview job={job} />}
       {job && evidence && <EvidenceSection feed={evidence.feed} path={evidence.path} job={job} />}
     </>
   );

@@ -1,4 +1,8 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+/* Scan authored UI only, never generated .next logs or build output. */
+@source "./";
+@source "../components";
 
 @custom-variant dark (&:is(.dark *));
 

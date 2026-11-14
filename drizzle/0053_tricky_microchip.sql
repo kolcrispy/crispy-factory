@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "review_history" jsonb DEFAULT '[]'::jsonb NOT NULL;

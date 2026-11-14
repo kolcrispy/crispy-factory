@@ -6,7 +6,7 @@ import { interruptThread, listSubagents, sendMessage, showThread as showCli, typ
 import { interruptOmp, isOmp, ompSubagents, readOmp, sendOmp } from "./omp";
 
 /** Shared execution observation: activity, last run status, and last assistant message. */
-export type ThreadRead = { state: ThreadState; status: string | null; lastMessage: string | null };
+export type ThreadRead = { state: ThreadState; status: string | null; lastMessage: string | null; checkout?: string | null };
 
 /** The thread as a stop sees it: whether a run is active, and the project its subagent threads are listed under. */
 export type ThreadActivity = { state: ThreadState; activeRunId: string | null; projectId: string | null };
@@ -56,7 +56,7 @@ async function showThread(threadId: string | null, host: JobHost): Promise<{ rea
     const parsed = assistant.safeParse(m);
     return parsed.success ? [parsed.data.text] : [];
   }).at(-1) ?? null;
-  return { read: { state, status: thread.status ?? null, lastMessage }, activity };
+  return { read: { state, status: thread.status ?? null, lastMessage, checkout: thread.worktreePath }, activity };
 }
 
 /** How the runner reads and talks to a T3 thread; regressions replace any of them. */

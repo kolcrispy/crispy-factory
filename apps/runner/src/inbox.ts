@@ -52,12 +52,14 @@ async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResul
   }
   const claimed = await db
     .update(jobs)
-    .set({ delivered_feedback_ids: sql`${jobs.delivered_feedback_ids} || ${JSON.stringify([feedback.id])}::jsonb`, updated_at: new Date() })
+    .set({ delivered_feedback_ids: sql`${jobs.delivered_feedback_ids} || ${JSON.stringify([feedback.id])}::jsonb`, updated_at: new Date(),
+      ...(job.attempt_review?.policy.enabled ? { attempt_review: { ...job.attempt_review, state: "repairing" as const, automaticRepairs: 2, delivery: undefined } } : {}),
+    })
     .where(and(eq(jobs.id, job.id), eq(jobs.stage, job.stage), sql`not (${jobs.delivered_feedback_ids} ? ${feedback.id})`))
     .returning({ key: jobs.key });
   if (claimed.length === 0) return { skipped: "already sent, or the job moved on" };
   try {
-    await threads.send(job.t3_thread_id!, changesMessage({ prUrl: job.pr_url, feedback, comments }), host);
+    await threads.send(job.t3_thread_id!, `${changesMessage({ prUrl: job.pr_url, feedback, comments })}${job.attempt_review?.policy.enabled ? "\nIndependent review remains required: implement, test, commit, report verifying, and stop. Do not self-review, push, or publish; runner updates the reviewed PR after fresh PASS." : ""}`, host);
   } catch (error) {
     await db
       .update(jobs)
@@ -201,6 +203,8 @@ export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail)
     attempt: next, previous_failure: job.stage_summary, stage: "queued", stage_at: null,
     stage_summary: null, question: null, pr_url: null, stage_event_id: null, synced_event_id: null,
     t3_thread_id: null, machine_id: null, provider: null, model: null,
+    attempt_review: null,
+    review_history: job.attempt_review ? [...job.review_history, job.attempt_review] : job.review_history,
     session_id: null, nudged_at: null, nudged_stage: null,
     conflict_head: null, resume_context: null, stop_sent_to: null, stop_event_id: null, stop: null,
     answered_at: null, answer: null, delivered_reply_ids: [], delivered_feedback_ids: [],

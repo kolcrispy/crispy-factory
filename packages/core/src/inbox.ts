@@ -12,7 +12,7 @@ import { parseStop, stopLine, stopNeedsOwner, stopView } from "./stop";
 //   stop_unconfirmed  the job was stopped but the runner could not confirm its work ended (lib/stop.ts)
 // The panel's actions become intents the job's runner carries out; their detail shapes live here.
 
-export const INBOX_KINDS = ["question", "revert_failed", "stop_unconfirmed", "handover", "failed"] as const;
+export const INBOX_KINDS = ["question", "revert_failed", "stop_unconfirmed", "handover", "review", "failed"] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 
 export const INBOX_LABELS: Record<InboxKind, string> = {
@@ -21,12 +21,13 @@ export const INBOX_LABELS: Record<InboxKind, string> = {
   handover: "Ready for your review",
   failed: "Failed",
   stop_unconfirmed: "Stop not confirmed",
+  review: "Independent review held",
 };
 
 /** Questions, failed reverts and agents that may still run block work or main, so they come first; failures last. */
-const RANK: Record<InboxKind, number> = { question: 0, revert_failed: 0, stop_unconfirmed: 0, handover: 1, failed: 2 };
+const RANK: Record<InboxKind, number> = { question: 0, revert_failed: 0, stop_unconfirmed: 0, review: 0, handover: 1, failed: 2 };
 
-export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop">;
+export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop"> & Partial<Pick<JobRow, "attempt_review">>;
 
 export type InboxItem<J extends InboxJob = InboxJob> = { kind: InboxKind; job: J; decision: MergeDecision | null; at: Date };
 
@@ -57,6 +58,7 @@ function handedOver(decision: MergeDecision | null) {
 
 export function inboxKind(job: InboxJob, decision = parseDecision(job.merge_decision)): InboxKind | null {
   if (stopNeedsOwner(job.stop, job.dismissed_at)) return "stop_unconfirmed";
+  if (job.attempt_review?.state === "held" && !["failed", "merged"].includes(job.stage)) return "review";
   switch (job.stage) {
     case "waiting":
       return "question";
@@ -95,6 +97,8 @@ export function inboxItems<J extends InboxJob>(jobs: readonly J[]): InboxItem<J>
 export function inboxReason(item: InboxItem<InboxJob & Pick<JobRow, "question" | "stage_summary">>): string {
   const { kind, job, decision } = item;
   switch (kind) {
+    case "review":
+      return job.stage_summary ?? "Independent review needs owner action. Open the job to recover.";
     case "question":
       return job.question ?? job.stage_summary ?? "The agent is waiting on an answer.";
     case "revert_failed":
@@ -125,6 +129,7 @@ export const INBOX_ACTIONS = {
   handover: ["approve", "request_changes", "close"],
   failed: ["retry", "close", "dismiss"],
   stop_unconfirmed: ["retry_stop", "dismiss"],
+  review: [],
 } as const satisfies Record<InboxKind, readonly InboxAction[]>;
 export type InboxAction = "answer" | "approve" | "request_changes" | "follow_up" | "close" | "dismiss" | "retry_stop" | "retry";
 

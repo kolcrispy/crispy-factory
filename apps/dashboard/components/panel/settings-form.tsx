@@ -17,6 +17,8 @@ import { useFeed, type Feed } from "./sealed";
 import { PanelFooter, PanelHeader } from "./panel-header";
 import { SettingsSection } from "./settings-section";
 import { useAfterHydration, useNow } from "./time";
+import { ReviewSettings } from "./review-settings";
+import type { ReviewOverrides } from "@factory/core/review";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -89,13 +91,14 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
 
   const [provider, setProvider] = useState(saved?.provider ?? DEFAULT_PROVIDER);
   const [model, setModel] = useState(saved?.model ?? DEFAULT_MODEL);
+  const [review, setReview] = useState<ReviewOverrides>(saved?.review ?? {});
   const [failure, setFailure] = useState<string | null>(null);
   const [savedNow, setSavedNow] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const harness = harnesses.find((h) => h.id === provider);
   const modelKnown = harness?.models.some((m) => m.slug === model) ?? false;
-  const unchanged = saved !== null && saved.provider === provider && saved.model === model;
+  const unchanged = saved !== null && saved.provider === provider && saved.model === model && JSON.stringify(saved.review ?? {}) === JSON.stringify(review);
   const chosen = describe(harnesses, provider, model);
 
   const pickHarness = (id: string | null) => {
@@ -109,7 +112,7 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
   const submit = () => {
     setFailure(null);
     startTransition(async () => {
-      const outcome = await saveSettings({ provider, model });
+      const outcome = await saveSettings({ provider, model, review });
       if (!outcome.ok) {
         setFailure(outcome.message);
         return;
@@ -148,6 +151,7 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
                   </p>
                 ) : (
                   <div className="flex flex-col gap-5">
+                    <ReviewSettings value={review} onChange={setReview} harnesses={harnesses} global />
                     <div className="grid gap-5 sm:grid-cols-2">
                       <Field>
                         <FieldLabel htmlFor="settings-harness">Harness</FieldLabel>

@@ -12,6 +12,10 @@ On macOS, run the old checkout's `bun scripts/install-runner.ts --uninstall` bef
 
 Reporting startup replaces the existing owned Codex MCP block even when its marker uses a previous product name. Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained.
 
+## Dashboard development watcher
+
+Tailwind scans only authored dashboard `app/` and `components/` sources. Keep generated `.next` output outside its source set: watching dev logs can create a rebuild/browser-reload feedback loop. Restart `bun run dev` after changing source detection so the previous watcher subscriptions are discarded.
+
 ## Runner
 
 `bun apps/runner/src/index.ts` runs in the foreground. `--once` reconciles once and exits.
@@ -32,6 +36,18 @@ Factory creates a separate worktree and durable OMP session for every attempt un
 Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_stage` delivers questions, stage transitions, and PR assessments through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership. OMP sessions have no Open in T3 link.
 
 The existing `t3_thread_id` database column and `t3ThreadId` session-start field store the runner execution binding for both adapters. An `omp:<job>:<attempt>` binding is never a T3 thread id and is dispatched only to the direct adapter; this preserves existing stored T3 bindings without rewriting history. OMP subagent transcript identities are persisted before terminal snapshots disappear from the runtime registry, allowing cumulative usage reconciliation after restart.
+
+### Independent pre-PR review
+
+Newly claimed attempts default to independent review. Enabled, harness, and model resolve independently from job, repository, then global settings; absent harness/model follow the builder. The claim snapshots policy. Running legacy attempts keep their old contract, and retries use current settings. Job detail and `jobs review-settings` edit future-attempt overrides only.
+
+Builders implement, test, commit, report `verifying` with evidence, and stop. They do not self-review or publish PRs. A fresh reviewer evaluates the exact commit in an isolated checkout, without modifying source. PASS authorizes only that attempt and SHA. The runner pushes the approved SHA and creates the PR; merge also rechecks the approved SHA. Code changes require fresh review.
+
+FIX requires substantive blocking findings and resumes the original builder. Automatic work is bounded to two repair cycles. BLOCKED, invalid results/configuration, failed sessions, uncertain delivery, and exhausted repairs hold the attempt in Needs you. Job detail or `jobs review` requests another review; `jobs review-changes` sends explicit owner changes. Owner recovery does not bypass PASS or reset the automatic repair allowance. Ambiguous launches reconcile only a uniquely identified original session and never launch a replacement blindly.
+
+Review rounds remain in attempt history across retries. Reviewer runs carry role `reviewer`; their usage contributes to attempt totals and appears as role-specific session spend. Review is a report-only contract under runner account permissions, not an OS sandbox.
+
+Rollout: stop the old runner, apply checkout migrations against the explicitly verified direct database target, then restart dashboard and runner. Do not mix schema-old processes with this revision. Migrations preserve existing jobs and default old run roles to builder.
 
 ## Jobs
 
