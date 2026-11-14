@@ -3,7 +3,6 @@
 import { GitMergeIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { approveFromRunDetail } from "../../app/actions/inbox";
-import { Alert, AlertDescription } from "../ui/alert";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -18,19 +17,24 @@ import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import type { MergeTarget } from "@factory/core/inbox-actions";
 import type { JobId } from "@factory/core/sources/shapes";
-import { useInboxAction, Waiting } from "./inbox-actions";
+import { useInboxAction } from "./inbox-actions";
+import { toastManager } from "../ui/toast";
 
 type Loaded = { kind: "loading" } | { kind: "ready"; target: MergeTarget } | { kind: "none" };
 
 /**
  * Approves the job's PR for the runner to merge, at the head the owner saw when run detail opened:
- * the inbox's approval, so the merge goes through the runner's merge service. The dialog stays
- * open until the runner merges it or says why not.
+ * the inbox's approval, so the merge goes through the runner's merge service. Confirmation
+ * closes immediately; the trigger shows pending work and notifications report the result.
  */
 export function MergeButton({ jobId, jobKey }: { jobId: JobId; jobKey: string }) {
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [open, setOpen] = useState(false);
   const { busy, error, run } = useInboxAction();
+
+  useEffect(() => {
+    if (error) toastManager.add({ type: "error", title: error });
+  }, [error]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -46,12 +50,13 @@ export function MergeButton({ jobId, jobKey }: { jobId: JobId; jobKey: string })
   const merging = busy !== null;
   const confirm = () => {
     if (!target) return;
-    void run("approve", () => approveFromRunDetail(jobId, crypto.randomUUID(), target.headSha), "Merged.", () => setOpen(false));
+    setOpen(false);
+    void run("approve", () => approveFromRunDetail(jobId, crypto.randomUUID(), target.headSha), "Merged.");
   };
 
   return (
     <AlertDialog open={open} onOpenChange={(next) => merging || setOpen(next)}>
-      <AlertDialogTrigger disabled={!target} render={<Button size="sm" loading={merging} />}>
+      <AlertDialogTrigger disabled={!target || merging} render={<Button size="sm" loading={merging} />}>
         {target ? <GitMergeIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
         Merge
       </AlertDialogTrigger>
@@ -68,16 +73,6 @@ export function MergeButton({ jobId, jobKey }: { jobId: JobId; jobKey: string })
               {target.mergeable === "conflicting" && <span className="text-warning">GitHub reports a conflict with the base branch.</span>}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {(busy || error) && (
-            <div className="flex flex-col gap-3 px-6 pb-6">
-              <Waiting busy={busy} />
-              {error && (
-                <Alert variant="error">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-            </div>
-          )}
           <AlertDialogFooter>
             <AlertDialogClose disabled={merging} render={<Button variant="outline" />}>
               Cancel

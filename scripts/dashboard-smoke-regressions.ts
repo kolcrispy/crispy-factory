@@ -62,6 +62,29 @@ try {
   await page.goto(origin);
   const login = await page.evaluate(async ({ email, password }) => (await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) })).status, { email, password });
   assert.equal(login, 200, "isolated owner can authenticate");
+  // Exercise the real merge component without a runner or any GitHub writes.
+  const { eq } = await import("drizzle-orm");
+  const { intents } = await import("@factory/storage/schema");
+  const sha = "a".repeat(40);
+  const prUrl = "https://github.com/smoke/isolated/pull/1";
+  await db.update(jobs).set({ stage: "pr", pr_url: prUrl, github_snapshot: { prUrl, attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Isolated merge", headSha: sha, mergeable: "mergeable", review: { headSha: sha, files: [], fileCount: 0, bugbot: { state: "reviewed", high: 0, medium: 0, low: 0, resolved: 0 } } } }).where(eq(jobs.key, "JOB-9001"));
+  const [mergeJob] = await db.select().from(jobs).where(eq(jobs.key, "JOB-9001"));
+  await Bun.write(join(root, "app/merge-smoke/page.tsx"), `import { MergeButton } from "../../components/panel/merge-button";\nexport default function Page() { return <MergeButton jobId={${JSON.stringify(mergeJob!.id)}} jobKey="JOB-9001" />; }`);
+  await page.goto(origin + "/merge-smoke");
+  await page.getByRole("button", { name: "Merge", exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Merge", exact: true }).click();
+  await dialog.waitFor({ state: "hidden", timeout: 2000 });
+  const queuedDeadline = Date.now() + 15000;
+  let approval: typeof intents.$inferSelect | undefined;
+  while (!approval && Date.now() < queuedDeadline) {
+    [approval] = await db.select().from(intents).where(eq(intents.job_id, mergeJob!.id));
+    if (!approval) await Bun.sleep(100);
+  }
+  assert.equal(approval?.kind, "approve_merge", "closing the dialog still persists the merge request");
+  assert.equal(approval?.handled_at, null, "dialog closes before runner handles approval");
+  console.log("Merge confirmation closes while durable approval remains pending");
   for (const route of ["/inbox?job=JOB-9001", "/settings", "/repositories?repo=smoke%2Fisolated"]) {
     const response = await page.goto(origin + route);
     assert.equal(response?.status(), 200, `${route} rendered successfully`);
