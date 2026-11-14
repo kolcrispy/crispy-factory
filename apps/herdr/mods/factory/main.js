@@ -9,6 +9,7 @@ const stageColor = (stage, t) => stage === "failed" ? t.error : stage === "merge
 export default class Factory extends View {
   init(_props, cx) {
     this.jobs = [];
+    this.repositories = [];
     this.query = "";
     this.repo = "All repositories";
     this.stage = "All stages";
@@ -36,7 +37,7 @@ export default class Factory extends View {
           if (stage) this.collapsed.has(stage) ? this.collapsed.delete(stage) : this.collapsed.add(stage);
         }
         if (command === "toggle-archived") this.archived = !this.archived;
-        if (command === "next-repository") this.cycle("repo", ["All repositories", ...new Set(this.jobs.map(j => j.repo))], cx);
+        if (command === "next-repository") this.cycle("repo", this.repositoryOptions(), cx);
         if (command === "next-stage") this.cycle("stage", ["All stages", ...new Set(this.jobs.map(j => j.stage))], cx);
         if (command === "next-job") {
           const rows = this.visibleJobs();
@@ -57,11 +58,16 @@ export default class Factory extends View {
         const config = { ...(raw ? JSON.parse(raw) : {}), ...(props() ?? {}) };
         if (!config.factoryHome || !config.bun) throw new Error("Install this mod from the Factory checkout to configure Bun and factoryHome.");
         this.config = config;
-        const result = await exec(config.bun, ["run", "cli", "jobs", "list"], { cwd: config.factoryHome, timeout: 20000 });
-        if (result.code !== 0) throw new Error("Factory CLI failed. Check database access and the checkout configuration.");
+        const [result, repositoryResult] = await Promise.all([
+          exec(config.bun, ["run", "cli", "jobs", "list"], { cwd: config.factoryHome, timeout: 20000 }),
+          exec(config.bun, ["run", "cli", "repositories", "list"], { cwd: config.factoryHome, timeout: 20000 }),
+        ]);
+        if (result.code !== 0 || repositoryResult.code !== 0) throw new Error("Factory CLI failed. Check database access and the checkout configuration.");
         const data = JSON.parse(result.stdout);
-        if (!Array.isArray(data.jobs)) throw new Error("Factory CLI returned an invalid job list.");
+        const registry = JSON.parse(repositoryResult.stdout);
+        if (!Array.isArray(data.jobs) || !Array.isArray(registry.repositories)) throw new Error("Factory CLI returned invalid jobs or repositories.");
         this.jobs = data.jobs;
+        this.repositories = registry.repositories;
         this.updated = new Date().toLocaleTimeString();
         this.error = "";
       } catch (error) {
@@ -71,6 +77,10 @@ export default class Factory extends View {
         cx.notify();
       }
     });
+  }
+
+  repositoryOptions() {
+    return ["All repositories", ...new Set([...this.repositories.map(repository => repository.repo), ...this.jobs.map(job => job.repo)])];
   }
 
   cycle(field, options, cx) {
@@ -108,7 +118,7 @@ export default class Factory extends View {
     const muted = value => div().text_size(12).text_color(t.dim).child(text(value));
     const rows = this.visibleJobs();
     const selected = this.jobs.find(j => j.id === this.selected);
-    const repos = ["All repositories", ...new Set(this.jobs.map(j => j.repo))];
+    const repos = this.repositoryOptions();
     const stages = ["All stages", ...new Set(this.jobs.map(j => j.stage))];
     const groups = [...new Set(rows.map(j => j.stage))];
     const list = v_flex().id("factory-list").flex_1().min_w(0).min_h(0).justify_start().overflow_y_scroll().gap(8).p(12)
