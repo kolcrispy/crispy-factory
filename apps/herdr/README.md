@@ -14,6 +14,8 @@ The panel subscribes directly to the runner's read-only SSE interface after pair
 
 Repository options come from `cli repositories list`, including registered repositories with no jobs; repositories referenced by the loaded job history are retained too. Jobs and repository registration refresh together; a failure preserves the prior snapshot.
 
+Status headers, job badges and card borders use the active Herdr theme's semantic colors. Summary badges count visible active jobs, owner attention (including held reviews), and merged jobs. Native SVG spinners indicate running status groups, active job details, refresh and pairing; held reviews show `Needs you` instead of implying continued execution. Animations run only while drawn, without JavaScript render timers. Refresh and pairing reject overlapping requests.
+
 Query failures preserve the last successful snapshot and show an error/stale indicator. Realtime uses a revocable read-only token, distinct from reporting credentials; fallback uses trusted local CLI credentials. Treat the Herdr account as a trusted operator. Do not share its configuration, client token, or database credentials. See `docs/operations.md` for revocation and the shared snapshot/SSE contract.
 
 Native commands can also be bound in Herdr keys: `factory.refresh`, `factory.search` (focus search), `factory.next-job` (cycle filtered jobs), `factory.close-detail`, `factory.repositories` / `factory.stages` (toggle dropdown), `factory.next-repository`, `factory.next-stage`, `factory.toggle-status` (collapse/expand the first filtered status group), and `factory.toggle-archived`. For example, `herdr-app do factory.next-job` opens the first filtered job without pointer automation. Commands reach shown copies only.

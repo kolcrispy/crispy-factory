@@ -5,7 +5,9 @@ import { subscribe } from "./realtime.js";
 
 const text = (value) => value == null ? "" : String(value);
 const when = (value) => value ? new Date(value).toLocaleString() : "Not available";
-const stageColor = (stage, t) => stage === "failed" ? t.blocked : stage === "merged" ? t.accent : t.foreground;
+const activeStage = stage => ["investigating", "implementing", "verifying"].includes(stage);
+const stageColor = (stage, t) => ["failed", "waiting"].includes(stage) ? t.blocked : stage === "merged" ? t.done : ["queued", "triage"].includes(stage) ? t.dim : activeStage(stage) ? t.working : t.accent;
+const needsAttention = job => ["waiting", "failed"].includes(job.stage) || job.attempt_review?.state === "held";
 
 export default class Factory extends View {
   init(_props, cx) {
@@ -18,6 +20,7 @@ export default class Factory extends View {
     this.archived = false;
     this.selected = null;
     this.loading = false;
+    this.pairing = false;
     this.error = "";
     this.updated = null;
     this.dropdown = null;
@@ -103,6 +106,9 @@ export default class Factory extends View {
   }
 
   pair(cx) {
+    if (this.pairing) return;
+    this.pairing = true;
+    cx.notify();
     cx.spawn(async cx => {
       try {
         const url = this.runnerUrl.value() || "http://127.0.0.1:3009";
@@ -116,6 +122,7 @@ export default class Factory extends View {
         this.pairCode.set_value("");
         this.error = "Connecting to runner";
       } catch (error) { this.error = error instanceof Error ? error.message : "Pairing failed"; }
+      finally { this.pairing = false; }
       cx.notify();
     });
   }
@@ -148,7 +155,10 @@ export default class Factory extends View {
   render() {
     const t = theme();
     const icon = name => svg(`mods/factory/${name}.svg`).size(14);
-    const button = (id, label, action, symbol) => h_flex().id(id).px(8).py(6).gap(6).items_center().rounded(6).border_1().border_color(t.border).cursor_pointer().text_size(12).accessibility_label(label).when(Boolean(symbol), el => el.child(icon(symbol))).when(Boolean(label) && !["refresh", "close-detail"].includes(id), el => el.child(label)).on_click((_e, cx) => action(cx));
+    const spinner = color => icon("spinner").text_color(color).spin(900);
+    const badge = (label, color) => div().px(7).py(3).rounded(5).bg(color + "20").text_color(color).text_size(11).font_semibold().child(label);
+    const marker = stage => activeStage(stage) ? spinner(stageColor(stage, t)) : div().size(7).rounded(4).bg(stageColor(stage, t));
+    const button = (id, label, action, symbol, busy = false) => h_flex().id(id).px(8).py(6).gap(6).items_center().rounded(6).bg(t.raised).border_1().border_color(busy ? t.accent : t.border).cursor_pointer().text_size(12).accessibility_label(label).hover(el => el.bg(t.hover)).when(busy, el => el.child(spinner(t.accent))).when(Boolean(symbol) && !busy, el => el.child(icon(symbol))).when(Boolean(label) && (!["refresh", "close-detail"].includes(id) || busy), el => el.child(label)).on_click((_e, cx) => action(cx));
     const dropdown = (field, options) => Popover.new(`${field}-dropdown`).open(this.dropdown === field)
       .on_open_change((open, cx) => { this.dropdown = open ? field : null; cx.notify(); })
       .trigger(h_flex().id(`${field}-filter`).px(9).py(7).gap(6).items_center().rounded(6).border_1().border_color(t.border).cursor_pointer().text_size(12)
@@ -170,18 +180,20 @@ export default class Factory extends View {
           .child(h_flex().id(`status-${stage}`).gap(6).py(5).items_center().cursor_pointer()
             .on_click((_e, cx) => { collapsed ? this.collapsed.delete(stage) : this.collapsed.add(stage); cx.notify(); })
             .child(icon(collapsed ? "chevron-right" : "chevron-down"))
-            .child(div().text_size(12).font_semibold().text_color(stageColor(stage, t)).child(`${stage} (${jobs.length})`)))
-          .when(!collapsed, el => el.children(jobs.map(j => v_flex().id(`job-${j.id}`).px(10).py(8).gap(3).rounded(6).border_1().border_color(t.border).cursor_pointer()
+            .child(jobs.some(j => activeStage(j.stage) && !needsAttention(j)) ? marker(stage) : div().size(7).rounded(4).bg(jobs.some(needsAttention) ? t.blocked : stageColor(stage, t)))
+            .child(div().flex_1().text_size(12).font_semibold().text_color(stageColor(stage, t)).child(stage))
+            .child(badge(String(jobs.length), stageColor(stage, t))))
+          .when(!collapsed, el => el.children(jobs.map(j => v_flex().id(`job-${j.id}`).px(10).py(10).gap(6).rounded(8).bg(t.raised).border_1().border_color(stageColor(j.stage, t) + "60").cursor_pointer().hover(el => el.bg(t.hover))
             .on_click((_e, cx) => { this.selected = j.id; this.dropdown = null; cx.notify(); })
-            .child(h_flex().gap(8).items_start().child(div().text_size(11).text_color(t.dim).child(j.key)).child(div().flex_1().text_size(13).child(j.title)))
+            .child(h_flex().gap(8).items_center().child(badge(j.key, stageColor(j.stage, t))).child(div().flex_1().text_size(13).font_semibold().child(j.title)).when(needsAttention(j), el => el.child(badge("Needs you", t.blocked))))
             .child(div().text_size(11).text_color(t.dim).child(`${j.repo} · ${j.model ?? "Model pending"} · ${when(j.updated_at)}`)))));
       }))
       .when(rows.length === 0, el => el.child(muted(this.loading ? "Loading jobs…" : this.error && !this.updated ? "Jobs unavailable" : "No matching jobs")));
     const detail = v_flex().id("factory-detail").flex_1().min_w(0).min_h(0).justify_start().overflow_y_scroll().p(18).gap(12);
     if (selected) {
-      detail.child(h_flex().gap(8).items_center().child(button("close-detail", "Back to jobs", cx => { this.selected = null; cx.notify(); }, "arrow-left")).child(div().flex_1().font_semibold().child(selected.key)));
+      detail.child(h_flex().gap(8).items_center().child(button("close-detail", "Back to jobs", cx => { this.selected = null; cx.notify(); }, "arrow-left")).child(badge(selected.key, stageColor(selected.stage, t))).child(needsAttention(selected) ? badge("Needs you", t.blocked) : marker(selected.stage)).child(badge(selected.stage, stageColor(selected.stage, t))));
       detail.child(div().text_size(18).font_semibold().child(selected.title));
-      detail.child(muted(`${selected.repo} · ${selected.stage}`));
+      detail.child(muted(selected.repo));
       if (selected.pr_url) detail.child(button("open-pr", "Open PR", cx => this.openPr(selected.pr_url, cx), "external-link"));
       detail.child(muted(`Harness: ${selected.provider ?? "Pending"}\nModel: ${selected.model ?? "Pending"}\nUpdated: ${when(selected.updated_at)}\nCreated: ${when(selected.claimed_at)}`));
       const branch = `factory/${selected.key}${selected.attempt > 1 ? `-a${selected.attempt}` : ""}`;
@@ -191,13 +203,20 @@ export default class Factory extends View {
       detail.child(div().text_size(13).child(selected.description || "No description."));
     }
     return v_flex().id("factory-root").size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .child(h_flex().p(14).gap(12).items_center().child(div().flex_1().text_size(18).font_semibold().child("Factory"))
-        .child(button("refresh", this.loading ? "Refreshing" : "Refresh", cx => this.refresh(cx), "refresh")))
-      .child(div().px(14).pb(8).text_size(12).text_color(t.dim).child(this.live ? "Runner live · Read-only" : "Runner offline / unpaired · Fallback data"))
+      .child(h_flex().p(14).gap(12).items_center().child(div().size(9).rounded(5).bg(t.accent)).child(div().flex_1().text_size(18).font_semibold().child("Factory"))
+        .child(button("refresh", this.loading ? "Refreshing" : "Refresh", cx => this.refresh(cx), "refresh", this.loading)))
+      .child(h_flex().px(14).pb(10).gap(8).items_center()
+        .child(div().size(7).rounded(4).bg(this.live ? t.done : t.blocked))
+        .child(badge(this.live ? "Runner live" : "Offline / unpaired", this.live ? t.done : t.blocked))
+        .child(muted("Read-only")))
+      .when(!selected, el => el.child(h_flex().px(14).pb(12).gap(6)
+        .child(badge(`${rows.filter(j => activeStage(j.stage) && !needsAttention(j)).length} active`, t.working))
+        .child(badge(`${rows.filter(needsAttention).length} attention`, t.blocked))
+        .child(badge(`${rows.filter(j => j.stage === "merged").length} merged`, t.done))))
       .when(!this.live, el => el.child(h_flex().px(14).pb(8).gap(6)
         .child(Input.new(this.runnerUrl).h(30).flex_1().border_1().border_color(t.border).px(8))
         .child(Input.new(this.pairCode).h(30).flex_1().border_1().border_color(t.border).px(8))
-        .child(button("pair-runner", "Pair runner", cx => this.pair(cx)))))
+        .child(button("pair-runner", this.pairing ? "Pairing" : "Pair runner", cx => this.pair(cx), null, this.pairing))))
       .when(!selected, el => el.child(v_flex().px(14).pb(10).gap(8)
         .child(Input.new(this.search).w_full().h(34).px(10).border_1().border_color(t.border).rounded(6).text_size(13))
         .child(v_flex().gap(6)
