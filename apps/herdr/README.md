@@ -8,6 +8,8 @@ bun apps/herdr/install.ts
 
 Checks and copies the mod, writes machine-local `local.json` with checkout/Bun paths, registers Factory in the custom Rig workspace panel stack and selector, then opens the panel. Existing Files, Changes, Rig Board and terminal panes remain unchanged. The installer refuses unexpected selector wiring and unmanaged `factory` mods. `--no-open` integrates without opening; `HERDR_APP_HOME` overrides the configuration directory. Reinstall after source changes; edit the repo, not the installed copy. Generated Herdr type/config files are ignored.
 
+Rig Board itself is optional: Factory installation needs only the custom layout's panel stack and selector, and does not restore a removed Rig Board panel.
+
 The panel polls `cli jobs list` every 10 seconds with an overlap guard and a 20-second command timeout. It displays at most the latest 200 jobs, including archived jobs within that limit. Search matches key/title. Repository/stage filters open native dropdown option lists; Archived toggles archived visibility. Compact job cards are grouped by status; click a status header to collapse or expand its jobs. Clicking a job replaces the list with its full-width detail page. The back-arrow icon returns to the list with search/filter state preserved. Refresh is icon-only; **Open PR** includes an external-link icon. List counts and refresh metadata are omitted from the detail page, but query errors remain visible. There are no mutation commands or dashboard links.
 
 Repository options come from `cli repositories list`, including registered repositories with no jobs; repositories referenced by the loaded job history are retained too. Jobs and repository registration refresh together; a failure preserves the prior snapshot.
