@@ -26,4 +26,6 @@ herdr-app status
 herdr-app shot
 ```
 
+Exercise disconnected/unpaired rendering as well as successful data loads: Herdr's error-state color token is `blocked`, not `error`.
+
 The check only covers initial rendering. Inspect the live app after data loads, including job details and filters.

@@ -5,7 +5,7 @@ import { subscribe } from "./realtime.js";
 
 const text = (value) => value == null ? "" : String(value);
 const when = (value) => value ? new Date(value).toLocaleString() : "Not available";
-const stageColor = (stage, t) => stage === "failed" ? t.error : stage === "merged" ? t.accent : t.foreground;
+const stageColor = (stage, t) => stage === "failed" ? t.blocked : stage === "merged" ? t.accent : t.foreground;
 
 export default class Factory extends View {
   init(_props, cx) {
@@ -204,7 +204,7 @@ export default class Factory extends View {
           .child(dropdown("repo", repos))
           .child(dropdown("stage", stages))
           .child(button("archived-filter", this.archived ? "Archived: shown" : "Archived: hidden", cx => { this.archived = !this.archived; cx.notify(); })))))
-      .when(!selected || Boolean(this.error), el => el.child(div().px(14).pb(10).text_size(12).text_color(this.error ? t.error : t.dim).child(this.error ? `${this.updated ? `Stale data · Updated ${this.updated} · ` : ""}${this.error}` : `${rows.length} shown · Latest 200 jobs · ${this.updated ? `Updated ${this.updated}` : "Connecting"} · Read-only`)))
+      .when(!selected || Boolean(this.error), el => el.child(div().px(14).pb(10).text_size(12).text_color(this.error ? t.blocked : t.dim).child(this.error ? `${this.updated ? `Stale data · Updated ${this.updated} · ` : ""}${this.error}` : `${rows.length} shown · Latest 200 jobs · ${this.updated ? `Updated ${this.updated}` : "Connecting"} · Read-only`)))
       .child(selected ? detail : list);
   }
 }
