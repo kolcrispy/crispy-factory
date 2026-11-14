@@ -117,6 +117,16 @@ assert.deepEqual(decideMerge(input({ policy: { ...DEFAULT_POLICY, autonomy: "aut
 assert.deepEqual(decideMerge(input({ policy: DEFAULT_POLICY, pr: null })), { outcome: "handover", reasons: [] }, "off evaluates nothing");
 assert.throws(() => decideMerge(input({ pr: null })), /needs the PR's facts/);
 assert.deepEqual(decideMerge(input({ assessment: null })), { outcome: "handover", reasons: ["The agent didn't report an assessment."] }, "a run with no assessment");
+const independentlyReviewed = {
+  attempt: 1,
+  review: { attempt: 1, policy: { enabled: true, provider: "omp", model: "reviewer" }, state: "passed", builderThreadId: "builder", builderSessionId: "builder", automaticRepairs: 0,
+    rounds: [{ round: 1, sha: "h1", base: "base", threadId: "reviewer", sessionId: null, checkout: "review", state: "complete", startedAt: 1, result: { verdict: "PASS", sha: "h1", summary: "Independently checked", findings: [] } }] },
+} satisfies NonNullable<DecisionInput["independentReview"]>;
+assert.equal(decideMerge(input({ assessment: null, independentReview: independentlyReviewed })).outcome, "merge", "exact independent PASS replaces builder self-assessment");
+assert.equal(decideMerge(input({ assessment: null, independentReview: independentlyReviewed, pr: facts({ bugbot: { review: { state: "pending" }, findings: [] } }) })).outcome, "pending", "independent PASS still waits for required Bugbot");
+assert.equal(decideMerge(input({ assessment: null, independentReview: { ...independentlyReviewed, attempt: 2 } })).outcome, "handover", "PASS cannot authorize another attempt");
+assert.equal(decideMerge(input({ assessment: null, independentReview: independentlyReviewed, pr: facts({ headSha: "changed" }) })).outcome, "handover", "PASS cannot authorize another head");
+assert.equal(decideMerge(input({ assessment: assessment(), independentReview: { ...independentlyReviewed, review: { ...independentlyReviewed.review, state: "held" } } })).outcome, "handover", "builder assessment cannot bypass held independent review");
 assert.deepEqual(
   decideMerge(input({ assessment: unsure("I assumed the list sorts by display name.") })),
   { outcome: "handover", reasons: ["The agent isn't confident: I assumed the list sorts by display name."] },

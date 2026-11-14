@@ -108,6 +108,7 @@ async function evaluate(job: Job, policy: RepoPolicy, previous: MergeDecision | 
   const decision = decideMerge({
     policy,
     assessment: parseAssessment(job.merge_assessment),
+    independentReview: job.attempt_review ? { review: job.attempt_review, attempt: job.attempt } : undefined,
     labels,
     pr,
     headSeenAt,

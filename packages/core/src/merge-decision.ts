@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { MergeAssessment } from "./assessment";
 import { headEvidenceSchema, notVerifiedWhy, shortSha, type HeadEvidence } from "./evidence";
 import { uiFiles } from "./screenshots";
+import { reviewAllowsPublication, type AttemptReview } from "./review";
 
 // Whether a factory PR would merge on its own. The agent recommends merge unless it isn't confident
 // (lib/assessment.ts); the runner enforces factual hard limits that no recommendation overrides. Pure, so the runner pass and the
@@ -143,6 +144,8 @@ export type PrFacts = {
 export type DecisionInput = {
   policy: RepoPolicy;
   assessment: MergeAssessment | null;
+  /** Review-enabled attempts use the independent verdict instead of builder self-assessment. */
+  independentReview?: { review: AttemptReview; attempt: number };
   labels: readonly string[];
   /** Null only when autonomy is off, which never asks GitHub. */
   pr: PrFacts | null;
@@ -177,7 +180,11 @@ function hardLimits(input: DecisionInput, pr: PrFacts) {
   return reasons;
 }
 
-function agentReasons({ assessment }: DecisionInput) {
+function agentReasons({ assessment, independentReview, pr }: DecisionInput) {
+  if (independentReview?.review.policy.enabled) {
+    return pr && reviewAllowsPublication(independentReview.review, independentReview.attempt, pr.headSha)
+      ? [] : ["Independent review PASS is required for this attempt and PR head."];
+  }
   if (!assessment) return ["The agent didn't report an assessment."];
   if (assessment.recommendation === "merge") return [];
   return [`The agent isn't confident: ${assessment.confidence.reason ?? "it recommends handing over."}`];
