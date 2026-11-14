@@ -59,15 +59,39 @@
       "id": 5,
       "name": "model-is-not-a-harness",
       "prompt": "Di repo acme/web, tambahin tombol export CSV di halaman invoices. File job-nya, pakai model claude-sonnet-4 ya biar hasilnya bagus.",
-      "expected_output": "One job filed to acme/web without an invalid provider value; the agent explains that a model is selected through a harness or Settings, not by putting a model slug in the job.",
+      "expected_output": "Check effective repository/Settings/native model selection first. If claude-sonnet-4 is not the effective model, submit nothing, explain the mismatch, and ask before changing shared defaults. Never put a model slug in provider or silently ignore the requirement.",
       "files": [],
       "expectations": [
-        "Exactly one Factory job is submitted",
-        "The job targets acme/web",
-        "The job does not carry an invalid provider value",
-        "The report explains harness versus model selection",
-        "The report presents the job as filed, not finished"
+        "The effective model is checked before submission",
+        "No job is submitted if the required model is not selected",
+        "The job does not carry a model slug as provider",
+        "The agent asks before changing shared defaults",
+        "The report distinguishes harness from model selection"
       ]
+    },
+    {
+      "id": 6,
+      "name": "manual-issue-import",
+      "prompt": "Jalankan issue https://github.com/acme/web/issues/42 lewat Factory. Repo sudah ready dan tidak ada job terkait. Brief issue lengkap dan runner online.",
+      "expected_output": "After checking repository and duplicates, submit once using jobs from-issue with the issue URL and UUID requestId. Explain snapshot semantics and that merging a PR with Closes closes the issue; no auto-pickup or issue mutation during import.",
+      "files": [],
+      "expectations": ["Uses jobs from-issue", "Includes URL and UUID requestId", "Does not replace issue repo with default repo", "Reports a filed job rather than completed implementation"]
+    },
+    {
+      "id": 7,
+      "name": "native-omp-default",
+      "prompt": "Repo acme/web memakai provider omp dan model null. OMP komputer default 9router/cx/gpt-6.1-sol, inventory pertama deepseek/deepseek-flash. Job nanti pakai model apa? Jangan buat job.",
+      "expected_output": "Explain that explicit repository OMP with Harness default uses native 9router/cx/gpt-6.1-sol, not inventory order, and submit no job.",
+      "files": [],
+      "expectations": ["Identifies native OMP default", "Does not choose first inventory model", "Submits no job"]
+    },
+    {
+      "id": 8,
+      "name": "job-key-resolution",
+      "prompt": "Cek status JOB-2 saja. jobs list mengembalikan id internal:12345678-1234-4234-8234-123456789abc untuk JOB-2.",
+      "expected_output": "Use jobs show with internal:12345678-1234-4234-8234-123456789abc, not JOB-2. Perform no owner mutation.",
+      "files": [],
+      "expectations": ["Resolves display key to internal id", "Uses internal id for jobs show", "Performs no mutating action"]
     }
   ]
 }
