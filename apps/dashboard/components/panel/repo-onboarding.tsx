@@ -63,7 +63,7 @@ export function OnboardingSection({ row }: { row: RepoSettingsRow }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [failure, setFailure] = useState<string | null>(null);
-  return <section className="space-y-3">
+  return <section className="space-y-3 px-4.5 py-4">
     <h3 className="text-sm font-medium">Local registration</h3>
     <OnboardingBadge state={row.registration_status} />
     <p className="text-sm text-muted-foreground">{onboardingLine(row)}</p>
