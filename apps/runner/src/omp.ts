@@ -89,13 +89,17 @@ async function usage(rpc: OmpRpc, record: AttemptRecord, turn = false, lastMessa
   }]);
 }
 
-async function connect(record: AttemptRecord) {
+async function checkOwnership(record: AttemptRecord) {
   if (record.pid && alive(record.pid)) throw new Error(`OMP attempt ${record.id} is held by process ${record.pid}; refusing duplicate execution.`);
   if (record.sessionId) {
     const lease = await exec(ompRuntime.command(), ["session", "lease", "--json", "--", record.sessionId], { timeoutMs: 15_000 });
     const checked = z.object({ held: z.array(z.string()), unknown: z.array(z.string()) }).parse(JSON.parse(lease.stdout));
     if (checked.held.length || checked.unknown.length) throw new Error(`OMP session ownership is held or unknown for ${record.id}.`);
   }
+}
+
+async function connect(record: AttemptRecord) {
+  await checkOwnership(record);
   if (record.started && (!record.sessionFile || !existsSync(record.sessionFile))) {
     throw new Error(`OMP attempt ${record.id} has no persisted transcript; refusing a fresh session.`);
   }
@@ -218,6 +222,14 @@ export async function recoverOmp(key: string, attempt: number, identity = ompIde
 }
 
 export async function readOmp(id: string): Promise<{ read: ThreadRead; activity: ThreadActivity }> {
+  if (!active.has(id) && !connections.has(id)) {
+    const record = readRecord(id);
+    if (record.started && (!record.sessionFile || !existsSync(record.sessionFile))) {
+      await checkOwnership(record);
+      return { read: { state: "gone", status: null, lastMessage: null, checkout: record.cwd },
+        activity: { state: "gone", activeRunId: null, projectId: record.id } };
+    }
+  }
   const item = await owned(id);
   const state: State = stateSchema.parse(await item.rpc.request({ type: "get_state" }));
   const stateName = state.isSettled ? "stopped" : "running";
