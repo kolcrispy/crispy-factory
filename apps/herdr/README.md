@@ -1,14 +1,14 @@
 # Factory for Herdr
 
-Read-only native workspace tab. Source lives in `mods/factory/`; the installed copy lives in the Herdr configuration directory. Requires Herdr running, Bun, this checkout's installed dependencies and database configuration. Does not require the Factory dashboard or runner.
+Read-only native workspace panel alongside Rig Board, not a terminal tab. Source lives in `mods/factory/`; the installed copy lives in the Herdr configuration directory. Requires Herdr running with the custom `rig-workspace` layout and `rig-workspace-tabs` mod, Bun, this checkout's installed dependencies and database configuration. Does not require the Factory dashboard or runner.
 
 ```sh
 bun apps/herdr/install.ts
 ```
 
-Checks the mod, copies it, writes machine-local `local.json` with the checkout and Bun executable paths, and opens/selects a Factory tab in the active workspace. `--no-open` installs without opening. `HERDR_APP_HOME` overrides the installation directory. An existing unmanaged `factory` mod is refused instead of overwritten. Reinstall after source changes; edit the repo, not the installed copy.
+Checks and copies the mod, writes machine-local `local.json` with checkout/Bun paths, registers Factory in the custom Rig workspace panel stack and selector, then opens the panel. Existing Files, Changes, Rig Board and terminal panes remain unchanged. The installer refuses unexpected selector wiring and unmanaged `factory` mods. `--no-open` integrates without opening; `HERDR_APP_HOME` overrides the configuration directory. Reinstall after source changes; edit the repo, not the installed copy. Generated Herdr type/config files are ignored.
 
-The panel polls `cli jobs list` every 10 seconds with an overlap guard and a 20-second command timeout. It displays at most the latest 200 jobs, including archived jobs within that limit. Search matches key/title. Repository/stage buttons cycle through available values; Archived toggles archived visibility. Click a job for its snapshot details and PR link. There are no mutation commands or dashboard links.
+The panel polls `cli jobs list` every 10 seconds with an overlap guard and a 20-second command timeout. It displays at most the latest 200 jobs, including archived jobs within that limit. Search matches key/title. Repository/stage buttons cycle through available values; Archived toggles archived visibility. Clicking a job replaces the list with its full-width detail page and PR link. **Back to jobs** returns to the list with search/filter state preserved. There are no mutation commands or dashboard links.
 
 Query failures preserve the last successful snapshot and show an error/stale indicator. Access uses trusted local CLI credentials, not a public unauthenticated endpoint. Treat the Herdr account as a trusted operator. Do not share its configuration or database credentials.
 

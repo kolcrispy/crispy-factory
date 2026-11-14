@@ -102,9 +102,9 @@ export default class Factory extends View {
         .child(muted(`${j.repo} · ${j.model ?? "Model pending"}`))
         .child(muted(when(j.updated_at)))))
       .when(rows.length === 0, el => el.child(muted(this.loading ? "Loading jobs…" : this.error && !this.updated ? "Jobs unavailable" : "No matching jobs")));
-    const detail = v_flex().id("factory-detail").w(440).min_w(240).min_h(0).justify_start().overflow_y_scroll().p(18).gap(12).border_l_1().border_color(t.border);
+    const detail = v_flex().id("factory-detail").flex_1().min_w(0).min_h(0).justify_start().overflow_y_scroll().p(18).gap(12);
     if (selected) {
-      detail.child(h_flex().gap(8).child(div().flex_1().font_semibold().child(selected.key)).child(button("close-detail", "Close", cx => { this.selected = null; cx.notify(); })));
+      detail.child(h_flex().gap(8).child(button("close-detail", "Back to jobs", cx => { this.selected = null; cx.notify(); })).child(div().flex_1().font_semibold().child(selected.key)));
       detail.child(div().text_size(18).font_semibold().child(selected.title));
       detail.child(muted(`${selected.repo} · ${selected.stage}`));
       if (selected.pr_url) detail.child(button("open-pr", "Open pull request", cx => this.openPr(selected.pr_url, cx)));
@@ -115,12 +115,13 @@ export default class Factory extends View {
     return v_flex().id("factory-root").size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(h_flex().p(14).gap(12).items_center().child(div().flex_1().text_size(18).font_semibold().child("Factory"))
         .child(button("refresh", this.loading ? "Refreshing…" : "Refresh", cx => this.refresh(cx))))
-      .child(h_flex().px(14).pb(10).gap(8).items_center()
-        .child(Input.new(this.search).flex_1().h(34).px(10).border_1().border_color(t.border).rounded(6).text_size(13))
-        .child(button("repo-filter", this.repo, cx => this.cycle("repo", repos, cx)))
-        .child(button("stage-filter", this.stage, cx => this.cycle("stage", stages, cx)))
-        .child(button("archived-filter", this.archived ? "Archived: shown" : "Archived: hidden", cx => { this.archived = !this.archived; cx.notify(); })))
+      .when(!selected, el => el.child(v_flex().px(14).pb(10).gap(8)
+        .child(Input.new(this.search).w_full().h(34).px(10).border_1().border_color(t.border).rounded(6).text_size(13))
+        .child(v_flex().gap(6)
+          .child(button("repo-filter", this.repo, cx => this.cycle("repo", repos, cx)))
+          .child(button("stage-filter", this.stage, cx => this.cycle("stage", stages, cx)))
+          .child(button("archived-filter", this.archived ? "Archived: shown" : "Archived: hidden", cx => { this.archived = !this.archived; cx.notify(); })))))
       .child(div().px(14).pb(10).text_size(12).text_color(this.error ? t.error : t.dim).child(this.error ? `${this.updated ? `Stale data · Updated ${this.updated} · ` : ""}${this.error}` : `${rows.length} shown · Latest 200 jobs · ${this.updated ? `Updated ${this.updated}` : "Connecting"} · Read-only`))
-      .child(h_flex().flex_1().min_h(0).items_stretch().child(list).when(Boolean(selected), el => el.child(detail)));
+      .child(selected ? detail : list);
   }
 }
