@@ -5,7 +5,9 @@ import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 
 const database = `factory_test_${randomUUID().replaceAll("-", "")}`;
-const port = Number(process.env.FACTORY_TEST_POSTGRES_PORT ?? 55439);
+const listener = process.env.FACTORY_TEST_POSTGRES_PORT ? null : Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+const port = Number(process.env.FACTORY_TEST_POSTGRES_PORT ?? listener!.port);
+listener?.stop(true);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid FACTORY_TEST_POSTGRES_PORT");
 const url = `postgresql://factory_test@127.0.0.1:${port}/${database}`;
 const env = { ...process.env, DATABASE_URL: url, DATABASE_URL_UNPOOLED: url, FACTORY_TEST_BRANCH_ID: database, FACTORY_TEST_ENDPOINT_ID: "127", FACTORY_TEST_POSTGRES_URL: url };

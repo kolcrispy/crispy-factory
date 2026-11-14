@@ -1,0 +1,31 @@
+name: Checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Install PostgreSQL 17 tools
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun x playwright install --with-deps chromium
+      - run: bun run smoke:dashboard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dashboard-smoke
+          path: .scratch/dashboard-smoke-evidence/
+          if-no-files-found: ignore

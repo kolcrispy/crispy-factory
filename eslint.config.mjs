@@ -15,7 +15,7 @@ const syntax = paths.flatMap(({ regex, message }) => [
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores(["**/.next/**", "**/dist/**", "out/**", "build/**", "**/next-env.d.ts"]),
+  globalIgnores(["**/.next/**", "**/dist/**", "out/**", "build/**", "**/next-env.d.ts", ".scratch/**", "apps/herdr/mods/**/gpui-kit.d.ts"]),
   { rules: {
     "no-restricted-imports": ["error", { patterns: paths }],
     "no-restricted-syntax": ["error", ...syntax,

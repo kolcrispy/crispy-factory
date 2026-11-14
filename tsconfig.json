@@ -31,6 +31,8 @@
     "**/*.mts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "apps/herdr/mods/**/gpui-kit.d.ts",
+    ".scratch"
   ]
 }

@@ -46,6 +46,7 @@ const { hosts } = await import("@factory/core/host");
 const { thisMachine } = await import("@factory/runner/heartbeat");
 const { repoSettings } = await import("@factory/storage/schema");
 const { github } = await import("@factory/integrations/github/pulls");
+const { requestedStop } = await import("@factory/core/stop");
 const originalCreate = github.createPull;
 let publications = 0;
 github.createPull = async () => { publications++; return { url: "https://github.com/review-regression/isolated/pull/1" }; };
@@ -77,6 +78,92 @@ try {
       assert.deepEqual(await handleReviewAction(intent), { accepted: "review" });
       assert.deepEqual(await handleReviewAction(intent), { accepted: "review" }, "replaying accepted recovery never launches or delivers twice");
     }
+    await db.delete(jobs).where(eq(jobs.key, key));
+  }
+  for (const scenario of ["wrong-verdict-sha", "changed-builder-sha", "dirty-reviewer", "changed-reviewer-head", "dirty-builder", "uncertain-delivery", "stop-during-read", "attempt-during-read", "passed-restart"] as const) {
+    verdict = "PASS";
+    sends = 0;
+    const before = publications;
+    const active: AttemptReview = structuredClone(review);
+    active.state = scenario === "dirty-builder" ? "building" : scenario === "uncertain-delivery" ? "repairing" : scenario === "passed-restart" ? "passed" : "reviewing";
+    if (active.state !== "passed") active.rounds[0] = { ...active.rounds[0]!, state: "running", result: undefined };
+    if (scenario === "uncertain-delivery") active.delivery = { id: "crashed-delivery", state: "uncertain", message: "Repair" };
+    if (scenario === "passed-restart") active.rounds[0]!.round = 2;
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", t3_thread_id: scenario === "passed-restart" ? active.builderThreadId : "reviewer", session_id: scenario === "passed-restart" ? active.builderSessionId : null, attempt_review: active }));
+    threads.read = async () => {
+      if (scenario === "stop-during-read") await db.update(jobs).set({ stop: requestedStop({ at: new Date(), by: "regression", reason: "Owner stop", reopen: false }) }).where(eq(jobs.key, key));
+      if (scenario === "attempt-during-read") await db.update(jobs).set({ attempt: 3 }).where(eq(jobs.key, key));
+      return { state: "stopped", status: "completed", checkout: "review-checkout", lastMessage: JSON.stringify({ sha: scenario === "wrong-verdict-sha" ? other : sha, verdict: "PASS", summary: "Reviewed", findings: [] }) };
+    };
+    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => ({ stdout: args.includes("status") ? (["dirty-reviewer", "dirty-builder"].includes(scenario) ? " M source.ts" : "") : scenario === "changed-builder-sha" && args.includes("review-root") || scenario === "changed-reviewer-head" && args.includes("HEAD") ? other : sha, stderr: "" }) });
+    await reviewJobs();
+    await reviewJobs(); // A later runner tick must not replay uncertain side effects.
+    const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
+    if (scenario === "passed-restart") {
+      assert.equal(settled!.stage, "pr", "durable PASS resumes publication after restart");
+      assert.equal(publications, before + 1);
+    } else {
+      assert.equal(publications, before, `${scenario} cannot publish`);
+      assert.equal(sends, 0, `${scenario} cannot redeliver builder repair`);
+      if (!["stop-during-read", "attempt-during-read"].includes(scenario)) assert.equal(settled!.attempt_review!.state, "held", scenario);
+    }
+    await db.delete(jobs).where(eq(jobs.key, key));
+  }
+  for (const ambiguous of [false, true]) {
+    const active = structuredClone(review);
+    active.policy.provider = "t3-review";
+    active.state = "held";
+    active.rounds[0] = { ...active.rounds[0]!, state: "launching", threadId: null, result: undefined };
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", attempt_review: active }));
+    const commands: string[][] = [];
+    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
+      commands.push(args);
+      return { stdout: JSON.stringify(args.includes("list") ? (ambiguous ? [{ threadId: "one" }, { threadId: "two" }] : [{ threadId: "one" }]) : { thread: { branch: `review/${key}-a2-r1` } }), stderr: "" };
+    } });
+    await reviewJobs();
+    const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
+    assert.equal(settled!.attempt_review!.state, ambiguous ? "held" : "reviewing");
+    assert.equal(settled!.attempt_review!.rounds[0]!.threadId, ambiguous ? null : "one", "restart adopts only uniquely owned reviewer");
+    assert.ok(commands.every(args => !args.includes("create") && !args.includes("send")), "launch reservation recovery never starts a replacement session");
+    await db.delete(jobs).where(eq(jobs.key, key));
+  }
+  {
+    const active = structuredClone(review);
+    active.policy.provider = "t3-review";
+    active.state = "reviewing";
+    active.rounds[0] = { ...active.rounds[0]!, state: "launching", threadId: null, result: undefined };
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", attempt_review: active }));
+    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
+      if (args.includes("list")) {
+        await db.update(jobs).set({ stop: requestedStop({ at: new Date(), by: "regression", reason: "Stop while recovering launch", reopen: false }) }).where(eq(jobs.key, key));
+        return { stdout: JSON.stringify([{ threadId: "late-reviewer" }]), stderr: "" };
+      }
+      return { stdout: JSON.stringify({ thread: { branch: `review/${key}-a2-r1` } }), stderr: "" };
+    } });
+    const before = publications;
+    await reviewJobs();
+    const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
+    assert.equal(settled!.attempt_review!.rounds[0]!.state, "launching", "stop wins over stale recovered launch ownership");
+    assert.equal(settled!.attempt_review!.rounds[0]!.threadId, null);
+    assert.equal(publications, before);
+    await db.delete(jobs).where(eq(jobs.key, key));
+  }
+  {
+    const active = structuredClone(review);
+    active.state = "reviewing";
+    active.automaticRepairs = 0;
+    active.rounds[0] = { ...active.rounds[0]!, state: "running", result: undefined };
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", attempt_review: active }));
+    threads.read = async () => ({ state: "stopped", status: "completed", checkout: "review-checkout", lastMessage: JSON.stringify({ sha, verdict: "FIX", summary: "Fix blocker", findings: [finding] }) });
+    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => ({ stdout: args.includes("status") ? "" : sha, stderr: "" }) });
+    let deliveries = 0;
+    threads.send = async () => { deliveries++; throw new Error("Connection lost after delivery"); };
+    await reviewJobs();
+    await reviewJobs();
+    const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
+    assert.equal(settled!.attempt_review!.state, "held");
+    assert.equal(settled!.attempt_review!.delivery!.state, "uncertain");
+    assert.equal(deliveries, 1, "restart after ambiguous delivery never sends repair twice");
     await db.delete(jobs).where(eq(jobs.key, key));
   }
 } finally {

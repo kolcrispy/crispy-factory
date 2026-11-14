@@ -16,6 +16,17 @@ Reporting startup replaces the existing owned Codex MCP block even when its mark
 
 Tailwind scans only authored dashboard `app/` and `components/` sources. Keep generated `.next` output outside its source set: watching dev logs can create a rebuild/browser-reload feedback loop. Restart `bun run dev` after changing source detection so the previous watcher subscriptions are discarded.
 
+## Development guardrails
+
+`bun run check` runs lint, whole-project typecheck, Factory skill installation parity, and disposable PostgreSQL regressions. CI runs it on pull requests and main using Bun 1.4.4 and PostgreSQL 17. Generated Herdr `gpui-kit.d.ts` declarations describe a different runtime and are excluded from Bun/Node typechecking; validate that mod with `herdr-app check apps/herdr/mods/factory`.
+
+Install Chromium once with `bun x playwright install chromium`, then run `bun run smoke:dashboard`. This command provisions its own temporary PostgreSQL cluster, owner, repository/job fixtures, copied dashboard, free port, and browser. It checks authenticated Inbox, Settings, and Repositories for runtime errors and document reloads across polling and generated-log writes. Server exits fail the smoke. Owned child processes and runtime copies are cleaned up; the final screenshot stays under `.scratch/dashboard-smoke-evidence` (override with `FACTORY_SMOKE_ARTIFACTS`). No live dashboard, runner, credentials, or operational database is used. The browser smoke is skipped by the regular regression command and runs separately in CI.
+
+The repository `.agents/skills/factory-jobs/` is authoritative. `bun run skills:sync` installs it to `~/.agents/skills/factory-jobs`; `--target <directory>` selects another installation. `bun run skills:check` proves a fresh installation is byte-identical; add `--target <directory>` to detect drift in an existing installation. Edit repository sources, then synchronize, rather than editing installed copies.
+
+For agent investigations, use bounded service log tails rather than full transcripts. Read a complete relevant source block before patching it. On polling UI, refresh the browser snapshot before each ref-based action, or use stable semantic selectors. Prefer the smoke command over rebuilding fixture/startup/auth setup for each UI check.
+
+
 ## Runner
 
 `bun apps/runner/src/index.ts` runs in the foreground. `--once` reconciles once and exits.
