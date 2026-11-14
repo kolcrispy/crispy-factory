@@ -23,6 +23,7 @@ export const INTENT_ROUTES = {
   onboard_repo: "any",
   retry_stop: "owner",
   retry_job: "any",
+  review_action: "owner",
 } as const satisfies Record<IntentKind, "any" | "owner" | "broadcast">;
 
 /**
@@ -47,6 +48,7 @@ export const INTENT_ATTEMPTS = {
   retry_stop: 3,
   // The owner sees the error on the inbox item and can retry again.
   retry_job: 3,
+  review_action: 1,
 } as const satisfies Record<IntentKind, number>;
 
 /** An intent's result as the runner logs it: a pairing link only ever goes to the intent row. */

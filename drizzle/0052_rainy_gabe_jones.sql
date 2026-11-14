@@ -1,0 +1,1 @@
+ALTER TYPE "public"."intent_kind" ADD VALUE 'review_action' BEFORE 'retry_job';

@@ -1,0 +1,1 @@
+ALTER TABLE "runs" ADD COLUMN "role" text DEFAULT 'builder' NOT NULL;

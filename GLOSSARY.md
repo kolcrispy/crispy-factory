@@ -41,9 +41,21 @@ A durable request for the runner to perform an action, distinct from confirmatio
 _Avoid_: completed action
 
 **Harness**:
-The kind of coding agent selected to carry out an attempt, independently of the model it uses.
+The kind of agent runtime selected for a builder or reviewer, independently of the model it uses.
 _Avoid_: model, T3 provider
 
 **Agent session**:
-The continuing conversation and execution history belonging to one attempt. Resuming it continues that attempt; retrying creates a new attempt and session.
+The continuing conversation and execution history of one agent role within an attempt. Resuming continues that session; a new review round has a fresh reviewer session, while retrying creates a new attempt.
 _Avoid_: job, replacement attempt
+
+**Builder**:
+The agent responsible for implementing a job, testing its changes, and addressing review findings.
+_Avoid_: reviewer, self-reviewer
+
+**Reviewer**:
+An independent agent that evaluates a builder's proposed changes against the job requirements and reports findings without authoring fixes.
+_Avoid_: builder, GitHub reviewer
+
+**Review round**:
+One independent evaluation of a particular revision within an attempt, ending in PASS, FIX, or BLOCKED. PASS permits publication of that revision; FIX requires changes, and BLOCKED requires an owner decision.
+_Avoid_: retry, attempt

@@ -1,4 +1,5 @@
 "use client";
+import { JobReview } from "./job-review";
 
 import { ExternalLinkIcon, XIcon } from "lucide-react";
 import Link from "next/link";
@@ -33,6 +34,7 @@ const KIND_DOT: Record<InboxKind, string> = {
   handover: "bg-primary",
   failed: "bg-destructive",
   stop_unconfirmed: "bg-warning",
+  review: "bg-warning",
 };
 
 const itemHref = (key: string) => `/inbox?job=${encodeURIComponent(key)}`;
@@ -135,6 +137,8 @@ function Why({ item }: { item: Item }) {
         </Alert>
       );
     }
+    case "review":
+      return <p className="text-muted-foreground">{job.stage_summary ?? "Independent review needs owner action."}</p>;
     case "handover": {
       if (!decision) return <p className="text-muted-foreground">The runner hasn&apos;t looked at this pull request yet.</p>;
       if (decision.autonomy === "off") return <p className="text-muted-foreground">Merging is off for {job.repo}, so every pull request waits for your review.</p>;
@@ -345,6 +349,7 @@ function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefi
             </Section>
           )}
           <Assessment job={job} />
+          {kind === "review" && <JobReview job={job} />}
           {wantsReview && job.pr_url && <Review loaded={loaded} prUrl={job.pr_url} />}
         </div>
       </ScrollArea>

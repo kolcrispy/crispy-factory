@@ -109,6 +109,7 @@ export async function inferUntracked({ now = Date.now(), only }: { now?: number;
   const done: string[] = [];
   const errors: { key: string; error: string }[] = [];
   for (const job of rows) {
+    if (job.attempt_review?.policy.enabled) continue;
     if (jobTracked(job, drivers) || bindingOf(job.t3_thread_id) !== "bound") continue;
     try {
       const outcome = await inferJob(job, now);

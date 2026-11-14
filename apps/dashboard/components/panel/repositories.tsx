@@ -28,6 +28,8 @@ import { useFeed, type Feed } from "./sealed";
 import { PanelFooter, PanelHeader, type KeyHint } from "./panel-header";
 import { AddRepository, OnboardingBadge, OnboardingSection, onboardingLine, useOnboardingRefresh } from "./repo-onboarding";
 import { ShortTime, useNow } from "./time";
+import { ReviewSettings } from "./review-settings";
+import type { ReviewOverrides } from "@factory/core/review";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -129,6 +131,7 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
   const [enabled, setEnabled] = useState(row.enabled);
   const [provider, setProvider] = useState(row.provider ?? SETTINGS_DEFAULT);
   const [model, setModel] = useState(row.model ?? SETTINGS_DEFAULT);
+  const [review, setReview] = useState<ReviewOverrides>(row.review ?? {});
   const [autonomy, setAutonomy] = useState<Autonomy>(row.autonomy);
   const [requireBugbot, setRequireBugbot] = useState(row.require_bugbot);
   const [failure, setFailure] = useState<string | null>(null);
@@ -173,6 +176,7 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
         enabled,
         provider: provider === SETTINGS_DEFAULT ? null : provider,
         model: provider === SETTINGS_DEFAULT || model === SETTINGS_DEFAULT ? null : model,
+        review,
         autonomy,
         requireBugbot,
       }),
@@ -258,6 +262,7 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
                 : "A disabled repository takes no new jobs. Existing jobs keep their repository."}
             </FieldDescription>
           </Field>
+          <ReviewSettings value={review} onChange={setReview} harnesses={harnesses} />
           <div className="grid w-full grid-cols-2 gap-4">
             <Field>
               <FieldLabel htmlFor={id("harness")}>Default harness</FieldLabel>

@@ -1,3 +1,4 @@
+import { reviewAllowsPublication } from "@factory/core/review";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
@@ -156,6 +157,7 @@ export async function mergeNow(job: Job, evaluated: MergeDecision, via: MergeVia
   const url = job.pr_url!;
   const pull = await github.mergeCandidate(url);
   if (pull.state !== "open" || pull.headSha !== evaluated.headSha) return null;
+  if (!reviewAllowsPublication(job.attempt_review, job.attempt, pull.headSha)) return block(job, evaluated, "Independent reviewer PASS does not cover this attempt and commit.");
   const { method, canPush } = await github.repoMerging(job.repo as RepoName);
   if (!canPush) return block(job, evaluated, "it has no write access to the repo's contents.");
   const decision = await markMerging(job, evaluated, method, via, now);

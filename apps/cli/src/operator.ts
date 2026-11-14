@@ -16,6 +16,7 @@ import { reportedHarnesses } from "@factory/core/machine";
 import { deleteRepository, makeDefaultRepo, readRegistry, readRepoStats, removeRepository, saveRepository, writeDefaultRepo, writeRepository } from "@factory/core/repositories";
 import { requestRepository } from "@factory/core/repository-registration";
 import { parseJobId } from "@factory/core/sources/shapes";
+import { requestReviewAction, saveJobReview } from "@factory/core/review-actions";
 
 type Result = { ok?: boolean; status?: string | number; [key: string]: unknown };
 const inputSchema = z.record(z.string(), z.unknown());
@@ -58,6 +59,9 @@ export async function operator(resource: string, action: string, raw: unknown, a
     case "jobs from-issue": result = await importGithubIssue(newJobDeps(user), input); break;
     case "jobs archive": result = await archiveJobs(deps, input.jobIds ?? [text(input, "jobId")]); break;
     case "jobs unarchive": result = await unarchiveJobs(deps, input.jobIds ?? [text(input, "jobId")]); break;
+    case "jobs review": result = await requestReviewAction(deps, { ...input, action: "review" }); break;
+    case "jobs review-changes": result = await requestReviewAction(deps, { ...input, action: "changes" }); break;
+    case "jobs review-settings": result = await saveJobReview(deps, input); break;
     case "requests show": return requestResult(text(input, "intentId"), wait);
     default: {
       const id = parseJobId(text(input, "jobId")).id;
