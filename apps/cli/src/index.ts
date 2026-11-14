@@ -15,7 +15,7 @@ const HELP = `Factory operator CLI (trusted local database access, no dashboard 
 Usage: factory <resource> <action> [--input JSON | --stdin] [--actor NAME]
 
 Resources:
-  jobs list|show|create|answer|changes|stop|approve|close|dismiss|retry|retry-stop|archive|unarchive|follow-up
+  jobs list|show|create|from-issue|answer|changes|stop|approve|close|dismiss|retry|retry-stop|archive|unarchive|follow-up
   machines list
   evidence list
   inbox list
@@ -31,7 +31,7 @@ Configuration: .env.local or exported environment, DATABASE_URL. Runner uses its
 `;
 
 const COMMANDS = new Set([
-  ..."list show create answer changes stop approve close dismiss retry retry-stop archive unarchive follow-up".split(" ").map(action => `jobs ${action}`),
+  ..."list show create from-issue answer changes stop approve close dismiss retry retry-stop archive unarchive follow-up".split(" ").map(action => `jobs ${action}`),
   "machines list", "evidence list", "inbox list", "requests show",
   ..."show save".split(" ").map(action => `settings ${action}`),
   ..."list add save default remove retry".split(" ").map(action => `repositories ${action}`),

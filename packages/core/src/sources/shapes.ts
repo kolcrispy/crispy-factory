@@ -9,6 +9,7 @@ const internal = {
   sourceState: z.object({
     actor: z.string(),
     requestedProvider: z.string().optional(),
+    issueUrl: z.string().url().optional(),
   }),
 };
 

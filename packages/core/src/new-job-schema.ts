@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { issueUrlSchema } from "./github-issue-schema";
 
 // Shared validation stays separate from database-backed job creation for browser use.
 
@@ -11,6 +12,7 @@ export const newJobSchema = z.object({
   provider: z.string().trim().min(1).optional(),
   /** The repo's full name; unset means the default repo. Either way the issue gets its Repository label. */
   repo: z.string().trim().min(1).optional(),
+  issueUrl: issueUrlSchema.optional(),
 });
 export type NewJob = z.infer<typeof newJobSchema>;
 

@@ -43,6 +43,21 @@ Internal jobs are created by the dashboard or CLI and stored in PostgreSQL.
 - Answers are durable intents and succeed only when actually delivered to the thread. A refused delivery is explicit.
 - Stop requests are driven to a verified confirmation; an unconfirmed stop waits for owner action.
 
+### Manual GitHub issue import
+
+In New job, paste a github.com issue URL and select **Load issue**. Loading only previews the title and description; edit them before filing. The repository is locked to the issue's registered, ready, enabled repository. Only open issues are accepted, not pull requests. Comments and external linked content are not imported. Submit rechecks issue status and access without overwriting edits.
+
+The trusted CLI imports and immediately creates a job:
+
+```sh
+bun run cli jobs from-issue --input '{"url":"https://github.com/owner/repo/issues/123","requestId":"<uuid>"}'
+```
+
+The runner must be running on the same host as the dashboard/CLI: authenticated loopback lookup uses its `gh` credentials, including private repository access. Restart the runner after upgrading to this revision. Offline lookups fail without creating a job; there is no queued import, webhook, or automatic pickup. Replaying an accepted requestId returns the original job even after issue closure or runner shutdown. Use a new requestId for a new import.
+
+Jobs store the original issue URL and a snapshot brief. Subsequent issue edits/closure do not update or stop the job. Concurrent imports of the same issue are rejected while any prior job is nonterminal; the error names that job. Merged/failed jobs allow an explicit new import. The launch brief directs the agent to include `Closes <issue URL>` in the PR body so merge closes the issue. Import itself does not comment, label, or close the GitHub issue.
+
+
 ## Repositories
 
 Registration is asynchronous.

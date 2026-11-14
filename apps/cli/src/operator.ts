@@ -10,6 +10,7 @@ import { inboxKind } from "@factory/core/inbox";
 import { archiveJobs, unarchiveJobs } from "@factory/core/archive-actions";
 import { newJobDeps } from "@factory/core/new-job-deps";
 import { createJob } from "@factory/core/new-job";
+import { importGithubIssue } from "@factory/core/github-issue-import";
 import { readSettings, saveSettings, writeSettings } from "@factory/core/settings";
 import { reportedHarnesses } from "@factory/core/machine";
 import { deleteRepository, makeDefaultRepo, readRegistry, readRepoStats, removeRepository, saveRepository, writeDefaultRepo, writeRepository } from "@factory/core/repositories";
@@ -54,6 +55,7 @@ export async function operator(resource: string, action: string, raw: unknown, a
     case "repositories add":
     case "repositories retry": result = { ok: true, ...await requestRepository(db, input, actor) }; break;
     case "jobs create": result = await createJob(newJobDeps(user), input); break;
+    case "jobs from-issue": result = await importGithubIssue(newJobDeps(user), input); break;
     case "jobs archive": result = await archiveJobs(deps, input.jobIds ?? [text(input, "jobId")]); break;
     case "jobs unarchive": result = await unarchiveJobs(deps, input.jobIds ?? [text(input, "jobId")]); break;
     case "requests show": return requestResult(text(input, "intentId"), wait);

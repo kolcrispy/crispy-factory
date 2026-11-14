@@ -3,8 +3,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ExternalLinkIcon, ImagePlusIcon, PlusIcon, XIcon } from "lucide-react";
 import { useRef, useState, useTransition, type ClipboardEvent, type DragEvent } from "react";
-import { Controller, useForm } from "react-hook-form";
-import { createJob } from "../../app/actions/new-job";
+import { Controller, useForm, useWatch } from "react-hook-form";
+import { createJob, previewGithubIssue } from "../../app/actions/new-job";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -60,6 +60,21 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
   const form = useForm<NewJob>({ resolver: zodResolver(newJobSchema), defaultValues: blank() });
   const [images, setImages] = useState<JobImage[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [issueInput, setIssueInput] = useState("");
+  const issueUrl = useWatch({ control: form.control, name: "issueUrl" });
+  const loadIssue = () => {
+    setFailure(null);
+    const draft = form.getValues("requestId");
+    startTransition(async () => {
+      const result = await previewGithubIssue({ url: issueInput });
+      if (form.getValues("requestId") !== draft) return;
+      if (!result.ok) { setFailure(result.message); return; }
+      form.setValue("title", result.issue.title, { shouldValidate: true });
+      form.setValue("description", result.issue.description, { shouldValidate: true });
+      form.setValue("repo", result.issue.repo);
+      form.setValue("issueUrl", result.issue.url);
+    });
+  };
   const repoItems = repos.filter((r) => r.enabled).map((r) => ({ value: r.repo, label: displayName(r) }));
   const defaultRepo = repos.find((r) => r.is_default)?.repo ?? null;
   const harnessItems = [{ value: SETTINGS_DEFAULT, label: "Settings default" }, ...harnesses.map((h) => ({ value: h.id, label: h.name }))];
@@ -68,6 +83,7 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
 
   const reset = () => {
     form.reset(blank());
+    setIssueInput("");
     setCreated(null);
     setFailure(null);
     setImages((current) => {
@@ -167,6 +183,14 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
             </DialogHeader>
             <form onSubmit={submit} className="contents">
               <DialogPanel className="flex flex-col gap-5">
+                <Field>
+                  <FieldLabel htmlFor="new-job-issue">GitHub issue (optional)</FieldLabel>
+                  <div className="flex w-full gap-2">
+                    <Input id="new-job-issue" value={issueInput} onChange={(event) => setIssueInput(event.target.value)} placeholder="https://github.com/owner/repo/issues/123" disabled={pending || Boolean(issueUrl)} />
+                    {issueUrl ? <Button type="button" variant="outline" onClick={() => { form.setValue("issueUrl", undefined); setIssueInput(""); }}>Remove</Button> : <Button type="button" variant="outline" disabled={pending || !issueInput.trim()} onClick={loadIssue}>Load issue</Button>}
+                  </div>
+                  <FieldDescription>{issueUrl ? <a href={issueUrl} target="_blank" rel="noreferrer">Imported issue. Edit the brief below; merging its PR closes this issue.</a> : "Load a preview first. No job runs until you create it."}</FieldDescription>
+                </Field>
                 <Controller
                   name="title"
                   control={form.control}
@@ -212,7 +236,7 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                     render={({ field }) => (
                       <Field>
                         <FieldLabel htmlFor="new-job-repo">Repository</FieldLabel>
-                        <Select items={repoItems} value={field.value ?? defaultRepo} onValueChange={(v) => field.onChange(v ?? undefined)}>
+                        <Select items={repoItems} disabled={Boolean(issueUrl)} value={field.value ?? defaultRepo} onValueChange={(v) => field.onChange(v ?? undefined)}>
                           <SelectTrigger id="new-job-repo" className="w-full">
                             <SelectValue placeholder="Pick a repository" />
                           </SelectTrigger>
@@ -307,7 +331,7 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                 <DialogClose disabled={pending} render={<Button variant="outline" />}>
                   Cancel
                 </DialogClose>
-                <Button type="submit" disabled={pending || uploading}>
+                <Button type="submit" disabled={pending || uploading || Boolean(issueInput.trim() && !issueUrl)}>
                   {(pending || uploading) && <Spinner data-icon="inline-start" />}
                   {uploading ? "Uploading images" : "File job"}
                 </Button>
