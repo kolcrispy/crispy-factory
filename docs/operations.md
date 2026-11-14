@@ -12,6 +12,10 @@ On macOS, run the old checkout's `bun scripts/install-runner.ts --uninstall` bef
 
 Reporting startup replaces the existing owned Codex MCP block even when its marker uses a previous product name. Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained.
 
+## Dashboard development watcher
+
+Tailwind scans only authored dashboard `app/` and `components/` sources. Keep generated `.next` output outside its source set: watching dev logs can create a rebuild/browser-reload feedback loop. Restart `bun run dev` after changing source detection so the previous watcher subscriptions are discarded.
+
 ## Runner
 
 `bun apps/runner/src/index.ts` runs in the foreground. `--once` reconciles once and exits.
