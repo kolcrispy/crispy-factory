@@ -71,7 +71,7 @@ bun run db:migrate               # Apply migrations to configured database
 ## Runtime/Tooling Preferences
 
 - Use **Bun 1.4.4** and `bun.lock`; do not introduce another package manager. Stack: Next.js 16, React 19, Tailwind 4, Drizzle/Postgres.
-- `.env.local` supplies local service credentials. Migrations require direct `DATABASE_URL_UNPOOLED`, not a transaction pooler. Remote database connections require verified TLS.
+- `.env.local` supplies local service credentials. Migrations require direct `DATABASE_URL_UNPOOLED`, not a transaction pooler.
 - Dashboard builds never migrate. Explicit `bun run db:migrate` invokes the migration guard; verify the direct target before applying migrations.
 - Installers, rollout, canary, deployed smoke scripts, and runner commands can mutate real services. Do not use them as routine validation or expose secrets in output.
 
