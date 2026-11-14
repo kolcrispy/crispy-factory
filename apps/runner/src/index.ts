@@ -1,3 +1,4 @@
+import { startRealtimeServer } from "./realtime-server";
 import { join } from "node:path";
 
 // The factory runner owns local T3, git and GitHub operations. PostgreSQL intents are
@@ -283,6 +284,11 @@ const heartbeatTimer = setInterval(() => { if (!stopping) track(beat()); }, ops.
 // Before the first claim, so a fresh install has its checkouts registered and a default repo.
 await serial("registry", ops.registerCheckouts);
 await serial("reconcile", startupReconcile);
+const realtime = startRealtimeServer(ops.config.factory.realtime);
+const stopRealtimeListening = await listenForWork(db.$client, realtime.refresh, error => {
+  log("realtime:connection-lost", { error: error.message });
+  process.exit(1);
+}, "factory_status");
 const stopListening = await listenForWork(db.$client, work.wake, error => {
   log("work:connection-lost", { error: error.message });
   process.exit(1);
@@ -319,6 +325,8 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       await verificationsSettled();
       await ops.closeOmpSessions();
       await reportServer.stop();
+      await realtime.stop();
+      await stopRealtimeListening();
       await stopListening();
       await releaseOwnership();
       await db.$client.end();

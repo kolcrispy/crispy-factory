@@ -24,15 +24,15 @@ export function wakeScheduler(enqueue: (run: () => Promise<void>) => void, pass:
 }
 
 /** Notifications are hints; durable projections and periodic reconciliation remain authoritative. */
-export async function listenForWork(pool: Pool, wake: () => void, lost: (error: Error) => void) {
+export async function listenForWork(pool: Pool, wake: () => void, lost: (error: Error) => void, channel: "factory_work" | "factory_status" = "factory_work") {
   const client = await pool.connect();
   client.on("error", lost);
   const notification = (message: { channel: string }) => {
-    if (message.channel === "factory_work") wake();
+    if (message.channel === channel) wake();
   };
   client.on("notification", notification);
   try {
-    await client.query("LISTEN factory_work");
+    await client.query(`LISTEN ${channel}`);
   } catch (error) {
     client.off("notification", notification);
     client.off("error", lost);
@@ -42,7 +42,7 @@ export async function listenForWork(pool: Pool, wake: () => void, lost: (error: 
   return async () => {
     client.off("notification", notification);
     try {
-      await client.query("UNLISTEN factory_work");
+      await client.query(`UNLISTEN ${channel}`);
     } finally {
       client.off("error", lost);
       client.release(true);

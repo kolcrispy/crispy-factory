@@ -1,0 +1,5 @@
+# Runner-owned realtime job status
+
+Accepted after owner design review. The runner exposes a loopback-only, read-only snapshot and SSE interface consumed directly by the local dashboard browser and Herdr, rather than making the optional dashboard a realtime gateway. PostgreSQL projections remain authoritative; clients synchronize the latest snapshot on reconnect instead of requiring replay of every missed transition.
+
+Clients pair using short-lived, single-use codes issued through the trusted CLI and receive revocable read-only credentials distinct from agent-reporting secrets. The browser retains credentials for its tab session, Herdr in machine-local configuration; browser origins are explicitly allowed. The interface exposes job status and summaries, including role, review, publication, owner attention, and spend, but not live transcripts or terminal logs. When the runner is unavailable, clients mark retained data stale and fall back to their existing read-only database/CLI paths. This deliberately trades extra local-client authentication for dashboard-independent desktop access; actions continue through existing durable intents.

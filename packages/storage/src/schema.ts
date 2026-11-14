@@ -1,4 +1,5 @@
 export { ownerAccounts, ownerSessions, loginAttempts } from "./auth-schema";
+export { realtimePairings, realtimeClients } from "./realtime-schema";
 import { sql } from "drizzle-orm";
 import {
   boolean,

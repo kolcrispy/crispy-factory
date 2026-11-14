@@ -43,6 +43,13 @@ export const factorySchema = z
     model: z.string().default(DEFAULT_MODEL),
     /** How often the runner's timer runs the watchdog and usage reconcile. */
     tickSeconds: z.number().positive().default(90),
+    realtime: z.object({
+      port: z.number().int().min(0).max(65535).default(3009),
+      origins: z.array(z.string().refine(value => {
+        try { const url = new URL(value); return url.origin === value && url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname); }
+        catch { return false; }
+      }, "Realtime browser origins must be explicit local HTTP origins.")).default(["http://localhost:3000", "http://127.0.0.1:3000"]),
+    }).prefault({}),
     /** Stable installation runner identity; defaults to the native hostname. */
     machineId: z.string().min(1).optional(),
     /** T3's state database, read-only, for the machine inventory. */

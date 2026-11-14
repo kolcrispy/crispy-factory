@@ -41,6 +41,16 @@ For agent investigations, use bounded service log tails rather than full transcr
 - **Execution.** Every attempt runs locally in an attempt-isolated `factory/<KEY>` or `factory/<KEY>-a<n>` worktree.
 - **Reporting.** At startup the runner installs branch-guarded Claude Code hooks in `~/.claude/settings.json` and the `factory-report` MCP server in `~/.codex/config.toml`. Both files are merged idempotently and preserve unrelated settings. Committed target-repository files are never modified.
 
+### Realtime clients
+
+Apply migration `0056_glamorous_revanche` before starting this revision. The runner serves a separate read-only client interface at `http://127.0.0.1:3009`; `factory.realtime.port` and `factory.realtime.origins` configure its port and explicitly allowed local HTTP browser origins. It is not the agent report endpoint, does not authorize job actions, and does not require the dashboard.
+
+Generate a five-minute, single-use pairing code with `bun run cli realtime pair --input '{"label":"My browser"}'`. Enter the returned URL/code in the dashboard's **Connect runner** controls or Herdr's **Pair runner** controls. Browser credentials stay in sessionStorage for the tab session; Herdr stores its read-only token in `~/.config/herdr-app/mods/factory/realtime.json`. Reinstall the mod with `bun apps/herdr/install.ts` after updating its source. Treat pairing codes and client files as secrets. `bun run cli realtime clients` lists credential IDs without tokens; `bun run cli realtime revoke --input '{"id":"CLIENT-ID"}'` revokes one, including its active stream.
+
+`POST /api/pair` exchanges `{code}` for `{id,token}`. Authenticated `GET /api/jobs` returns the version-1 snapshot; `GET /api/events` sends SSE `snapshot` events with the same body and a content revision in `id`. Use `Authorization: Bearer TOKEN`, never URL credentials. Snapshots contain the latest 200 jobs/runs, up to 1000 agents, machines, repository summaries, and per-attempt branch spend. Initial connection and reconnect always receive a complete snapshot. Missed transitions are not replayed; existing event/history endpoints remain the audit source. Heartbeat comments keep streams alive, slow clients disconnect instead of buffering indefinitely, and committed projection notifications drive updates independently of runner work scheduling.
+
+Dashboard overview feeds stop polling while SSE is live; detail/history endpoints retain their existing reads. Both clients retain data and visibly mark a disconnected runner; dashboard database reads and Herdr CLI reads are the fallback. Local HTTP browser access only is supported, not remote/HTTPS dashboard-to-loopback deployment. CORS origin allowlisting and loopback Host validation apply in addition to token authentication.
+
 ### Direct OMP harness
 
 OMP runs directly, without a T3 server. Install and authenticate OMP under the runner account; optionally set `FACTORY_OMP_PATH` to its native executable. The runner advertises harness `omp` and provider-qualified models from the installed runtime. Select OMP per job, repository, or Settings. Existing defaults remain unchanged.

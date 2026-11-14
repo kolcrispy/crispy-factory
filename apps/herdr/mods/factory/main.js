@@ -1,6 +1,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Popover } from "gpui-base";
-import { exec, props, readTextFile, appHome, theme, nextCommand } from "herdr";
+import { exec, props, readTextFile, writeTextFile, appHome, theme, nextCommand } from "herdr";
+import { subscribe } from "./realtime.js";
 
 const text = (value) => value == null ? "" : String(value);
 const when = (value) => value ? new Date(value).toLocaleString() : "Not available";
@@ -9,6 +10,7 @@ const stageColor = (stage, t) => stage === "failed" ? t.error : stage === "merge
 export default class Factory extends View {
   init(_props, cx) {
     this.jobs = [];
+    this.spend = {};
     this.repositories = [];
     this.query = "";
     this.repo = "All repositories";
@@ -21,9 +23,29 @@ export default class Factory extends View {
     this.dropdown = null;
     this.collapsed = new Set();
     this.search = InputState.new({ placeholder: "Search title or JOB key" });
+    this.live = false;
+    this.pairCode = InputState.new({ placeholder: "One-time pairing code" });
+    this.pairCode.on("change", (_event, cx) => cx.notify());
+    this.runnerUrl = InputState.new({ placeholder: "http://127.0.0.1:3009" });
+    this.runnerUrl.on("change", (_event, cx) => cx.notify());
     this.search.on("change", (_event, cx) => { this.query = this.search.value().toLowerCase(); cx.notify(); });
     this.refresh(cx);
-    cx.timer.every(10000, cx => this.refresh(cx));
+    cx.timer.every(10000, cx => { if (!this.live) this.refresh(cx); });
+    cx.spawn(async cx => {
+      for (;;) {
+        try {
+          const raw = await readTextFile(`${appHome()}/mods/factory/realtime.json`);
+          if (!raw) throw new Error("Pair runner for realtime updates");
+          await subscribe(JSON.parse(raw), snapshot => {
+            if (snapshot.version !== 1 || !Array.isArray(snapshot.jobs)) throw new Error("Unsupported runner snapshot");
+            this.jobs = snapshot.jobs; this.repositories = snapshot.repositories;
+            this.spend = snapshot.spend ?? {};
+            this.live = true; this.error = ""; this.updated = new Date().toLocaleTimeString(); cx.notify();
+          });
+        } catch (error) { this.live = false; this.error = error instanceof Error ? error.message : "Runner offline"; cx.notify(); }
+        await cx.sleep(5000);
+      }
+    });
     cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
@@ -65,6 +87,7 @@ export default class Factory extends View {
         if (result.code !== 0 || repositoryResult.code !== 0) throw new Error("Factory CLI failed. Check database access and the checkout configuration.");
         const data = JSON.parse(result.stdout);
         const registry = JSON.parse(repositoryResult.stdout);
+        if (this.live) return;
         if (!Array.isArray(data.jobs) || !Array.isArray(registry.repositories)) throw new Error("Factory CLI returned invalid jobs or repositories.");
         this.jobs = data.jobs;
         this.repositories = registry.repositories;
@@ -76,6 +99,24 @@ export default class Factory extends View {
         this.loading = false;
         cx.notify();
       }
+    });
+  }
+
+  pair(cx) {
+    cx.spawn(async cx => {
+      try {
+        const url = this.runnerUrl.value() || "http://127.0.0.1:3009";
+        if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+\/?$/.test(url)) throw new Error("Use a loopback HTTP runner URL");
+        const response = await fetch(`${url.replace(/\/$/, "")}/api/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: this.pairCode.value() }) });
+        if (!response.ok) throw new Error("Pairing failed; generate a fresh CLI pairing code");
+        const result = await response.json();
+        const path = `${appHome()}/mods/factory/realtime.json`;
+        const previous = await readTextFile(path);
+        await writeTextFile(path, JSON.stringify({ url, token: result.token }), previous);
+        this.pairCode.set_value("");
+        this.error = "Connecting to runner";
+      } catch (error) { this.error = error instanceof Error ? error.message : "Pairing failed"; }
+      cx.notify();
     });
   }
 
@@ -143,12 +184,20 @@ export default class Factory extends View {
       detail.child(muted(`${selected.repo} · ${selected.stage}`));
       if (selected.pr_url) detail.child(button("open-pr", "Open PR", cx => this.openPr(selected.pr_url, cx), "external-link"));
       detail.child(muted(`Harness: ${selected.provider ?? "Pending"}\nModel: ${selected.model ?? "Pending"}\nUpdated: ${when(selected.updated_at)}\nCreated: ${when(selected.claimed_at)}`));
+      const branch = `factory/${selected.key}${selected.attempt > 1 ? `-a${selected.attempt}` : ""}`;
+      const cost = this.spend[branch];
+      detail.child(muted(`Independent review: ${selected.attempt_review?.state ?? "Not enabled"}\nSpend: ${cost?.known ? `$${cost.usd.toFixed(4)}` : "Unknown"}`));
       detail.child(div().text_size(13).child(selected.stage_summary || "No progress summary yet."));
       detail.child(div().text_size(13).child(selected.description || "No description."));
     }
     return v_flex().id("factory-root").size_full().min_h(0).bg(t.background).text_color(t.foreground)
       .child(h_flex().p(14).gap(12).items_center().child(div().flex_1().text_size(18).font_semibold().child("Factory"))
         .child(button("refresh", this.loading ? "Refreshing" : "Refresh", cx => this.refresh(cx), "refresh")))
+      .child(div().px(14).pb(8).text_size(12).text_color(t.dim).child(this.live ? "Runner live · Read-only" : "Runner offline / unpaired · Fallback data"))
+      .when(!this.live, el => el.child(h_flex().px(14).pb(8).gap(6)
+        .child(Input.new(this.runnerUrl).h(30).flex_1().border_1().border_color(t.border).px(8))
+        .child(Input.new(this.pairCode).h(30).flex_1().border_1().border_color(t.border).px(8))
+        .child(button("pair-runner", "Pair runner", cx => this.pair(cx)))))
       .when(!selected, el => el.child(v_flex().px(14).pb(10).gap(8)
         .child(Input.new(this.search).w_full().h(34).px(10).border_1().border_color(t.border).rounded(6).text_size(13))
         .child(v_flex().gap(6)

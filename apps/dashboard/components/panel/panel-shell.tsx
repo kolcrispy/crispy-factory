@@ -11,6 +11,7 @@ import { Kbd } from "../ui/kbd";
 import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
+import { RunnerRealtime } from "./runner-realtime";
 
 /** The layout reads this cookie, so a reload keeps the rail collapsed. */
 export const COLLAPSED_COOKIE = "sidebar_state";
@@ -177,7 +178,7 @@ export function PanelShell({ defaultCollapsed, inboxCount, children }: { default
                 <Nav collapsed={false} inboxCount={inboxCount} onNavigate={() => setNavOpen(false)} />
               </SheetPopup>
             </Sheet>
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col"><RunnerRealtime>{children}</RunnerRealtime></main>
           </div>
         </LayoutGroup>
       </ShellContext>

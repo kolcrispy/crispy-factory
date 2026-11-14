@@ -7,6 +7,9 @@ import { manageOwner } from "@factory/core/auth/accounts";
 import { db } from "@factory/storage/client";
 import { jobs, repoSettings, machines } from "@factory/storage/schema";
 import { internalJob } from "./fixtures";
+import { createRealtimePairing } from "@factory/core/realtime-auth";
+import { startRealtimeServer } from "@factory/runner/realtime-server";
+import { listenForWork } from "@factory/runner/wake";
 
 if (process.env.FACTORY_DASHBOARD_SMOKE !== "1") {
   console.log("Dashboard browser smoke requires bun run smoke:dashboard");
@@ -26,8 +29,11 @@ await db.insert(jobs).values(internalJob("dashboard-smoke", "JOB-9001", { repo: 
   attempt_review: { attempt: 1, policy: { enabled: true, provider: "omp", model: "smoke-model" }, state: "held", builderThreadId: "isolated-builder", builderSessionId: null, automaticRepairs: 2, rounds: [] },
 }));
 await db.insert(machines).values({ id: "dashboard-smoke", name: "Isolated smoke", last_seen_at: new Date(), heartbeat: {}, inventory: { runnerSha: "smoke", t3: "unknown", connect: "unknown", projects: { source: "unknown" }, repos: [], harnesses: [{ id: "omp", driver: "omp", name: "OMP", enabled: true, models: [{ slug: "smoke-model", name: "Smoke model" }] }] } });
+const realtime = startRealtimeServer({ port: 0, origins: [origin] });
+const stopRealtimeListener = await listenForWork(db.$client, realtime.refresh, error => { throw error; }, "factory_status");
 mkdirSync(root, { recursive: true });
 cpSync(join(workspace, "apps/dashboard"), root, { recursive: true, filter: source => !["node_modules", ".next"].includes(source.split(/[\\/]/).at(-1)!) });
+await Bun.write(join(root, "app/merge-smoke/page.tsx"), `import { MergeButton } from "../../components/panel/merge-button";\nexport default function Page() { return <MergeButton jobId="internal:dashboard-smoke" jobKey="JOB-9001" />; }`);
 symlinkSync(join(workspace, "apps/dashboard/node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 let logs = "";
 const child = Bun.spawn([process.execPath, join(workspace, "node_modules/next/dist/bin/next"), "dev", root, "--hostname", "127.0.0.1", "--port", String(port)], {
@@ -62,14 +68,20 @@ try {
   await page.goto(origin);
   const login = await page.evaluate(async ({ email, password }) => (await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) })).status, { email, password });
   assert.equal(login, 200, "isolated owner can authenticate");
+  await page.goto(origin);
+  await page.getByText("Connect runner", { exact: true }).click();
+  const pairing = await createRealtimePairing("Dashboard smoke");
+  await page.getByLabel("Runner URL", { exact: true }).fill(`http://127.0.0.1:${realtime.server.port}`);
+  await page.getByLabel("Pairing code", { exact: true }).fill(pairing.code);
+  await page.getByRole("button", { name: "Pair", exact: true }).click();
+  await page.getByText("Runner live", { exact: true }).waitFor();
+  console.log("Dashboard paired directly to runner SSE");
   // Exercise the real merge component without a runner or any GitHub writes.
   const { eq } = await import("drizzle-orm");
   const { intents } = await import("@factory/storage/schema");
   const sha = "a".repeat(40);
   const prUrl = "https://github.com/smoke/isolated/pull/1";
   await db.update(jobs).set({ stage: "pr", pr_url: prUrl, github_snapshot: { prUrl, attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Isolated merge", headSha: sha, mergeable: "mergeable", review: { headSha: sha, files: [], fileCount: 0, bugbot: { state: "reviewed", high: 0, medium: 0, low: 0, resolved: 0 } } } }).where(eq(jobs.key, "JOB-9001"));
-  const [mergeJob] = await db.select().from(jobs).where(eq(jobs.key, "JOB-9001"));
-  await Bun.write(join(root, "app/merge-smoke/page.tsx"), `import { MergeButton } from "../../components/panel/merge-button";\nexport default function Page() { return <MergeButton jobId={${JSON.stringify(mergeJob!.id)}} jobKey="JOB-9001" />; }`);
   await page.goto(origin + "/merge-smoke");
   await page.getByRole("button", { name: "Merge", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
@@ -79,7 +91,7 @@ try {
   const queuedDeadline = Date.now() + 15000;
   let approval: typeof intents.$inferSelect | undefined;
   while (!approval && Date.now() < queuedDeadline) {
-    [approval] = await db.select().from(intents).where(eq(intents.job_id, mergeJob!.id));
+    [approval] = await db.select().from(intents).where(eq(intents.job_id, "internal:dashboard-smoke"));
     if (!approval) await Bun.sleep(100);
   }
   assert.equal(approval?.kind, "approve_merge", "closing the dialog still persists the merge request");
@@ -90,6 +102,12 @@ try {
     assert.equal(response?.status(), 200, `${route} rendered successfully`);
     await page.locator("main").waitFor();
     if (route.startsWith("/inbox")) await page.getByText("Isolated browser smoke", { exact: true }).first().waitFor();
+    if (route.startsWith("/inbox")) {
+      await db.update(jobs).set({ title: "Realtime title delivered" }).where(eq(jobs.key, "JOB-9001"));
+      await page.getByText("Realtime title delivered", { exact: true }).first().waitFor();
+      await db.update(jobs).set({ title: "Isolated browser smoke" }).where(eq(jobs.key, "JOB-9001"));
+      await page.getByText("Isolated browser smoke", { exact: true }).first().waitFor();
+    }
     await page.waitForTimeout(1500);
     const marker = await page.evaluate(() => performance.timeOrigin);
     let navigations = 0;
@@ -106,6 +124,9 @@ try {
     assert.deepEqual(errors, [], "no browser runtime/console errors");
     console.log(`Stable dashboard surface: ${route}`);
   }
+  await realtime.stop();
+  await page.getByText("Runner offline / unpaired - fallback data", { exact: true }).waitFor();
+  console.log("Dashboard marks disconnected runner and resumes fallback reads");
   const evidence = resolve(process.env.FACTORY_SMOKE_ARTIFACTS ?? join(workspace, ".scratch", "dashboard-smoke-evidence"));
   mkdirSync(evidence, { recursive: true });
   await page.screenshot({ path: join(evidence, "dashboard.png"), fullPage: true });
@@ -117,6 +138,8 @@ try {
   await Bun.write(join(evidence, "failure.log"), logs);
   throw error;
 } finally {
+  await stopRealtimeListener();
+  await realtime.stop();
   await browser?.close();
   child.kill();
   await child.exited;

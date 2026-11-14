@@ -7,6 +7,8 @@ import { db } from "@factory/storage/client";
 import { redact, secretValues } from "@factory/core/secrets";
 import { redact as redactDiagnostic } from "@factory/core/recipe";
 import { ownerCommand } from "./owners";
+import { createRealtimePairing, listRealtimeClients, revokeRealtimeClient } from "@factory/core/realtime-auth";
+import { loadLimits } from "@factory/core/config";
 
 class InputError extends Error {}
 
@@ -23,6 +25,7 @@ Resources:
   repositories list|add|save|default|remove|retry
   requests show
   owners create|reset|disable (email input; passwords prompted in terminal)
+  realtime pair|clients|revoke (read-only local client credentials)
 
 Input is a JSON object. Use --stdin for secrets; secret values in argv are forbidden.
 Job actions require jobId. Durable actions accept requestId (UUID); retain it for replay.
@@ -36,6 +39,7 @@ const COMMANDS = new Set([
   ..."show save".split(" ").map(action => `settings ${action}`),
   ..."list add save default remove retry".split(" ").map(action => `repositories ${action}`),
   "owners create", "owners reset", "owners disable",
+  "realtime pair", "realtime clients", "realtime revoke",
 ]);
 
 export async function main(argv: string[]) {
@@ -56,6 +60,19 @@ export async function main(argv: string[]) {
   if (resource === "owners") {
     if (Object.keys(input).some(key => key !== "email")) throw new InputError("Owner commands accept only email; passwords are prompted securely.");
     console.log(JSON.stringify(await ownerCommand(action, input.email)));
+    return 0;
+  }
+  if (resource === "realtime") {
+    if (action === "pair") {
+      const label = typeof input.label === "string" ? input.label.trim() : "Local client";
+      if (!label || label.length > 100) throw new InputError("Client label must contain 1-100 characters.");
+      console.log(JSON.stringify({ ...(await createRealtimePairing(label)), url: `http://127.0.0.1:${loadLimits().realtime.port}` }));
+    } else if (action === "clients") console.log(JSON.stringify({ clients: await listRealtimeClients() }));
+    else {
+      if (typeof input.id !== "string") throw new InputError("Client id is required.");
+      await revokeRealtimeClient(input.id);
+      console.log(JSON.stringify({ ok: true }));
+    }
     return 0;
   }
   const requestId = input.requestId ?? randomUUID();
