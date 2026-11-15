@@ -8,6 +8,8 @@ const text = (value) => value == null ? "" : String(value);
 const activeStage = stage => ["building", "reviewing"].includes(stage);
 const stageColor = (stage, t) => stage === "failed" ? t.blocked : stage === "done" ? t.done : stage === "queued" ? t.dim : activeStage(stage) ? t.working : t.accent;
 const needsAttention = job => job.needs_human === true;
+const groupOf = job => needsAttention(job) ? "Needs you" : ["done", "failed"].includes(job.stage) ? "Done" : "Working";
+const groupOrder = ["Needs you", "Working", "Done"];
 
 export default class Factory extends View {
   init(_props, cx) {
@@ -23,7 +25,8 @@ export default class Factory extends View {
     this.error = "";
     this.updated = null;
     this.dropdown = null;
-    this.collapsed = new Set();
+    this.collapsed = new Set(["Done"]);
+    this.listHeight = 0;
     this.form = null;
     this.controls = null;
     this.defaults = [];
@@ -81,8 +84,8 @@ export default class Factory extends View {
         if (command === "repositories") this.dropdown = this.dropdown === "repo" ? null : "repo";
         if (command === "stages") this.dropdown = this.dropdown === "stage" ? null : "stage";
         if (command === "toggle-status") {
-          const stage = this.visibleJobs()[0]?.stage;
-          if (stage) this.collapsed.has(stage) ? this.collapsed.delete(stage) : this.collapsed.add(stage);
+          const group = groupOrder.find(group => this.visibleJobs().some(job => groupOf(job) === group));
+          if (group) this.collapsed.has(group) ? this.collapsed.delete(group) : this.collapsed.add(group);
         }
         if (command === "toggle-archived") this.archived = !this.archived;
         if (command === "next-repository") this.cycle("repo", this.repositoryOptions(), cx);
@@ -247,25 +250,31 @@ export default class Factory extends View {
     const selected = this.jobs.find(j => j.id === this.selected);
     const repos = this.repositoryOptions();
     const stages = ["All stages", ...new Set(this.jobs.map(j => j.stage))];
-    const groupOf = job => needsAttention(job) ? "Needs human" : job.stage;
-    const groups = [...new Set(rows.map(groupOf))].sort((a, b) => a === "Needs human" ? -1 : b === "Needs human" ? 1 : 0);
-    const list = v_flex().id("factory-list").flex_1().min_w(0).min_h(0).justify_start().overflow_y_scroll().gap(8).p(12)
-      .children(groups.map(stage => {
-        const jobs = rows.filter(j => groupOf(j) === stage);
-        const collapsed = this.collapsed.has(stage);
-        return v_flex().gap(4)
-          .child(h_flex().id(`status-${stage}`).gap(6).py(5).items_center().cursor_pointer()
-            .on_click((_e, cx) => { collapsed ? this.collapsed.delete(stage) : this.collapsed.add(stage); cx.notify(); })
-            .child(icon(collapsed ? "chevron-right" : "chevron-down"))
-            .child(jobs.some(j => activeStage(j.stage) && !needsAttention(j)) ? marker(stage) : div().size(7).rounded(4).bg(jobs.some(needsAttention) ? t.blocked : stageColor(stage, t)))
-            .child(div().flex_1().text_size(12).font_semibold().text_color(stageColor(stage, t)).child(stage))
-            .child(badge(String(jobs.length), stageColor(stage, t))))
-          .when(!collapsed, el => el.children(jobs.map(j => v_flex().id(`job-${j.id}`).px(10).py(10).gap(6).rounded(8).bg(t.raised).border_1().border_color(stageColor(j.stage, t) + "60").cursor_pointer().hover(el => el.bg(t.hover))
-            .on_click((_e, cx) => { this.selected = j.id; this.controls = null; this.form = null; this.dropdown = null; this.loadControls(cx); cx.notify(); })
-            .child(h_flex().flex_wrap().gap(8).items_center().child(badge(j.key, stageColor(j.stage, t))).child(div().flex_1().min_w(120).text_size(13).font_semibold().child(j.title)).when(needsAttention(j), el => el.child(badge(j.stage, stageColor(j.stage, t)))))
-            .child(div().w_full().min_w(0).whitespace_normal().text_size(11).text_color(t.dim).child(`${j.repo} · ${j.model ?? "Model pending"}`)))));
-      }))
-      .when(rows.length === 0, el => el.child(muted(this.loading ? "Loading jobs…" : this.error && !this.updated ? "Jobs unavailable" : "No matching jobs")));
+    const grouped = Object.fromEntries(groupOrder.map(group => [group, rows.filter(job => groupOf(job) === group)]));
+    const groupColor = group => group === "Needs you" ? t.blocked : group === "Working" ? t.working : t.done;
+    const header = group => {
+      const collapsed = this.collapsed.has(group);
+      const color = groupColor(group);
+      return h_flex().id(`status-${group}`).flex_shrink_0().gap(6).py(5).items_center().cursor_pointer()
+        .on_click((_e, cx) => { collapsed ? this.collapsed.delete(group) : this.collapsed.add(group); cx.notify(); })
+        .child(icon(collapsed ? "chevron-right" : "chevron-down"))
+        .child(group === "Working" && grouped[group].some(job => activeStage(job.stage)) ? spinner(color) : div().size(7).rounded(4).bg(color))
+        .child(div().flex_1().text_size(12).font_semibold().text_color(color).child(group))
+        .child(badge(String(grouped[group].length), color));
+    };
+    const cards = group => grouped[group].map(j => v_flex().id(`job-${j.id}`).flex_shrink_0().px(10).py(10).gap(6).rounded(8).bg(t.raised).border_1().border_color(stageColor(j.stage, t) + "60").cursor_pointer().hover(el => el.bg(t.hover))
+      .on_click((_e, cx) => { this.selected = j.id; this.controls = null; this.form = null; this.dropdown = null; this.loadControls(cx); cx.notify(); })
+      .child(h_flex().flex_wrap().gap(8).items_center().child(badge(j.key, stageColor(j.stage, t))).child(div().flex_1().min_w(120).text_size(13).font_semibold().child(j.title)).child(badge(j.stage, stageColor(j.stage, t))))
+      .child(div().w_full().min_w(0).whitespace_normal().text_size(11).text_color(t.dim).child(`${j.repo} · ${j.model ?? "Model pending"}`)));
+    const list = v_flex().id("factory-list").flex_1().min_w(0).min_h(0).p(12).gap(8)
+      .on_size_change((size, cx) => { if (size.height !== this.listHeight) { this.listHeight = size.height; cx.notify(); } })
+      .child(v_flex().id("factory-active-groups").flex_1().min_h(0).overflow_y_scroll().gap(8)
+        .children(groupOrder.filter(group => group !== "Done" && grouped[group].length).map(group => v_flex().gap(4).flex_shrink_0()
+          .child(header(group)).when(!this.collapsed.has(group), el => el.children(cards(group)))))
+        .when(rows.length === 0, el => el.child(muted(this.loading ? "Loading jobs…" : this.error && !this.updated ? "Jobs unavailable" : "No matching jobs"))))
+      .when(grouped.Done.length > 0, el => el.child(v_flex().id("factory-done-group").flex_shrink_0().min_h(0).max_h(Math.max(0, this.listHeight * 0.4)).gap(4)
+        .when(!this.collapsed.has("Done"), el => el.child(v_flex().id("factory-done-jobs").min_h(0).overflow_y_scroll().gap(4).children(cards("Done"))))
+        .child(header("Done"))));
     const detail = v_flex().id("factory-detail").flex_1().min_w(0).min_h(0).justify_start().overflow_y_scroll().p(18).gap(12);
     if (selected) {
       detail.child(h_flex().flex_wrap().gap(8).items_center().child(button("close-detail", "Back to jobs", cx => { this.selected = null; cx.notify(); }, "arrow-left")).child(badge(selected.key, stageColor(selected.stage, t))).child(needsAttention(selected) ? badge("Needs you", t.blocked) : marker(selected.stage)).child(badge(selected.stage, stageColor(selected.stage, t))));
@@ -315,9 +324,9 @@ export default class Factory extends View {
         .child(div().flex_1())
         .child(button("refresh", this.loading ? "Refreshing" : "Refresh", cx => this.refresh(cx), "refresh", this.loading)))
       .when(!selected && !this.form, el => el.child(h_flex().flex_wrap().px(14).pb(10).gap(6).items_center()
-        .child(badge(`${rows.filter(j => activeStage(j.stage) && !needsAttention(j)).length} active`, t.working))
-        .child(badge(`${rows.filter(needsAttention).length} attention`, t.blocked))
-        .child(badge(`${rows.filter(j => j.stage === "done").length} done`, t.done))
+        .child(badge(`${grouped["Needs you"].length} Needs you`, t.blocked))
+        .child(badge(`${grouped.Working.length} Working`, t.working))
+        .child(badge(`${grouped.Done.length} Done`, t.done))
         .child(div().flex_1())
         .child(button("new-job", "New job", cx => this.openForm("create", cx)))))
       .when(!this.live, el => el.child(h_flex().px(14).pb(8).gap(6)
