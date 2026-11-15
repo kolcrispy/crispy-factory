@@ -306,14 +306,39 @@ export default class Factory extends View {
         if (["archive", "unarchive"].includes(action)) this.send(cx);
       })));
       detail.child(actions);
-      detail.child(div().text_size(13).child(selected.description || "No description."));
-      detail.child(div().text_size(14).font_semibold().child("Activity"));
-      const activity = this.activity.filter(item => item.jobId === selected.id);
-      if (!activity.length) detail.child(muted(this.live ? "No activity yet." : "Connect runner to stream activity."));
-      detail.children(activity.map(item => v_flex().id(`activity-${item.id}`).gap(3).pb(8)
-        .child(muted(`${new Date(item.at).toLocaleString()} · ${item.kind.replaceAll("_", " ")}`))
-        .child(div().text_size(12).whitespace_normal().child(item.summary))
-        .when(Boolean(item.refusal), el => el.child(div().text_size(12).text_color(t.blocked).child(`Refused: ${item.refusal}`)))));
+      const activity = this.activity.filter(item => item.jobId === selected.id)
+        .sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
+      const activityColor = item => item.refusal || /failed|refused|needs_human/.test(item.kind) ? t.blocked
+        : /done|handoff|evidence|merge_succeeded/.test(item.kind) ? t.done
+        : /building|reviewing|progress|agent_start/.test(item.kind) ? t.working : t.accent;
+      const stream = v_flex().id(`activity-stream-${selected.id}`).min_h(0).max_h(360).overflow_y_scroll().px(14).py(12);
+      if (!activity.length) stream.child(muted(this.live ? "No activity yet." : "Connect runner to stream activity."));
+      stream.children(activity.map((item, index) => {
+        const color = activityColor(item);
+        const at = new Date(item.at);
+        return h_flex().id(`activity-${item.id}`).flex_shrink_0().items_stretch().gap(12)
+          .child(v_flex().w(58).flex_shrink_0().pt(2).gap(3)
+            .child(div().text_size(11).font_semibold().text_color(color).child(at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })))
+            .child(div().text_size(10).text_color(t.dim).child(at.toLocaleDateString([], { month: "short", day: "numeric" }))))
+          .child(v_flex().relative().w(12).flex_shrink_0().items_center()
+            .when(index < activity.length - 1, el => el.child(div().absolute().top(9).bottom(0).left(5).w(2).bg(t.border)))
+            .child(div().relative().mt(3).size(12).rounded(6).border_2().border_color(color).bg(index === 0 ? color : t.raised)))
+          .child(v_flex().flex_1().min_w(0).pb(index === activity.length - 1 ? 0 : 18).gap(6)
+            .child(h_flex().flex_wrap().gap(6).items_center()
+              .child(badge(item.kind.replaceAll("_", " "), color))
+              .when(index === 0, el => el.child(div().text_size(10).font_semibold().text_color(t.dim).child("LATEST"))))
+            .child(div().text_size(12).whitespace_normal().text_color(t.foreground).child(item.summary))
+            .when(Boolean(item.refusal), el => el.child(div().rounded(5).px(8).py(6).bg(t.blocked + "15").text_size(11).text_color(t.blocked).whitespace_normal().child(`Refused: ${item.refusal}`))));
+      }));
+      detail.child(v_flex().id("activity-card").flex_shrink_0().min_w(0).rounded(10).bg(t.raised).border_1().border_color(t.border).overflow_hidden()
+        .child(h_flex().px(14).py(11).gap(8).items_center().border_b_1().border_color(t.border)
+          .child(icon("refresh").text_color(t.accent))
+          .child(div().flex_1().text_size(13).font_semibold().child("Activity"))
+          .child(badge(String(activity.length), t.dim))
+          .child(div().size(6).rounded(3).bg(this.live ? t.done : t.dim))
+          .child(div().text_size(10).text_color(t.dim).child(this.live ? "LIVE" : "OFFLINE")))
+        .child(stream));
+      detail.child(div().text_size(13).whitespace_normal().child(selected.description || "No description."));
     }
     const form = v_flex().id("factory-action-form").flex_1().min_h(0).overflow_y_scroll().p(18).gap(12);
     if (this.form) {
