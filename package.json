@@ -7,7 +7,7 @@
     "build": "bun run --cwd apps/dashboard build",
     "start": "bun run --cwd apps/dashboard start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit --incremental false",
+    "typecheck": "next typegen apps/dashboard && tsc --noEmit --incremental false",
     "check": "bun run lint && bun run typecheck && bun run skills:check && bun run test:regressions",
     "skills:sync": "bun scripts/sync-skills.ts",
     "skills:check": "bun scripts/sync-skills.ts --check",

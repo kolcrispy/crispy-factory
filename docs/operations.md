@@ -30,6 +30,8 @@ Tailwind scans only authored dashboard `app/` and `components/` sources. Keep ge
 
 `bun run check` runs lint, whole-project typecheck, Factory skill installation parity, and disposable PostgreSQL regressions. CI runs it on pull requests and main using Bun 1.4.4 and PostgreSQL 17. Generated Herdr `gpui-kit.d.ts` declarations describe a different runtime and are excluded from Bun/Node typechecking; validate that mod with `herdr-app check apps/herdr/mods/factory`.
 
+`bun run typecheck` generates dashboard route types before compiling, so clean CI checkouts do not depend on a prior dashboard build or development server.
+
 Install Chromium once with `bun x playwright install chromium`, then run `bun run smoke:dashboard`. This command provisions its own temporary PostgreSQL cluster, owner, repository/job fixtures, copied dashboard, free port, and browser. It checks authenticated Inbox, Settings, and Repositories for runtime errors and document reloads across polling and generated-log writes. Server exits fail the smoke. Owned child processes and runtime copies are cleaned up; the final screenshot stays under `.scratch/dashboard-smoke-evidence` (override with `FACTORY_SMOKE_ARTIFACTS`). No live dashboard, runner, credentials, or operational database is used. The browser smoke is skipped by the regular regression command and runs separately in CI.
 
 Run detail's Merge confirmation closes immediately after confirmation. The durable approval stays queued for the runner; the Merge trigger shows pending work and notifications report completion or refusal while the detail remains open. Closing the dialog does not authorize a different SHA or bypass merge checks.
