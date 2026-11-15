@@ -237,7 +237,17 @@ export default class Factory extends View {
     const spinner = color => icon("spinner").text_color(color).spin(900);
     const badge = (label, color) => div().px(7).py(3).rounded(5).bg(color + "20").text_color(color).text_size(11).font_semibold().child(label);
     const marker = stage => activeStage(stage) ? spinner(stageColor(stage, t)) : div().size(7).rounded(4).bg(stageColor(stage, t));
-    const button = (id, label, action, symbol, busy = false) => h_flex().id(id).flex_shrink_0().px(8).py(6).gap(6).items_center().rounded(6).bg(t.raised).border_1().border_color(busy ? t.accent : t.border).cursor_pointer().text_size(12).accessibility_label(label).tooltip(label).hover(el => el.bg(t.hover)).when(busy, el => el.child(spinner(t.accent))).when(Boolean(symbol) && !busy, el => el.child(icon(symbol))).when(Boolean(label) && !["refresh", "close-detail"].includes(id), el => el.child(label)).on_click((_e, cx) => action(cx));
+    const primaryActions = new Set(["new-job", "send-action", "pair-runner", "action-answer", "action-approve", "action-retry", "action-review"]);
+    const button = (id, label, action, symbol, busy = false) => {
+      const primary = primaryActions.has(id);
+      const foreground = primary ? t.background : t.foreground;
+      return h_flex().id(id).flex_shrink_0().px(8).py(6).gap(6).items_center().rounded(6)
+        .bg(primary ? t.foreground : t.raised).text_color(foreground).border_1().border_color(primary ? t.foreground : busy ? t.accent : t.border)
+        .cursor_pointer().text_size(12).when(primary, el => el.font_semibold()).accessibility_label(label).tooltip(label)
+        .hover(el => el.bg(primary ? t.dim : t.hover)).when(busy, el => el.child(spinner(primary ? foreground : t.accent)))
+        .when(Boolean(symbol) && !busy, el => el.child(icon(symbol)))
+        .when(Boolean(label) && !["refresh", "close-detail"].includes(id), el => el.child(label)).on_click((_e, cx) => action(cx));
+    };
     const dropdown = (field, options) => Popover.new(`${field}-dropdown`).open(this.dropdown === field)
       .on_open_change((open, cx) => { this.dropdown = open ? field : null; cx.notify(); })
       .trigger(h_flex().id(`${field}-filter`).px(9).py(7).gap(6).items_center().rounded(6).border_1().border_color(t.border).cursor_pointer().text_size(12)
