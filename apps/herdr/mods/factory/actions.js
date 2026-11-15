@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 
 const kinds = { answer: "answer", changes: "request_changes", stop: "stop", approve: "approve_merge", close: "close_job", retry: "retry_job", "retry-stop": "retry_stop" };
 export const terminal = result => result.ok === false || ["done", "failed", "refused"].includes(result.status);
-export const resultText = result => String(result.message || result.result?.error || JSON.stringify(result.result ?? result)).slice(0, 600);
+export const resultText = result => String(result.message || result.result?.error || "Request failed. Inspect job history for details.").slice(0, 600);
 
 /** Pending metadata never contains a brief, feedback, credentials, or a replayable mutation. */
 export class Actions {
@@ -33,7 +33,7 @@ export class Actions {
       if (result.intentId) item.intentId = result.intentId;
       if (result.ok === false || (!item.intentId && !result.status) || terminal(result)) {
         this.pending = this.pending.filter(p => p !== item);
-        this.notice = `${label}: ${result.ok === false || ["failed", "refused"].includes(result.status) ? "refused/failed" : "completed"}. ${resultText(result)}`;
+        this.notice = result.ok === false || ["failed", "refused"].includes(result.status) ? `${label}: refused/failed. ${resultText(result)}` : "";
       } else { item.status = result.status ?? "queued"; this.notice = `${label}: accepted, waiting for runner.`; }
       await this.persist();
       return result;
@@ -72,7 +72,7 @@ export class Actions {
         }
         if (terminal(result)) {
           this.pending = this.pending.filter(p => p !== item);
-          this.notice = `${item.label}: ${result.status}. ${resultText(result)}`;
+          this.notice = result.ok === false || ["failed", "refused"].includes(result.status) ? `${item.label}: refused/failed. ${resultText(result)}` : "";
         } else item.status = result.status ?? "queued";
       }
       await this.persist();

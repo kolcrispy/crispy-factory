@@ -54,6 +54,8 @@ Herdr invokes the trusted local CLI using structured argv and the configured che
 Automatic job updates come only from SSE; Herdr has no periodic CLI refresh, including while disconnected. A one-time startup read and explicit Refresh can load jobs through the local CLI. New job loads defaults on opening. Selected-job controls update when its SSE projection changes; pending receipts reconcile on startup, changed job snapshots, or explicit Refresh. Offline data stays stale until reconnection or manual Refresh.
 
 Merge confirms the displayed SHA; attempt-sensitive actions retain the displayed attempt and answers retain question identity. Runner merge/review/stop safeguards still apply. Offline acceptance means queued, not completed. Drafts are memory-only. Herdr home's `factory-pending-actions.json` retains only request/intent IDs and action metadata across reloads, outside the watched mod directory. Refresh inspects receipts without replaying mutations. For unknown outcomes, inspect CLI request status and job history before using Resolve inspected request and typing its UUID. Releasing a local hold neither cancels nor retries work; an original process can still finish. Never file a duplicate merely because a response was lost.
+Successful Herdr actions clear their pending receipt without a completion banner or raw CLI JSON. Failed/refused and uncertain outcomes remain visible for operator recovery.
+
 
 
 ## Agent operations
