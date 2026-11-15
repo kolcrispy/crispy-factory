@@ -40,7 +40,7 @@ export default class Factory extends View {
       save: async value => { if (value === this.journal) return; await writeTextFile(`${appHome()}/factory-pending-actions.json`, value, this.journal); this.journal = value; },
       changed: () => cx.notify(),
     });
-    cx.spawn(async cx => { try { await this.actions.restore(); } catch (error) { this.error = error.message; cx.notify(); } });
+    cx.spawn(async cx => { try { await this.actions.restore(); await this.actions.reconcile(); } catch (error) { this.error = error.message; cx.notify(); } });
     this.search = InputState.new({ placeholder: "Search title or JOB key" });
     this.live = false;
     this.pairCode = InputState.new({ placeholder: "One-time pairing code" });
@@ -49,7 +49,6 @@ export default class Factory extends View {
     this.runnerUrl.on("change", (_event, cx) => cx.notify());
     this.search.on("change", (_event, cx) => { this.query = this.search.value().toLowerCase(); cx.notify(); });
     this.refresh(cx);
-    cx.timer.every(10000, cx => this.refresh(cx));
     cx.spawn(async cx => {
       for (;;) {
         try {
@@ -59,6 +58,18 @@ export default class Factory extends View {
             if (snapshot.version !== 1 || !Array.isArray(snapshot.jobs)) throw new Error("Unsupported runner snapshot");
             this.jobs = snapshot.jobs; this.repositories = snapshot.repositories;
             this.spend = snapshot.spend ?? {};
+            const selectedRevision = JSON.stringify(snapshot.jobs.find(job => job.id === this.selected));
+            if (selectedRevision !== this.selectedRevision) {
+              this.selectedRevision = selectedRevision;
+              if (this.selected) this.loadControls(cx);
+            }
+            const jobsRevision = JSON.stringify(snapshot.jobs);
+            if (jobsRevision !== this.jobsRevision) {
+              this.jobsRevision = jobsRevision;
+              if (this.actions.pending.length) cx.spawn(async cx => {
+                try { await this.actions.reconcile(); } catch (error) { this.error = error.message; cx.notify(); }
+              });
+            }
             this.live = true; this.error = ""; this.updated = new Date().toLocaleTimeString(); cx.notify();
           });
         } catch (error) { this.live = false; this.error = error instanceof Error ? error.message : "Runner offline"; cx.notify(); }
@@ -85,7 +96,7 @@ export default class Factory extends View {
           const rows = this.visibleJobs();
           this.selected = rows[(rows.findIndex(j => j.id === this.selected) + 1) % rows.length]?.id ?? null;
         }
-        if (this.selected) this.loadControls(cx);
+        if (command === "next-job" && this.selected) this.loadControls(cx);
         cx.notify();
       }
     });
@@ -97,25 +108,14 @@ export default class Factory extends View {
     cx.notify();
     cx.spawn(async cx => {
       try {
-        const raw = await readTextFile(`${appHome()}/mods/factory/local.json`);
-        const config = { ...(raw ? JSON.parse(raw) : {}), ...(props() ?? {}) };
-        if (!config.factoryHome || !config.bun) throw new Error("Install this mod from the Factory checkout to configure Bun and factoryHome.");
-        this.config = config;
-        const [result, repositoryResult] = await Promise.all([
-          exec(config.bun, ["apps/cli/src/index.ts", "jobs", "list"], { cwd: config.factoryHome, timeout: 20000 }),
-          exec(config.bun, ["apps/cli/src/index.ts", "repositories", "list"], { cwd: config.factoryHome, timeout: 20000 }),
-        ]);
-        if (result.code !== 0 || repositoryResult.code !== 0) throw new Error("Factory CLI failed. Check database access and the checkout configuration.");
-        const data = JSON.parse(result.stdout);
-        const registry = JSON.parse(repositoryResult.stdout);
-        this.defaults = (await this.cli("jobs", "defaults", {})).repositories ?? [];
-        if (this.form?.action === "create" && !this.createRepo) this.createRepo = this.defaults.find(repo => repo.is_default)?.repo ?? this.defaults[0]?.repo ?? "";
+        if (!this.live) {
+          const data = await this.cli("jobs", "list", {});
+          if (!Array.isArray(data.jobs)) throw new Error(data.message ?? "Factory CLI returned invalid jobs.");
+          this.jobs = data.jobs;
+          this.updated = new Date().toLocaleTimeString();
+        }
         await this.actions.reconcile();
         if (this.selected) this.loadControls(cx);
-        if (this.live) return;
-        if (!Array.isArray(data.jobs) || !Array.isArray(registry.repositories)) throw new Error("Factory CLI returned invalid jobs or repositories.");
-        this.jobs = data.jobs;
-        this.repositories = registry.repositories;
         this.updated = new Date().toLocaleTimeString();
         this.error = "";
       } catch (error) {
@@ -128,7 +128,12 @@ export default class Factory extends View {
   }
 
   async cli(resource, action, input) {
-    if (!this.config) throw new Error("Local CLI configuration unavailable.");
+    if (!this.config) {
+      const raw = await readTextFile(`${appHome()}/mods/factory/local.json`);
+      const config = { ...(raw ? JSON.parse(raw) : {}), ...(props() ?? {}) };
+      if (!config.factoryHome || !config.bun) throw new Error("Install this mod from the Factory checkout to configure Bun and factoryHome.");
+      this.config = config;
+    }
     const result = await exec(this.config.bun, ["apps/cli/src/index.ts", resource, action, "--input", JSON.stringify(input)], { cwd: this.config.factoryHome, timeout: 20000 });
     try { return JSON.parse(result.stdout); } catch { throw new Error("CLI outcome unavailable. Inspect pending requests before retrying."); }
   }
@@ -145,7 +150,18 @@ export default class Factory extends View {
   openForm(action, cx) {
     this.form = { action, controls: this.controls, jobId: this.selected };
     this.bodyInput.set_value(""); this.titleInput.set_value("");
-    if (action === "create") this.createRepo = this.defaults.find(repo => repo.is_default)?.repo ?? this.defaults[0]?.repo ?? "";
+    if (action === "create") {
+      this.createRepo = "";
+      cx.spawn(async cx => {
+        try {
+          const result = await this.cli("jobs", "defaults", {});
+          if (!Array.isArray(result.repositories)) throw new Error(result.message ?? "Could not load repository defaults.");
+          this.defaults = result.repositories;
+          this.createRepo = this.defaults.find(repo => repo.is_default)?.repo ?? this.defaults[0]?.repo ?? "";
+        } catch (error) { this.error = error.message; }
+        cx.notify();
+      });
+    }
     cx.notify();
   }
 
@@ -164,7 +180,7 @@ export default class Factory extends View {
     };
     this.form = null;
     cx.spawn(async cx => {
-      try { await this.actions.submit(form.action, input, form.action); this.refresh(cx); }
+      try { await this.actions.submit(form.action, input, form.action); if (this.selected) this.loadControls(cx); }
       catch (error) { this.error = error.message; }
       cx.notify();
     });
