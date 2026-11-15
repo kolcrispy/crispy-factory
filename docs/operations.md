@@ -56,6 +56,8 @@ Automatic job updates come only from SSE; Herdr has no periodic CLI refresh, inc
 Merge confirms the displayed SHA; attempt-sensitive actions retain the displayed attempt and answers retain question identity. Runner merge/review/stop safeguards still apply. Offline acceptance means queued, not completed. Drafts are memory-only. Herdr home's `factory-pending-actions.json` retains only request/intent IDs and action metadata across reloads, outside the watched mod directory. Refresh inspects receipts without replaying mutations. For unknown outcomes, inspect CLI request status and job history before using Resolve inspected request and typing its UUID. Releasing a local hold neither cancels nor retries work; an original process can still finish. Never file a duplicate merely because a response was lost.
 Successful Herdr actions clear their pending receipt without a completion banner or raw CLI JSON. Failed/refused and uncertain outcomes remain visible for operator recovery.
 Job detail places Activity directly below action buttons and before the brief. Its newest-first timeline uses themed event colors, timestamps, a left rail and an independently scrollable 360px window; the header shows event count and live/offline state.
+Wheel and trackpad events over the Activity card stop at the card after its inner scroll area handles them, so reaching either timeline edge does not scroll the surrounding job detail.
+
 
 
 

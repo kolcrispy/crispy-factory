@@ -331,6 +331,7 @@ export default class Factory extends View {
             .when(Boolean(item.refusal), el => el.child(div().rounded(5).px(8).py(6).bg(t.blocked + "15").text_size(11).text_color(t.blocked).whitespace_normal().child(`Refused: ${item.refusal}`))));
       }));
       detail.child(v_flex().id("activity-card").flex_shrink_0().min_w(0).rounded(10).bg(t.raised).border_1().border_color(t.border).overflow_hidden()
+        .on_scroll_wheel((_event, cx) => cx.stop_propagation())
         .child(h_flex().px(14).py(11).gap(8).items_center().border_b_1().border_color(t.border)
           .child(icon("refresh").text_color(t.accent))
           .child(div().flex_1().text_size(13).font_semibold().child("Activity"))
