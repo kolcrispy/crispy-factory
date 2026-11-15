@@ -238,8 +238,8 @@ try {
   const job = await row(INGEST);
   assert.deepEqual(
     [job.evidence?.sha, job.evidence?.clean, job.evidence?.checks.length, job.stage],
-    [SHA_B, false, 2, "verifying"],
-    "the job's summary follows its newest evidence; the stage is the agent's and stays",
+    [SHA_B, false, 2, "building"],
+    "new evidence updates its summary without changing the runner-owned phase",
   );
   assert.equal((await db.select().from(runs).where(eq(runs.session_id, `evidence:factory/${INGEST}`))).length, 0, "evidence opens no run");
   const [event] = await db.select().from(events).where(eq(events.event_id, `evidence-regress-${INGEST}-${SHA_A}-1000`));
