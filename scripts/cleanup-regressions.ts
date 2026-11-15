@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planCleanup, type BranchState } from "@factory/core/cleanup";
 import { attemptBranch, parseBranch } from "@factory/core/factory";
+import { localHost } from "@factory/core/host";
 
 // A T3 CLI with no threads; the cleanup modules read the path when they load. The fake is a
 // shebang script, which Windows cannot spawn, and T3 here is the macOS/Linux runner's executable:
@@ -81,7 +82,7 @@ try {
     if (branch === "factory/TST-3") throw new Error("GitHub GET /repos/o/r/pulls answered 502");
     return [{ state: "merged", headSha: mergedHead, mergedAt: now, closedAt: now }];
   };
-  const report = await cleanupRepo(repo, new Map(), 3, { now });
+  const report = await cleanupRepo(repo, new Map(), 3, { now, host: { ...localHost, run: async (command, args, options) => command === "git" && args[0] === "ls-remote" ? { stdout: "", stderr: "" } : localHost.run(command, args, options) } });
   assert.deepEqual(report.removed.map((r) => r.key), ["TST-4"], "a branch GitHub fails for does not stop the next one from being cleaned");
   assert.deepEqual(report.held, [{ key: "TST-3", reason: "cleanup failed: GitHub GET /repos/o/r/pulls answered 502" }], "it is held with the error");
   assert.equal(inRepo("branch", "--list", "factory/*", "--format=%(refname:short)"), "factory/TST-3", "only the merged branch is deleted");
@@ -95,7 +96,7 @@ try {
   inOther("worktree", "add", "-q", "-b", "agent-1", join(other, ".claude/worktrees/agent-1"));
   ops.config.factory.repos = [other];
   const cleaned = await ops.cleanup(true);
-  assert.deepEqual(cleaned.errors, [{ repo: other, step: "factory", error: `${other} has no GitHub origin` }], "the factory cleanup's error is reported");
+  assert.deepEqual(cleaned.errors, ["factory", "reviewers"].map(step => ({ repo: other, step, error: `${other} has no GitHub origin` })), "each repository cleanup error is reported");
   assert.deepEqual(cleaned.held, [{ key: "agent-1", reason: "touched within the idle window; a subagent may still use it" }], "and the subagent cleanup still ran");
 
   let launched = false;

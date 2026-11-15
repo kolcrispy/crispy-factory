@@ -39,6 +39,7 @@ For agent investigations, use bounded service log tails rather than full transcr
 - **Shutdown.** SIGINT/SIGTERM stops scheduling, clears delayed rechecks, waits for queued and timed-out work, waits for verification races to settle, then stops the report server and releases ownership.
 - **GitHub.** All API work goes through the runner's authenticated `gh`. The dashboard never holds credentials.
 - **Execution.** Every attempt runs locally in an attempt-isolated `factory/<KEY>` or `factory/<KEY>-a<n>` worktree.
+- **Cleanup.** Startup and hourly cleanup remove finished builder and reviewer worktrees. Failed jobs retain the configured grace period. Reviewer cleanup includes prior-attempt review history and requires a registered checkout at the reviewed SHA, no uncommitted files, and confirmed stopped execution; unknown ownership holds it. Remote `factory/*` branches are deleted only when the PR merged at the exact current branch SHA, using a force-with-lease deletion to reject concurrent pushes. Already-absent remote branches need no action. Active, dirty or unmerged remote branches remain untouched.
 - **Reporting.** At startup the runner installs branch-guarded Claude Code hooks in `~/.claude/settings.json` and the `factory-report` MCP server in `~/.codex/config.toml`. Both files are merged idempotently and preserve unrelated settings. Committed target-repository files are never modified.
 
 ### Realtime clients

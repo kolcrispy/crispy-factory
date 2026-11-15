@@ -7,7 +7,7 @@ import { parseJobId, SOURCE_SHAPES } from "@factory/core/sources/shapes";
 import type { Job, JobId } from "@factory/core/sources/types";
 import { canTransition, runnerEventId } from "@factory/core/stages";
 import { subagentTranscripts, sumUsage, transcriptPathFor } from "@factory/core/transcript";
-import { checkoutRepo, cleanupRepo, cleanupSubagentWorktrees } from "@factory/core/worktrees";
+import { checkoutRepo, cleanupRepo, cleanupReviewerWorktrees, cleanupSubagentWorktrees } from "@factory/core/worktrees";
 import { github } from "@factory/integrations/github/pulls";
 import { claimConflict, conflictMessage, unclaimedRunsWithPr } from "@factory/core/conflicts";
 import { attemptBranch, isMcpSession } from "@factory/core/factory";
@@ -475,6 +475,7 @@ export async function toLaunch() {
 
 export async function cleanup(dryRun = false) {
   const all = await db.select().from(jobs);
+  const machine = await thisMachine();
   const byKey = new Map(all.map((j) => [j.key, j]));
   // One after the other: both edit the same repo's worktree list and refs, and git locks them.
   // Each on its own, so a repo GitHub or T3 cannot answer for still gets its subagent worktrees cleaned.
@@ -492,6 +493,12 @@ export async function cleanup(dryRun = false) {
         directBranches.set(attemptBranch(job.key, job.attempt), running);
       }
       return cleanupRepo(repo, byKey, config.factory.cleanupGraceDays, { dryRun, directBranches });
+    }],
+    ["reviewers", async (repo: string) => {
+      const remote = await checkoutRepo(repo);
+      const owned = all.filter(job => job.repo === remote && job.machine_id === machine.id);
+      return cleanupReviewerWorktrees(repo, owned, config.factory.cleanupGraceDays,
+        async threadId => (await threads.state(threadId, localHost)) === "running", { dryRun });
     }],
     ["subagents", (repo: string) => cleanupSubagentWorktrees(repo, config.factory.subagentIdleHours, { dryRun })],
   ] as const;
