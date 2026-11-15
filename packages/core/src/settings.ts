@@ -8,8 +8,8 @@ import type { Harness } from "./harness";
 import { autonomySchema, DEFAULT_POLICY, type Autonomy, type RepoPolicy } from "./merge-decision";
 import { reviewOverridesSchema, type ReviewOverrides } from "./review";
 
-// The panel's factory settings: which T3 provider instance and model new threads start on, and
-// where. The runner reads them on every launch pass and falls back to its config when none are saved.
+// Factory settings select the direct execution adapter and optional model override.
+// An empty model inherits the installed runtime's native default at launch.
 // Per repo, how far the factory may merge on its own; see lib/merge-decision.ts.
 
 export const SETTINGS_ID = "factory";
@@ -17,8 +17,8 @@ export const SETTINGS_ID = "factory";
 type Db = NodePgDatabase<typeof schema>;
 
 export const settingsInputSchema = z.object({
-  provider: z.string().trim().min(1, "Pick a harness."),
-  model: z.string().trim().min(1, "Pick a model."),
+  provider: z.literal("omp"),
+  model: z.string().trim(),
   review: reviewOverridesSchema.optional(),
 });
 export type SettingsInput = z.input<typeof settingsInputSchema>;
@@ -88,7 +88,7 @@ export async function saveSettings(deps: SettingsDeps, input: unknown): Promise<
   if (harnesses) {
     const harness = harnesses.find((h) => h.id === provider && h.enabled);
     if (!harness) return { ok: false, status: 400, message: `No machine reports an enabled harness ${provider}.` };
-    if (!harness.models.some((m) => m.slug === model)) return { ok: false, status: 400, message: `${harness.name} has no model ${model}.` };
+    if (model && !harness.models.some((m) => m.slug === model)) return { ok: false, status: 400, message: `${harness.name} has no model ${model}.` };
   }
   try {
     await deps.save({ provider, model, ...(review !== undefined && { review }) }, user.email);

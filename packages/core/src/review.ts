@@ -5,7 +5,7 @@ import type { HarnessChoice } from "./settings";
 /** Null means inherit at repo/job scope, and Follow builder at global scope. */
 export const reviewOverridesSchema = z.object({
   enabled: z.boolean().nullable().optional(),
-  provider: z.string().trim().min(1).nullable().optional(),
+  provider: z.literal("omp").nullable().optional(),
   model: z.string().trim().min(1).nullable().optional(),
 });
 export type ReviewOverrides = z.infer<typeof reviewOverridesSchema>;

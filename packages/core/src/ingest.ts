@@ -57,7 +57,7 @@ async function upsertRun(tx: Tx, event: FactoryEvent) {
           repo: event.repo,
           branch: event.branch,
           job_key: parseBranch(event.branch)?.key,
-          t3_thread_id: event.t3ThreadId,
+          execution_id: event.executionId,
           title: event.title,
           model: event.model,
         }
@@ -96,7 +96,7 @@ async function upsertRun(tx: Tx, event: FactoryEvent) {
             }
           : {}),
         ...Object.fromEntries(
-          ["cwd", "repo", "branch", "job_key", "t3_thread_id", "title", "model", "transcript_path"]
+          ["cwd", "repo", "branch", "job_key", "execution_id", "title", "model", "transcript_path"]
             .filter((name) => name in meta)
             .map((name) => [name, keep(name)]),
         ),
@@ -330,7 +330,7 @@ async function linkSession(tx: Tx, event: Extract<FactoryEvent, { kind: "session
     .update(jobs)
     .set({
       session_id: event.sessionId,
-      t3_thread_id: sql`coalesce(${event.t3ThreadId ?? null}, ${jobs.t3_thread_id})`,
+      execution_id: sql`coalesce(${event.executionId ?? null}, ${jobs.execution_id})`,
       updated_at: when(event.at),
     })
     // Only the job's current attempt branch, so an older attempt's thread cannot move a retry.

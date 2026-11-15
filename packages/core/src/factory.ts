@@ -1,7 +1,3 @@
-export const REPORT_SERVER = "factory-report";
-export const REPORT_TOOL = "report_work";
-/** The name Claude Code gives the tool; hook payloads and PostToolUse matchers use it. */
-export const REPORT_WORK_TOOL = `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
 
 // A job key is its branch identity: `<PREFIX>-<n>` or `<PREFIX>-<scope>-<n>`.
 // Internal jobs use JOB-n. The parser also accepts prior namespaces so existing
@@ -39,6 +35,3 @@ export function parseBranch(branch: string | undefined): { key: string; attempt:
   return { key: match[1]!, attempt: match[2] ? Number(match[2]) : 1 };
 }
 
-/** The session the factory-report MCP server reports under for an attempt branch, where no hooks name one. */
-export const mcpSessionId = (branch: string) => `mcp:${branch}`;
-export const isMcpSession = (sessionId: string) => sessionId.startsWith("mcp:");

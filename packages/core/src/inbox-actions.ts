@@ -263,7 +263,7 @@ export async function retryFailed(deps: InboxDeps, jobId: JobId, requestId: stri
 }
 
 /**
- * Hides a failed job, or an unconfirmed stop the owner checked in T3, from the inbox and changes
+ * Hides a failed job, or an unconfirmed stop the owner checked in OMP, from the inbox and changes
  * nothing else; a later failure shows again. Dismissing an unconfirmed stop also lets the label retry the job.
  */
 export async function dismissJob(deps: InboxDeps, jobId: JobId): Promise<InboxOutcome> {

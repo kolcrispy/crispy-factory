@@ -49,7 +49,6 @@ async function uploadImage(file: File): Promise<ImageUploadOutcome> {
   return (await res.json().catch(() => ({ ok: false, status: 502, message: `The panel answered ${res.status}.` }))) as ImageUploadOutcome;
 }
 
-const SETTINGS_DEFAULT = "settings-default";
 
 
 /** Persists an internal job for the local runner. */
@@ -78,7 +77,6 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
   };
   const repoItems = repos.filter((r) => r.enabled).map((r) => ({ value: r.repo, label: displayName(r) }));
   const defaultRepo = repos.find((r) => r.is_default)?.repo ?? null;
-  const harnessItems = [{ value: SETTINGS_DEFAULT, label: "Settings default" }, ...harnesses.map((h) => ({ value: h.id, label: h.name }))];
   const picker = useRef<HTMLInputElement>(null);
   const uploading = images.some((i) => i.status === "uploading");
 
@@ -255,33 +253,6 @@ export function NewJobButton({ harnesses, repos }: { harnesses: readonly Harness
                     )}
                   />
                 )}
-                <div className="grid gap-4">
-                  <Controller
-                    name="provider"
-                    control={form.control}
-                    render={({ field }) => (
-                      <Field>
-                        <FieldLabel htmlFor="new-job-harness">Harness</FieldLabel>
-                        <Select
-                          items={harnessItems}
-                          value={field.value ?? SETTINGS_DEFAULT}
-                          onValueChange={(v) => field.onChange(v === null || v === SETTINGS_DEFAULT ? undefined : v)}
-                        >
-                          <SelectTrigger id="new-job-harness" className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectPopup>
-                            {harnessItems.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectPopup>
-                        </Select>
-                      </Field>
-                    )}
-                  />
-                </div>
                 <Controller control={form.control} name="review" render={({ field }) => (
                   <ReviewSettings value={field.value ?? {}} onChange={field.onChange} harnesses={harnesses} />
                 )} />

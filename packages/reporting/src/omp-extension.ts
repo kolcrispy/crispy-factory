@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { builderReportSchema, type BuilderReport, type FactoryEvent } from "@factory/core/events";
 import { reportEvents } from "@factory/core/outbox";
-import { mcpIdentity } from "@factory/core/report-identity";
+import { reportIdentity } from "@factory/core/report-identity";
 import { screenshotEvents, unreadable } from "@factory/core/screenshot-files";
 
 // Structural contract: the extension runs inside the installed OMP, not a second bundled OMP.
@@ -29,7 +29,7 @@ export default function factoryReporting(omp: ReportingExtension) {
     parameters: z.toJSONSchema(builderReportSchema),
     async execute(toolCallId, input) {
       const report = builderReportSchema.parse(input);
-      const identity = mcpIdentity(process.env, process.cwd());
+      const identity = reportIdentity(process.env, process.cwd());
       if (!identity) throw new Error("OMP reporting has no factory attempt identity.");
       const missing = unreadable(report.assessment?.screenshots ?? []);
       if (missing.length) throw new Error(`Can't attach screenshots: ${missing.join("; ")}`);

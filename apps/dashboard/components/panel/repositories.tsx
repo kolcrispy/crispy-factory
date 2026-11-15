@@ -129,7 +129,7 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
   const { row, stats, places } = entry;
   const [name, setName] = useState(displayName(row));
   const [enabled, setEnabled] = useState(row.enabled);
-  const [provider, setProvider] = useState(row.provider ?? SETTINGS_DEFAULT);
+  const provider = "omp";
   const [model, setModel] = useState(row.model ?? SETTINGS_DEFAULT);
   const [review, setReview] = useState<ReviewOverrides>(row.review ?? {});
   const [autonomy, setAutonomy] = useState<Autonomy>(row.autonomy);
@@ -139,15 +139,9 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
   const [pending, startTransition] = useTransition();
   const id = (field: string) => `repo-${field}`;
 
-  const harnessItems = [
-    { value: SETTINGS_DEFAULT, label: "Settings default" },
-    ...harnesses.map((h) => ({ value: h.id, label: h.name })),
-    // A default harness no machine reports enabled any more still shows, so saving keeps it.
-    ...(row.provider && !harnesses.some((h) => h.id === row.provider) ? [{ value: row.provider, label: `${row.provider} (not reported by any runner)` }] : []),
-  ];
   const selectedHarness = harnesses.find((h) => h.id === provider);
   const modelItems = [
-    { value: SETTINGS_DEFAULT, label: "Harness default" },
+    { value: SETTINGS_DEFAULT, label: "Settings default" },
     ...(selectedHarness?.models ?? []).map((m) => ({ value: m.slug, label: m.name })),
     ...(model !== SETTINGS_DEFAULT && !selectedHarness?.models.some((m) => m.slug === model) ? [{ value: model, label: `${model} (not reported by any runner)` }] : []),
   ];
@@ -173,8 +167,8 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
         repo: row.repo,
         displayName: name,
         enabled,
-        provider: provider === SETTINGS_DEFAULT ? null : provider,
-        model: provider === SETTINGS_DEFAULT || model === SETTINGS_DEFAULT ? null : model,
+        provider,
+        model: model === SETTINGS_DEFAULT ? null : model,
         review,
         autonomy,
       }),
@@ -263,23 +257,8 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
           <ReviewSettings value={review} onChange={setReview} harnesses={harnesses} />
           <div className="grid w-full grid-cols-2 gap-4">
             <Field>
-              <FieldLabel htmlFor={id("harness")}>Default harness</FieldLabel>
-              <Select items={harnessItems} value={provider} onValueChange={(value) => { if (value !== null) { setProvider(value); setModel(SETTINGS_DEFAULT); } }}>
-                <SelectTrigger id={id("harness")} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopup>
-                  {harnessItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-            <Field>
               <FieldLabel htmlFor={id("model")}>Default model</FieldLabel>
-              <Select items={modelItems} value={model} disabled={provider === SETTINGS_DEFAULT} onValueChange={(value) => value !== null && setModel(value)}>
+              <Select items={modelItems} value={model} onValueChange={(value) => value !== null && setModel(value)}>
                 <SelectTrigger id={id("model")} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -289,10 +268,10 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
                   ))}
                 </SelectPopup>
               </Select>
-              <FieldDescription>Select a harness to override its model. Otherwise Settings decide.</FieldDescription>
+              <FieldDescription>Override the OMP model or inherit Settings.</FieldDescription>
             </Field>
             <p className="col-span-2 text-sm text-muted-foreground">
-              Jobs run locally in attempt-isolated worktrees. A job&apos;s selected harness overrides this default.
+              Jobs run locally in attempt-isolated OMP worktrees.
             </p>
           </div>
           <Field>

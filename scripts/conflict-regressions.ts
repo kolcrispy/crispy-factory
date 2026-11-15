@@ -33,7 +33,7 @@ try {
   assert.ok(!picked.includes(`${id}-claimed`), "a claimed job's run is left to the job path");
 
   const prUrl = `https://github.com/ski043/factory-demo/pull/${Date.now()}`;
-  await db.update(jobs).set({ stage: "ready", pr_url: prUrl, conflict_head: null, t3_thread_id: "thread-1" }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ stage: "ready", pr_url: prUrl, conflict_head: null, execution_id: "thread-1" }).where(eq(jobs.id, jid));
   let ours: PullRequest = { state: "open", mergeable: "unknown", headSha: "head-3", title: "t" };
   github.pullRequest = async (url) => {
     if (url === bad.url) throw new Error(`${url} is not a GitHub pull request URL`);

@@ -32,10 +32,8 @@ if (process.argv.includes("--uninstall")) {
 
 // launchd starts with a bare PATH, so carry the directories of every tool the runner calls.
 const tools = ["bun", "git"].map(which);
-// T3 exports its CLI path only to sessions it starts; the daemon gets it from here.
-// T3 installs its launcher at ~/.t3/bin/t3 and puts it on the login shell's PATH; launchd has neither.
-const t3 = process.env.T3CODE_CLI_PATH ?? [join(homedir(), ".t3/bin/t3")].find(existsSync) ?? which("t3");
-const path = [...new Set([...tools.map(dirname), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
+const omp = which("omp");
+const path = [...new Set([...tools.map(dirname), dirname(omp), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
 const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -49,7 +47,6 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
   <dict>
     <key>PATH</key><string>${escape(path)}</string>
     <key>HOME</key><string>${escape(homedir())}</string>
-    <key>T3CODE_CLI_PATH</key><string>${escape(t3)}</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

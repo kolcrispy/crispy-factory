@@ -28,8 +28,8 @@ export function withRepoDefaults(settings: LaunchDefaults, repo: RepoSettingsRow
   let harness = settings.harness;
   if (repo?.provider) {
     const selected = harnesses?.find((h) => h.id === repo.provider && h.enabled);
-    if (!repo.model && !selected?.defaultModel && repo.provider === settings.harness.provider) return { defaults: { harness }, problems };
-    const model = repo.model ?? selected?.defaultModel ?? selected?.models[0]?.slug;
+    if (!repo.model && repo.provider === settings.harness.provider) return { defaults: { harness }, problems };
+    const model = repo.model ?? selected?.defaultModel;
     if (model && selected?.models.some((candidate) => candidate.slug === model)) {
       harness = { provider: repo.provider, model, from: "repo" };
     } else {

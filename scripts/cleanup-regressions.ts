@@ -8,16 +8,6 @@ import { planCleanup, type BranchState } from "@factory/core/cleanup";
 import { attemptBranch, parseBranch } from "@factory/core/factory";
 import { localHost } from "@factory/core/host";
 
-// A T3 CLI with no threads; the cleanup modules read the path when they load. The fake is a
-// shebang script, which Windows cannot spawn, and T3 here is the macOS/Linux runner's executable:
-// this suite reports itself skipped there rather than pretending it ran.
-if (process.platform === "win32") {
-  console.log("cleanup regressions skipped: the fake t3 CLI needs a POSIX executable host");
-  process.exit(77);
-}
-const t3Dir = mkdtempSync(join(tmpdir(), "cleanup-t3-"));
-process.env.T3CODE_CLI_PATH = join(t3Dir, "t3");
-writeFileSync(process.env.T3CODE_CLI_PATH, "#!/bin/sh\necho '[]'\n", { mode: 0o755 });
 const { cleanupRepo, linkedWorktrees } = await import("@factory/core/worktrees");
 const { github } = await import("@factory/integrations/github/pulls");
 const ops = await import("@factory/runner/ops");
@@ -82,7 +72,7 @@ try {
     if (branch === "factory/TST-3") throw new Error("GitHub GET /repos/o/r/pulls answered 502");
     return [{ state: "merged", headSha: mergedHead, mergedAt: now, closedAt: now }];
   };
-  const report = await cleanupRepo(repo, new Map(), 3, { now, host: { ...localHost, run: async (command, args, options) => command === "git" && args[0] === "ls-remote" ? { stdout: "", stderr: "" } : localHost.run(command, args, options) } });
+  const report = await cleanupRepo(repo, new Map(), 3, { now, directBranches: new Map([["factory/TST-3", false], ["factory/TST-4", false]]), host: { ...localHost, run: async (command, args, options) => command === "git" && args[0] === "ls-remote" ? { stdout: "", stderr: "" } : localHost.run(command, args, options) } });
   assert.deepEqual(report.removed.map((r) => r.key), ["TST-4"], "a branch GitHub fails for does not stop the next one from being cleaned");
   assert.deepEqual(report.held, [{ key: "TST-3", reason: "cleanup failed: GitHub GET /repos/o/r/pulls answered 502" }], "it is held with the error");
   assert.equal(inRepo("branch", "--list", "factory/*", "--format=%(refname:short)"), "factory/TST-3", "only the merged branch is deleted");
@@ -93,11 +83,10 @@ try {
   execFileSync("git", ["init", "-q", "-b", "main", other]);
   inOther("commit", "-q", "--allow-empty", "-m", "init");
   inOther("remote", "add", "origin", "https://gitlab.com/o/r.git");
-  inOther("worktree", "add", "-q", "-b", "agent-1", join(other, ".claude/worktrees/agent-1"));
   ops.config.factory.repos = [other];
   const cleaned = await ops.cleanup(true);
   assert.deepEqual(cleaned.errors, ["factory", "reviewers"].map(step => ({ repo: other, step, error: `${other} has no GitHub origin` })), "each repository cleanup error is reported");
-  assert.deepEqual(cleaned.held, [{ key: "agent-1", reason: "touched within the idle window; a subagent may still use it" }], "and the subagent cleanup still ran");
+  assert.deepEqual(cleaned.held, [], "unrelated user subagent worktrees are not managed by Factory");
 
   let launched = false;
   const started = await reconcile({
@@ -114,7 +103,6 @@ try {
   assert.deepEqual(started, { claimed: 1, cleaned: { error: "GitHub down" }, launched: ["TST-5"] });
 } finally {
   rmSync(dir, { recursive: true, force: true });
-  rmSync(t3Dir, { recursive: true, force: true });
 }
 
 console.log("cleanup regressions passed");

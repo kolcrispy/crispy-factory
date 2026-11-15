@@ -1,22 +1,22 @@
 # crispy-factory
 
-An internal software factory: create a job in the dashboard or CLI, and a local runner executes it with T3 Code or direct OMP in an isolated git worktree, then opens a pull request with your authenticated `gh`.
+An internal software factory: create a job in the dashboard or CLI, and a local runner executes it with OMP in an isolated git worktree, then opens a pull request with your authenticated `gh`.
 
 PostgreSQL is authoritative. The dashboard only records commands and reads projections; it never runs `gh` and holds no GitHub credentials.
 
 ## Pieces
 
 - `apps/dashboard/` - optional owner-protected Next.js supervision UI.
-- `apps/runner/` - the single foreground executor. Owns T3/OMP sessions, git, `gh`, repository preparation, recovery, merges, and evidence.
+- `apps/runner/` - the single foreground executor. Owns OMP sessions, git, `gh`, repository preparation, recovery, merges, and evidence.
 - `apps/cli/` - trusted operator access for owner provisioning and job control.
-- `packages/reporting/` - Claude Code hooks, the `factory-report` MCP server, and the explicit OMP reporting extension.
+- `packages/reporting/` - the explicit trusted OMP reporting extension and commit-bound verification.
 - `packages/core/` - domain models, projections, and pure contracts.
 - `playbooks/factory.md` - instructions every attempt follows.
 
 ## Requirements
 
 - Bun 1.4.4, PostgreSQL 17, git, and GitHub CLI.
-- T3 Code installed and running for T3-backed harnesses (`T3CODE_CLI_PATH` overrides), or authenticated OMP installed locally for harness `omp` (`FACTORY_OMP_PATH` overrides). OMP jobs do not require T3.
+- Authenticated OMP installed under the runner account (`FACTORY_OMP_PATH` overrides its executable).
 - `gh auth login` completed on the runner machine.
 - Linux or Windows. No service installer is required; run the runner in the foreground.
 
@@ -57,7 +57,7 @@ The runner binds the report server to `127.0.0.1`, so never expose that port pub
 bun apps/runner/src/index.ts
 ```
 
-Only one runner may own an installation at a time; it holds a PostgreSQL advisory-lock session. On startup it reconciles missed work, registers configured checkouts, and wires reporting into the user-level Claude Code and Codex configuration. Hooks stay inert outside `factory/*` branches.
+Only one runner may own an installation at a time; it holds a PostgreSQL advisory-lock session. Startup reconciles missed work and registers configured checkouts. Reporting loads explicitly into owned OMP sessions; startup never modifies global agent configuration. Empty model settings inherit the installed OMP runtime's native default.
 
 Dashboard:
 

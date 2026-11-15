@@ -2,11 +2,20 @@
 
 Runtime reference for the local factory. PostgreSQL is authoritative shared state.
 
+## OMP-only cutover
+
+OMP is the sole execution adapter. Migration `0059_omp_only_execution` renames execution bindings to `execution_id`; session-start events use `executionId`. T3 launch, pairing, inventory, hooks and MCP integration are removed. Do not run old processes against this schema. Preserve installed applications, credentials and existing user sessions.
+
+For an explicitly authorized fresh start: verify code against an isolated database, identify the direct configured target without printing credentials, back it up, stop dashboard and runner gracefully, reset application schemas and apply checkout migrations. Keep services stopped until the operator provisions accounts and repositories. Never automatically reset on startup.
+
+`bun scripts/cleanup-reporting.ts` explicitly removes only hooks pointing at this checkout and a marker-delimited MCP block whose executable arguments point at this checkout. It backs up changed configuration files and retains unrelated settings. Startup never installs or removes global integrations.
+
+
 ## Job lifecycle cutover
 
 Migration `0058_loving_sunspot` replaces phases with Queued, Building, Reviewing, Ready, Done and Failed. Needs human preserves phase and records actionable intervention; CI and slot waits alone do not count. Only confirmed merge means Done. Recovery ambiguity holds work rather than declaring terminal failure.
 
-Stop old runners and dashboards, reconcile owned sessions, then migrate before starting this revision. Do not mix old reporters with the new contract. Restart installs updated hooks/MCP; OMP sessions must load the updated explicit extension. Reinstall Herdr and synchronize Factory skills. Preserve pairing credentials and unrelated settings.
+Stop old runners and dashboards, reconcile owned sessions, then migrate before starting this revision. Do not mix old reporters with the new contract. OMP sessions must load the updated explicit extension. Reinstall Herdr and synchronize Factory skills. Preserve realtime pairing credentials and unrelated settings.
 
 Builders use `report_work` actions progress, needs_human and handoff. Handoff names the exact SHA and evidence event ID from `factory-verify --json`; only clean successful current-attempt evidence is accepted. Builders do not choose phases or publish PRs, including review-disabled attempts. The runner publishes after a valid handoff and independent PASS when enabled. Ready may still await checks or owner approval. Review FIX clears the old handoff and returns Building; BLOCKED retains Reviewing with Needs human.
 
@@ -20,7 +29,7 @@ Rename custom environment overrides to `CRISPY_FACTORY_ENV` and `CRISPY_FACTORY_
 
 On macOS, run the old checkout's `bun scripts/install-runner.ts --uninstall` before switching revisions, then install from the new checkout. The new LaunchAgent label is `com.crispy-factory.runner`; its installer does not unload an older label.
 
-Reporting startup replaces the existing owned Codex MCP block even when its marker uses a previous product name. Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained.
+Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained unless a database reset is separately authorized.
 
 ## Dashboard development watcher
 
@@ -66,7 +75,7 @@ For agent investigations, use bounded service log tails rather than full transcr
 - **GitHub.** All API work goes through the runner's authenticated `gh`. The dashboard never holds credentials.
 - **Execution.** Every attempt runs locally in an attempt-isolated `factory/<KEY>` or `factory/<KEY>-a<n>` worktree.
 - **Cleanup.** Startup and hourly cleanup remove finished builder and reviewer worktrees. Failed jobs retain the configured grace period. Reviewer cleanup includes prior-attempt review history and requires a registered checkout at the reviewed SHA, no uncommitted files, and confirmed stopped execution; unknown ownership holds it. Remote `factory/*` branches are deleted only when the PR merged at the exact current branch SHA, using a force-with-lease deletion to reject concurrent pushes. Already-absent remote branches need no action. Active, dirty or unmerged remote branches remain untouched.
-- **Reporting.** At startup the runner installs branch-guarded Claude Code hooks in `~/.claude/settings.json` and the `factory-report` MCP server in `~/.codex/config.toml`. Both files are merged idempotently and preserve unrelated settings. Committed target-repository files are never modified.
+- **Reporting.** Only the trusted explicit OMP extension reports agent actions. The runner does not modify user-level agent hooks or MCP servers.
 
 ### Realtime clients
 
@@ -80,15 +89,15 @@ Dashboard overview feeds stop polling while SSE is live; detail/history endpoint
 
 ### Direct OMP harness
 
-OMP runs directly, without a T3 server. Install and authenticate OMP under the runner account; optionally set `FACTORY_OMP_PATH` to its native executable. The runner advertises harness `omp` and provider-qualified models from the installed runtime. Select OMP per job, repository, or Settings. Existing defaults remain unchanged.
+Install and authenticate OMP under the runner account; optionally set `FACTORY_OMP_PATH` to its native executable. The runner advertises harness `omp` and provider-qualified models from the installed runtime. Harness selectors are hidden while OMP is the only adapter. Builder and reviewer model selection remains available; an empty builder model uses OMP's native default.
 
 Factory creates a separate worktree and durable OMP session for every attempt under `~/.local/state/crispy-factory/omp`. Answers and feedback continue that session; retries create a different session. The runner checks process ownership and OMP session leases before reconnecting. Unknown ownership or uncertain prompt delivery holds recovery for inspection instead of creating duplicate work.
 
 A started session with a missing transcript cannot resume. Status observation reports it gone only after the recorded process is dead and any known OMP session lease is confirmed free; live or unknown ownership remains an error. For a held reviewer, `jobs review` can then request a new review round without discarding builder evidence or reusing the broken session.
 
-Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_work` delivers progress, human needs and verified handoff through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership. OMP sessions have no Open in T3 link.
+Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_work` delivers progress, human needs and verified handoff through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership.
 
-The existing `t3_thread_id` database column and `t3ThreadId` session-start field store the runner execution binding for both adapters. An `omp:<job>:<attempt>` binding is never a T3 thread id and is dispatched only to the direct adapter; this preserves existing stored T3 bindings without rewriting history. OMP subagent transcript identities are persisted before terminal snapshots disappear from the runtime registry, allowing cumulative usage reconciliation after restart.
+`execution_id` and the `executionId` session-start field bind an attempt to its owned adapter session. OMP subagent transcript identities persist before terminal snapshots disappear, allowing cumulative usage reconciliation after restart.
 
 ### Independent pre-PR review
 

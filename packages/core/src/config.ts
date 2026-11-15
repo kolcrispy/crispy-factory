@@ -33,8 +33,6 @@ export const factorySchema = z
     noCiGraceMinutes: z.number().nonnegative().default(5),
     /** How long the runner watches the base branch's checks after it merged a PR, reverting when they fail. */
     postMergeWatchMinutes: z.number().positive().default(60),
-    /** Hours a Claude Code subagent worktree must sit untouched before cleanup considers it. */
-    subagentIdleHours: z.number().nonnegative().default(6),
     /** Target repos the factory works in; the installer adds each one. */
     repos: z.array(z.string()).default([]),
     workRoot: z.string().transform(home).default(join(homedir(), ".local/share/crispy-factory/repos")),
@@ -52,9 +50,7 @@ export const factorySchema = z
     }).prefault({}),
     /** Stable installation runner identity; defaults to the native hostname. */
     machineId: z.string().min(1).optional(),
-    /** T3's state database, read-only, for the machine inventory. */
-    t3StatePath: z.string().optional(),
-    /** How often the runner re-collects the slow machine inventory (T3, Connect, projects, repos). */
+    /** How often the runner re-collects repository and direct runtime inventory. */
     inventoryMinutes: z.number().positive().default(10),
     /** How a stop is confirmed; see lib/stop.ts. The runner looks on its tick, so each wait rounds up to tickSeconds. */
     stop: z
@@ -63,7 +59,7 @@ export const factorySchema = z
         checkSeconds: z.number().positive().default(15),
         /** How long the thread and its subagents must show no active run before the stop counts as confirmed. */
         settleSeconds: z.number().nonnegative().default(30),
-        /** How long after the stop message the runner asks T3 to interrupt what still runs. */
+        /** How long after the stop message the runner interrupts an active execution. */
         interruptAfterSeconds: z.number().nonnegative().default(60),
         /** How long after the stop message a stop that still isn't confirmed is marked unconfirmed for the owner. */
         giveUpAfterMinutes: z.number().positive().default(5),

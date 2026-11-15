@@ -1,7 +1,7 @@
 import { startRealtimeServer } from "./realtime-server";
 import { join } from "node:path";
 
-// The factory runner owns local T3, git and GitHub operations. PostgreSQL intents are
+// The factory runner owns local OMP, git and GitHub operations. PostgreSQL intents are
 // authoritative; polling and startup reconciliation recover missed work idempotently.
 //   bun apps/runner/src/index.ts            run in the foreground
 //   bun apps/runner/src/index.ts --once     reconcile once and exit
@@ -19,9 +19,8 @@ const releaseOwnership = await acquireRunnerOwnership(db.$client, error => {
 const { intents, jobs } = await import("@factory/storage/schema");
 const ops = await import("./ops");
 const { createBeat, inventoryCollectors, systemCollectors, thisMachine } = await import("./heartbeat");
-const { closeBroadcast, deliveryFor, expirePairings, INTENT_ATTEMPTS, leaseIntent, loggable, receiptIntent, recordReceipt } = await import("./intents");
+const { closeBroadcast, deliveryFor, INTENT_ATTEMPTS, leaseIntent, receiptIntent, recordReceipt } = await import("./intents");
 const { launchQueued } = await import("./launch");
-const { openT3 } = await import("./pairing");
 const { recheckScheduler } = await import("./recheck");
 const { everyAtMost, serialQueue } = await import("./queue");
 const { isolated, reconcile } = await import("./reconcile");
@@ -38,7 +37,6 @@ const { verificationsSettled } = await import("./verify");
 type IntentRow = typeof intents.$inferSelect;
 const { startReportServer } = await import("./report-server");
 const { prepareRepository } = await import("./repository-registration");
-const { wireHarnessReporting } = await import("./harness-wiring");
 const { reviewJobs, handleReviewAction } = await import("./review");
 const { listenForWork, wakeScheduler } = await import("./wake");
 const reportServer = startReportServer(ops.config.ingestUrl, ops.config.secret);
@@ -97,8 +95,6 @@ async function handle(intent: IntentRow) {
       return { merged: await ops.checkPullRequests(), synced: await writeBackPass() };
     case "recheck_conflicts":
       return { recheck: recheck.request() };
-    case "open_t3":
-      return openT3(intent.job_id!);
     case "approve_merge":
       return { approval: await approveMerge(intent.job_id!, approveDetailSchema.parse(JSON.parse(intent.detail ?? "null"))), synced: await writeBackPass() };
     case "request_changes": {
@@ -166,7 +162,7 @@ async function runIntent(intent: IntentRow) {
   if (!(await leaseIntent(intent.id, machine.id))) return { id: intent.id, skipped: "leased by another machine" };
   const latencyMs = Date.now() - intent.created_at.getTime();
   const result = await handle(intent).catch((error: unknown) => ({ error: String(error) }));
-  // A failed intent stays open and the timer retries it, so a source or T3 hiccup cannot eat a
+  // A failed intent stays open and the timer retries it, so a source or OMP hiccup cannot eat a
   // stop. After its kind's INTENT_ATTEMPTS it is closed with the error kept in result.
   const failed = "error" in result;
   const attempts = intent.attempts + 1;
@@ -183,7 +179,7 @@ async function runIntent(intent: IntentRow) {
       lease_until: null,
     })
     .where(and(eq(intents.id, intent.id), eq(intents.leased_by, machine.id)));
-  return { id: intent.id, job: intent.job_id, latencyMs, attempts, ...loggable(intent.kind, result) };
+  return { id: intent.id, job: intent.job_id, latencyMs, attempts, ...result };
 }
 
 /**
@@ -234,7 +230,6 @@ async function tick() {
     untracked: await isolated(() => inferUntracked()),
     watched: await isolated(ops.watchdog),
     stopsConfirmed: await isolated(() => confirmStops()),
-    pairingsExpired: await isolated(expirePairings),
     synced: await isolated(writeBackPass),
   };
 }
@@ -269,8 +264,6 @@ if (process.argv.includes("--once")) {
 }
 
 log("start", { pid: process.pid, tickSeconds: ops.config.factory.tickSeconds, machine });
-const wiring = wireHarnessReporting(join(import.meta.dirname, "../../../packages/reporting/src"));
-log("harness-wiring", wiring);
 const background = new Set<Promise<unknown>>();
 function track(work: Promise<unknown>) {
   background.add(work);

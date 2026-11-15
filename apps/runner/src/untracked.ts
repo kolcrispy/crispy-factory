@@ -17,7 +17,7 @@ import { repoSettings } from "@factory/storage/schema";
 
 type Settled = "completed" | "interrupted" | "failed";
 
-/** T3's run statuses for a thread with no active run. */
+/** OMP's run statuses for a thread with no active run. */
 const settledAs = (status: string | null): Settled =>
   status === "failed" ? "failed" : status === "interrupted" || status === "cancelled" || status === "rolled_back" ? "interrupted" : "completed";
 
@@ -27,11 +27,11 @@ const sessionOf = (job: Job) => job.session_id ?? runnerEventId("inferred", job.
 async function inferJob(job: Job, now: number): Promise<string | undefined> {
   const current = async () => {
     const [row] = await db.select().from(jobs).where(eq(jobs.id, job.id));
-    return row && !row.stop && !row.attention && row.attempt === job.attempt && row.t3_thread_id === job.t3_thread_id && row.builder_handoff?.eventId === job.builder_handoff?.eventId && row.stage === job.stage;
+    return row && !row.stop && !row.attention && row.attempt === job.attempt && row.execution_id === job.execution_id && row.builder_handoff?.eventId === job.builder_handoff?.eventId && row.stage === job.stage;
   };
   if (!(await current())) return;
   if (job.attention) return;
-  const thread = await threads.read(job.t3_thread_id, hosts.forJob(job));
+  const thread = await threads.read(job.execution_id, hosts.forJob(job));
   if (thread.state === "running") return;
   const handoff = job.builder_handoff;
   if (thread.state !== "stopped" || settledAs(thread.status) !== "completed" || !handoff) {
@@ -64,7 +64,7 @@ async function inferJob(job: Job, now: number): Promise<string | undefined> {
 
 /**
  * The timer's pass over this machine's working jobs on untracked harnesses. A hibernated job is
- * never woken for it. Each job on its own, so one GitHub or T3 failure does not hold back the rest.
+ * never woken for it. Each job on its own, so one GitHub or OMP failure does not hold back the rest.
  */
 export async function inferUntracked({ now = Date.now(), only }: { now?: number; only?: string[] } = {}) {
   const machine = await thisMachine();
@@ -72,7 +72,7 @@ export async function inferUntracked({ now = Date.now(), only }: { now?: number;
     await db
       .select()
       .from(jobs)
-      .where(and(eq(jobs.machine_id, machine.id), inArray(jobs.stage, IN_FLIGHT), isNotNull(jobs.t3_thread_id), only ? inArray(jobs.key, only) : undefined)),
+      .where(and(eq(jobs.machine_id, machine.id), inArray(jobs.stage, IN_FLIGHT), isNotNull(jobs.execution_id), only ? inArray(jobs.key, only) : undefined)),
   );
   // All review-disabled harnesses use the same explicit handoff contract.
   const done: string[] = [];
@@ -80,7 +80,7 @@ export async function inferUntracked({ now = Date.now(), only }: { now?: number;
   for (const job of rows) {
     if (job.stop || job.attention) continue;
     if (job.attempt_review?.policy.enabled) continue;
-    if (bindingOf(job.t3_thread_id) !== "bound") continue;
+    if (bindingOf(job.execution_id) !== "bound") continue;
     try {
       const outcome = await inferJob(job, now);
       if (outcome) done.push(`${job.key}:${outcome}`);

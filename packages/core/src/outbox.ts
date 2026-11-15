@@ -6,11 +6,10 @@ import { CONFIG_PATH } from "./config";
 import { MAX_BATCH, type FactoryEvent } from "./events";
 import { inTestMode } from "./test-mode";
 
-// Every event a hook or the factory-report MCP server sends is written here before it is posted,
-// one JSON file per event named so that names sort oldest first. A 2xx removes the file; anything
-// else leaves it for the next flush: the next hook or MCP call, or the runner, which reaches the
-// local outbox on each tick and a sandbox's before it hibernates or ends and when it wakes. Ingest
-// stores each eventId once, so delivering an event twice changes nothing.
+// Every event from the trusted reporting extension or verifier is durable before posting,
+// one JSON file per event named oldest first. A 2xx removes it; any failure leaves it
+// for the next extension call or runner reconciliation. Delivery never defines execution success.
+// Ingest stores each eventId once, so delivering an event twice changes nothing.
 
 /** `$FACTORY_STATE_DIR`, else ~/.local/state/crispy-factory; in a sandbox that is under /root, which snapshots keep. */
 export const stateDir = (home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env) => env.FACTORY_STATE_DIR || join(home, ".local/state/crispy-factory");

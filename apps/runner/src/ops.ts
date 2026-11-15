@@ -1,22 +1,20 @@
 import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
-import { agents, intents, jobs, runs, repoSettings, type JobRow, type RunRow } from "@factory/storage/schema";
-import type { Stage, Usage } from "@factory/core/events";
+import { intents, jobs, runs, repoSettings, type JobRow } from "@factory/storage/schema";
+import type { Stage } from "@factory/core/events";
 import { parseJob, parseJobs } from "@factory/core/sources/index";
 import { parseJobId, SOURCE_SHAPES } from "@factory/core/sources/shapes";
 import type { Job, JobId } from "@factory/core/sources/types";
 import { canTransition, runnerEventId } from "@factory/core/stages";
-import { subagentTranscripts, sumUsage, transcriptPathFor } from "@factory/core/transcript";
-import { checkoutRepo, cleanupRepo, cleanupReviewerWorktrees, cleanupSubagentWorktrees } from "@factory/core/worktrees";
+import { checkoutRepo, cleanupRepo, cleanupReviewerWorktrees } from "@factory/core/worktrees";
 import { github } from "@factory/integrations/github/pulls";
 import { claimConflict, conflictMessage, unclaimedRunsWithPr } from "@factory/core/conflicts";
-import { attemptBranch, isMcpSession } from "@factory/core/factory";
+import { attemptBranch } from "@factory/core/factory";
 import { ownerNoteSection } from "@factory/core/inbox";
 import { attemptBranchSql } from "@factory/core/branch-sql";
 import { nudgeMessage, watch } from "@factory/core/watchdog";
 import { factoryPlaybook } from "@factory/core/playbook";
 import { isTracked } from "@factory/core/harness";
-import { readHarnesses } from "@factory/integrations/t3-state";
 import { readSettings, resolveHarness, type HarnessChoice } from "@factory/core/settings";
 import { resolveReviewPolicy } from "@factory/core/review";
 import { registerRepos } from "@factory/core/repositories";
@@ -27,7 +25,6 @@ import { config } from "./config";
 import { thisMachine } from "./heartbeat";
 import { confirmStops, stopDelivered } from "./stops";
 import { postEvent } from "./ingest-client";
-import { recordCodexUsage } from "./codex-usage";
 import { isOmp, reconcileOmpUsage } from "./omp";
 export { closeOmpSessions } from "./omp";
 
@@ -109,9 +106,9 @@ export async function postMerged(jobKey: string, prUrl: string, sessionId: strin
 async function sendBackForConflict(job: Job, head: string) {
   // A replay for the same conflicting head changes nothing.
   if (job.conflict_head === head) return false;
-  // Ask T3 first: a CLI error then fails this PR's check before anything is claimed.
+  // Ask OMP first: a CLI error then fails this PR's check before anything is claimed.
   const host = hosts.forJob(job);
-  const thread = await threads.state(job.t3_thread_id, host);
+  const thread = await threads.state(job.execution_id, host);
   if (!(await claimConflict(db, job.id, head))) return false;
   const release = () => db.update(jobs).set({ conflict_head: job.conflict_head }).where(eq(jobs.id, job.id));
 
@@ -127,7 +124,7 @@ async function sendBackForConflict(job: Job, head: string) {
       return true;
     }
     if (job.attempt_review?.policy.enabled) await db.update(jobs).set({ attempt_review: { ...job.attempt_review, state: "repairing", delivery: undefined } }).where(and(eq(jobs.id, job.id), eq(jobs.attempt, job.attempt)));
-    await threads.send(job.t3_thread_id!, `${conflictMessage(job.key, job.pr_url!, factoryPlaybook())}\nResolve, test and commit, run factory-verify --json, then report_work handoff with its sha and eventId as evidenceEventId. Do not self-review, push or publish; the runner updates the PR after required independent review.`, host);
+    await threads.send(job.execution_id!, `${conflictMessage(job.key, job.pr_url!, factoryPlaybook())}\nResolve, test and commit, run factory-verify --json, then report_work handoff with its sha and eventId as evidenceEventId. Do not self-review, push or publish; the runner updates the PR after required independent review.`, host);
   } catch (error) {
     await release();
     throw error;
@@ -166,7 +163,7 @@ export async function resumeAnswered() {
 
     const replyIds = plan.replies.map((r) => r.id);
     const host = hosts.forJob(job);
-    const alive = await threadAlive(job.t3_thread_id, host);
+    const alive = await threadAlive(job.execution_id, host);
     // A dead thread is unlinked in the same update that claims the replies, so the relaunch
     // cannot be lost to a later failure in this pass.
     const relaunch = alive ? undefined : qaBlock(plan.question, plan.answer);
@@ -174,7 +171,7 @@ export async function resumeAnswered() {
 
     if (alive) {
       try {
-        await threads.send(job.t3_thread_id!, resumeMessage(`factory job ${job.key}`, plan.question, plan.answer, factoryPlaybook()), host);
+        await threads.send(job.execution_id!, resumeMessage(`factory job ${job.key}`, plan.question, plan.answer, factoryPlaybook()), host);
       } catch (error) {
         await db
           .update(jobs)
@@ -205,7 +202,7 @@ export async function watchdog() {
       ),
     })
     .from(jobs)
-    .where(and(await mine(), inArray(jobs.stage, IN_FLIGHT), or(isNotNull(jobs.t3_thread_id), isNotNull(jobs.session_id))));
+    .where(and(await mine(), inArray(jobs.stage, IN_FLIGHT), or(isNotNull(jobs.execution_id), isNotNull(jobs.session_id))));
   const actions: string[] = [];
   const drivers = harnessDrivers();
   for (const { job, lastEventAt } of working) {
@@ -219,7 +216,7 @@ export async function watchdog() {
         lastEventAt: lastEventAt ?? job.updated_at,
         nudgedAt: job.nudged_at,
         nudgedStage: job.nudged_stage,
-        thread: await threads.state(job.t3_thread_id, host),
+        thread: await threads.state(job.execution_id, host),
         tracked: jobTracked(job, drivers),
         now,
       },
@@ -244,7 +241,7 @@ export async function watchdog() {
         .returning({ key: jobs.key });
       if (claimed.length === 0) continue;
       try {
-        await threads.send(job.t3_thread_id!, nudgeMessage(job.key, job.stage, action.idleMinutes, factoryPlaybook()), host);
+        await threads.send(job.execution_id!, nudgeMessage(job.key, job.stage, action.idleMinutes, factoryPlaybook()), host);
       } catch (error) {
         await db
           .update(jobs)
@@ -260,18 +257,13 @@ export async function watchdog() {
   return actions;
 }
 
-/** Each harness instance's driver. Tracking depends on the driver, not the instance id: a renamed Claude Code instance still reports. */
+/** Tracking follows the installed execution adapter, not a model provider. */
 export function harnessDrivers() {
-  try {
-    return new Map(readHarnesses().map((h) => [h.id, h.driver]));
-  } catch {
-    // Unknown instances fall back to their id, which equals the driver for T3's default instances.
-    return new Map<string, string>();
-  }
+  return new Map([["omp", "omp"]]);
 }
 
 export const jobTracked = (job: Pick<JobRow, "provider">, drivers: ReadonlyMap<string, string>) =>
-  isTracked(drivers.get(job.provider ?? config.factory.provider) ?? job.provider ?? config.factory.provider);
+  isTracked(drivers.get(job.provider ?? "omp") ?? job.provider ?? "omp");
 
 /** Fails the stage this pass looked at, so a report that landed since then wins; false when one did. */
 export async function watchdogFail(job: Pick<JobRow, "id" | "key" | "external_id" | "attempt" | "stage" | "stage_event_id" | "session_id">, reason: string, now = new Date()) {
@@ -292,18 +284,11 @@ export async function watchdogFail(job: Pick<JobRow, "id" | "key" | "external_id
   return true;
 }
 
-/**
- * Rebuilds usage from transcripts for factory runs whose numbers fell behind, such as a run
- * interrupted before its Stop hook. It goes through the same greatest() projection as every
- * usage event, keyed on the totals, so replays and live updates cannot double count. A Codex run
- * (`mcp:` session) is read from its rollouts instead, every pass, since nothing else reports it. A
- * run whose thread is gone has no transcripts left to read; it is skipped and the rest go on.
- */
+/** Reconciles monotonic usage directly from owned OMP sessions. */
 export async function reconcileUsage({ only }: { only?: string[] } = {}) {
   const recent = await db
-    .select({ run: runs, stage: jobs.stage })
+    .select({ run: runs })
     .from(runs)
-    .leftJoin(jobs, eq(jobs.key, runs.job_key))
     .where(
       and(
         isNotNull(runs.job_key),
@@ -312,17 +297,14 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
       ),
     );
   const fixed: string[] = [];
-  for (const { run, stage } of recent) {
+  for (const { run } of recent) {
     try {
       if (isOmp(run.session_id)) {
         await reconcileOmpUsage(run.session_id);
         fixed.push(run.job_key!);
         continue;
       }
-      const host = localHost;
-      // A merged or failed job's thread is done, so its subagents are settled.
-      const final = stage === "done" || stage === "failed";
-      if (await (isMcpSession(run.session_id) ? recordCodexUsage(run, host, { final }) : reconcileRun(run, host))) fixed.push(run.job_key!);
+      throw new Error(`Unsupported execution session: ${run.session_id}`);
     } catch (error) {
       if (!(error instanceof HostGoneError)) throw error;
       console.log(JSON.stringify({ at: new Date().toISOString(), event: "reconcile:skipped", key: run.job_key, session: run.session_id, reason: error.message }));
@@ -331,38 +313,6 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
   return fixed;
 }
 
-/** Posts the run's usage when its transcripts are ahead of the board; true when it did. */
-async function reconcileRun(run: RunRow, host: JobHost) {
-  const path = transcriptPathFor(run);
-  const transcript = path ? await host.readFile(path) : null;
-  if (!path || transcript === null) return false;
-  const usage = sumUsage(transcript);
-  if (usage.model === "unknown") return false;
-  const subagents = await subagentTranscripts(path, run.session_id, host);
-  const rows = await db.select().from(agents).where(eq(agents.session_id, run.session_id));
-  const lags = (u: Usage, row: { input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number } | undefined) =>
-    !row ||
-    u.input > row.input_tokens ||
-    u.output > row.output_tokens ||
-    u.cacheRead > row.cache_read_tokens ||
-    u.cacheWrite > row.cache_write_tokens;
-  const behind = lags(usage, run) || subagents.some((s) => lags(s.usage, rows.find((r) => r.agent_id === s.agentId)));
-  if (!behind) return false;
-  const fingerprint = [usage, ...subagents.map((s) => s.usage)]
-    .map((u) => `${u.input}.${u.output}.${u.cacheRead}.${u.cacheWrite}`)
-    .join(":");
-  await postEvent({
-    eventId: `reconcile:${run.session_id}:${fingerprint}`,
-    sessionId: run.session_id,
-    // The transcript's own last write, so the watchdog never mistakes a reconcile for activity.
-    at: Math.min(Math.floor(await host.mtimeMs(path)), run.last_event_at.getTime()),
-    kind: "usage",
-    usage,
-    agents: subagents,
-    transcriptPath: path,
-  });
-  return true;
-}
 
 /** Records that this runner observed the current internal job stage. */
 export async function acknowledgeStages({ only }: { only?: readonly string[] } = {}) {
@@ -438,7 +388,7 @@ export async function toLaunch() {
       and(
         // A waiting job whose thread died and whose question was answered relaunches too.
         or(eq(jobs.stage, "queued"), and(eq(jobs.stage, "building"), isNotNull(jobs.resume_context))),
-        isNull(jobs.t3_thread_id),
+        isNull(jobs.execution_id),
         isNull(jobs.session_id),
         isNull(jobs.machine_id),
       ),
@@ -461,7 +411,7 @@ export async function cleanup(dryRun = false) {
   const machine = await thisMachine();
   const byKey = new Map(all.map((j) => [j.key, j]));
   // One after the other: both edit the same repo's worktree list and refs, and git locks them.
-  // Each on its own, so a repo GitHub or T3 cannot answer for still gets its subagent worktrees cleaned.
+  // Each repo is isolated so a remote failure does not prevent other worktree cleanup.
   const reports = [];
   const errors: { repo: string; step: string; error: string }[] = [];
   const steps = [
@@ -470,8 +420,8 @@ export async function cleanup(dryRun = false) {
       const directBranches = new Map<string, boolean>();
       for (const job of all.filter(job => job.repo === remote && job.provider === "omp")) {
         let running = true;
-        if (job.t3_thread_id && !job.t3_thread_id.startsWith(PENDING)) {
-          try { running = (await threads.state(job.t3_thread_id, localHost)) === "running"; } catch { /* Unknown ownership holds the worktree. */ }
+        if (job.execution_id && !job.execution_id.startsWith(PENDING)) {
+          try { running = (await threads.state(job.execution_id, localHost)) === "running"; } catch { /* Unknown ownership holds the worktree. */ }
         }
         directBranches.set(attemptBranch(job.key, job.attempt), running);
       }
@@ -483,7 +433,6 @@ export async function cleanup(dryRun = false) {
       return cleanupReviewerWorktrees(repo, owned, config.factory.cleanupGraceDays,
         async threadId => (await threads.state(threadId, localHost)) === "running", { dryRun });
     }],
-    ["subagents", (repo: string) => cleanupSubagentWorktrees(repo, config.factory.subagentIdleHours, { dryRun })],
   ] as const;
   for (const repo of config.factory.repos) {
     for (const [step, clean] of steps) {
@@ -497,7 +446,6 @@ export async function cleanup(dryRun = false) {
   return {
     removed: reports.flatMap((r) => r.removed),
     held: reports.flatMap((r) => r.held),
-    archive: reports.flatMap((r) => r.archive),
     errors,
   };
 }
@@ -509,7 +457,7 @@ export async function cleanup(dryRun = false) {
 export async function bindThread(key: string, threadId: string) {
   const [bound] = await db
     .update(jobs)
-    .set({ t3_thread_id: threadId, updated_at: new Date() })
+    .set({ execution_id: threadId, updated_at: new Date() })
     .where(eq(jobs.key, key))
     .returning({ id: jobs.id });
   if (!bound) throw new Error(`No claimed job ${key}`);
@@ -625,7 +573,7 @@ export async function claimLaunch(
     .set({
       stage: "building",
       stage_at: new Date(),
-      t3_thread_id: marker,
+      execution_id: marker,
       machine_id: machine.id,
       ...(harness && { provider: harness.provider, model: harness.model }),
       attempt_review: candidate.attempt_review?.attempt === candidate.attempt ? candidate.attempt_review : {
@@ -637,7 +585,7 @@ export async function claimLaunch(
       and(
         eq(jobs.key, key),
         eq(jobs.attempt, candidate.attempt),
-        isNull(jobs.t3_thread_id),
+        isNull(jobs.execution_id),
         isNull(jobs.session_id),
         isNull(jobs.machine_id),
         inArray(jobs.repo, [...machine.repos]),
@@ -652,8 +600,8 @@ export async function claimLaunch(
 export async function releaseLaunch(key: string, marker: string) {
   await db
     .update(jobs)
-    .set({ stage: sql`case when ${jobs.stop_event_id} is not null then ${jobs.stage} else 'queued'::run_stage end`, t3_thread_id: null, machine_id: null, provider: null, model: null })
-    .where(and(eq(jobs.key, key), eq(jobs.t3_thread_id, marker)));
+    .set({ stage: sql`case when ${jobs.stop_event_id} is not null then ${jobs.stage} else 'queued'::run_stage end`, execution_id: null, machine_id: null, provider: null, model: null })
+    .where(and(eq(jobs.key, key), eq(jobs.execution_id, marker)));
 }
 
 
@@ -669,11 +617,11 @@ export async function pendingLaunches() {
   const rows = await db
     .select()
     .from(jobs)
-    .where(and(await mine(), sql`${jobs.t3_thread_id} like ${`${PENDING}%`}`));
+    .where(and(await mine(), sql`${jobs.execution_id} like ${`${PENDING}%`}`));
   return rows.map((i) => ({
     key: i.key,
     repo: i.repo,
-    marker: i.t3_thread_id!,
+    marker: i.execution_id!,
     branch: attemptBranch(i.key, i.attempt),
     stage: i.stage,
     provider: i.provider,
@@ -684,8 +632,8 @@ export async function pendingLaunches() {
 
 /**
  * Sends the stop message to every stopped job's thread that has not had it; claimed per thread.
- * T3 queues it behind a busy thread's turn, so it only asks: runner/stops.ts confirms the work
- * ended and interrupts what does not.
+ * The message asks for settlement; runner/stops.ts observes execution and interrupts
+ * anything that remains active after the grace period.
  */
 export async function deliverStops(id?: JobId) {
   const due = await db
@@ -694,11 +642,11 @@ export async function deliverStops(id?: JobId) {
     .where(and(await mine(), stopDeliverableSql, id ? eq(jobs.id, id) : undefined));
   const delivered: string[] = [];
   for (const job of due) {
-    const threadId = job.t3_thread_id!;
+    const threadId = job.execution_id!;
     const [claimed] = await db
       .update(jobs)
       .set({ stop_sent_to: threadId })
-      .where(and(eq(jobs.id, job.id), eq(jobs.t3_thread_id, threadId), sql`${jobs.stop_sent_to} is distinct from ${threadId}`))
+      .where(and(eq(jobs.id, job.id), eq(jobs.execution_id, threadId), sql`${jobs.stop_sent_to} is distinct from ${threadId}`))
       .returning({ key: jobs.key });
     if (!claimed) continue;
     const host = hosts.forJob(job);

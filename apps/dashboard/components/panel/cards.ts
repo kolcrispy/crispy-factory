@@ -1,12 +1,10 @@
-import type { JobRow, MachineRow, RunRow } from "@factory/storage/schema";
+import type { JobRow, RunRow } from "@factory/storage/schema";
 import { splitArchived } from "@factory/core/archive";
 import { inboxKind } from "@factory/core/inbox";
 import type { Stage } from "@factory/core/events";
 import { evidenceLine, parseSummary, type EvidenceLine } from "@factory/core/evidence";
-import { attemptBranch, isMcpSession } from "@factory/core/factory";
+import { attemptBranch } from "@factory/core/factory";
 import { harnessLabel, isTracked, type Harness, type Tracking } from "@factory/core/harness";
-import { parseInventory, UNKNOWN } from "@factory/core/machine";
-import { costKnown } from "@factory/core/pricing";
 import { mergeDecisionSchema, type MergeDecision } from "@factory/core/merge-decision";
 import { sourceLink, type JobId } from "@factory/core/sources/shapes";
 import { parseStop, stopView, type StopView } from "@factory/core/stop";
@@ -51,13 +49,8 @@ export type BoardCard = {
   updatedAt: Date;
 };
 
-/** The T3 environment a machine's inventory names, for links into its T3; null when unknown. */
-export function t3EnvironmentId(machine: Pick<MachineRow, "inventory"> | undefined) {
-  const t3 = machine && parseInventory(machine.inventory)?.t3;
-  return t3 && t3 !== UNKNOWN ? t3.environmentId : null;
-}
 
-/** What the card can show of the harness's run: a Codex job whose report server posted has stages, and its cost once the runner read a priced usage. */
+/** Reporting capability of the direct execution adapter. */
 export type CardHarness = { name: string; tracking: Tracking };
 
 export type RunsOn = { machineId: string };
@@ -74,8 +67,6 @@ export function harnessLine(harness: CardHarness) {
   switch (harness.tracking) {
     case "full":
       return harness.name;
-    case "stages":
-      return `${harness.name} · cost unknown`;
     case "none":
       return `${harness.name} · not tracked`;
     default: {
@@ -105,17 +96,16 @@ const stagedAt = (run: RunRow) => run.stage_at?.getTime() ?? 0;
 
 function cardStop(job: JobRow): BoardCard["stop"] {
   const view = stopView(job.stop);
-  return view && { view, thread: parseStop(job.stop)?.thread ?? job.t3_thread_id };
+  return view && { view, thread: parseStop(job.stop)?.thread ?? job.execution_id };
 }
 
-/** `harnesses` are the ones the machines report, so a renamed Claude Code instance keeps its name and stays tracked. */
+/** Runtime inventory supplies the direct adapter's display name. */
 export function boardCards(jobs: readonly JobRow[], runs: readonly RunRow[], harnesses: readonly Harness[] = []): BoardCard[] {
-  const harnessOf = (provider: string, attemptRuns: readonly RunRow[]): CardHarness => {
+  const harnessOf = (provider: string): CardHarness => {
     const known = harnesses.find((h) => h.id === provider);
     const name = known?.name ?? harnessLabel(provider);
     if (isTracked(known?.driver ?? provider)) return { name, tracking: "full" };
-    if (!attemptRuns.some((r) => isMcpSession(r.session_id))) return { name, tracking: "none" };
-    return { name, tracking: costKnown(attemptRuns) ? "full" : "stages" };
+    return { name, tracking: "none" };
   };
   const byKey = groupBy(
     runs.filter((r) => r.job_key !== null),
@@ -146,7 +136,7 @@ export function boardCards(jobs: readonly JobRow[], runs: readonly RunRow[], har
       nudgedAt: job.nudged_stage === job.stage ? job.nudged_at : null,
       latest: attemptRuns.find((r) => r.session_id === job.session_id) ?? attemptRuns[0] ?? null,
       runs: jobRuns,
-      harness: job.provider ? harnessOf(job.provider, attemptRuns) : null,
+      harness: job.provider ? harnessOf(job.provider) : null,
       runsOn: runsOn(job),
       mergeDecision: shownDecision(job),
       evidence: jobEvidenceLine(job),

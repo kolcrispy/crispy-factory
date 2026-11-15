@@ -8,7 +8,7 @@ import { reviewConfigurationProblem, reviewVerdictSchema, type AttemptReview, ty
 import { parseJob } from "@factory/core/sources/index";
 import { readHarnesses } from "./harnesses";
 import { recoverOmp, startOmp } from "./omp";
-import { startThread, maybeStarted } from "./launch";
+import { maybeStarted } from "./launch";
 import { threads } from "./threads";
 import { config } from "./config";
 import { thisMachine } from "./heartbeat";
@@ -16,7 +16,6 @@ import { github } from "@factory/integrations/github/pulls";
 import type { RepoName } from "@factory/integrations/github/gh";
 import { postEvent } from "./ingest-client";
 import { runnerEventId } from "@factory/core/stages";
-import { listThreads, showThread } from "@factory/integrations/t3-client";
 import { OmpRpcTimeout } from "@factory/integrations/omp-rpc";
 
 const busy = new Set<string>();
@@ -62,8 +61,8 @@ async function runReview(job: JobRow) {
     return;
   }
   if (review.state === "building" || review.state === "repairing") {
-    if (!job.t3_thread_id) return;
-    const builder = await threads.read(job.t3_thread_id, host);
+    if (!job.execution_id) return;
+    const builder = await threads.read(job.execution_id, host);
     if (builder.state === "running") return;
     if (builder.state === "gone" || builder.status === "failed" || builder.status === "interrupted") throw new Error("Builder did not complete successfully before review.");
     if (!job.builder_handoff || job.builder_handoff.attempt !== job.attempt) {
@@ -76,7 +75,7 @@ async function runReview(job: JobRow) {
     if (sha !== job.builder_handoff.sha) throw new Error("Builder branch no longer matches its explicit handoff.");
     if (!job.evidence || job.evidence.sha !== sha || job.evidence.attempt !== job.attempt || !job.evidence.clean || job.evidence.checks.some(check => !check.passed || check.exitCode !== 0)) throw new Error("Builder handoff verification is no longer valid.");
     const base = await git(root, ["rev-parse", `origin/${repository.default_branch}`]);
-    review.builderThreadId = job.t3_thread_id;
+    review.builderThreadId = job.execution_id;
     review.builderSessionId = job.session_id;
     review.rounds.push({ round: review.rounds.length + 1, sha, base, threadId: null, sessionId: null, checkout: null, state: "pending", startedAt: Date.now() });
     review.state = "pending";
@@ -85,20 +84,10 @@ async function runReview(job: JobRow) {
   const round = review.rounds.at(-1);
   if (!round) throw new Error("Review round is missing.");
   if (round.state === "launching") {
-    if (review.policy.provider === "omp") round.threadId = await recoverOmp(job.key, job.attempt, `omp:review:${job.key}:${job.attempt}:${round.round}`);
-    else {
-      const listed = await listThreads(host, root) as { threadId: string }[];
-      const matches: string[] = [];
-      for (const item of listed) {
-        const detail = await showThread(host, item.threadId) as { thread: { branch: string | null } };
-        if (detail.thread.branch === `review/${job.key}-a${job.attempt}-r${round.round}`) matches.push(item.threadId);
-      }
-      if (matches.length !== 1) throw new Error("Reviewer launch ownership is uncertain; expected exactly one matching session.");
-      round.threadId = matches[0]!;
-    }
+    round.threadId = await recoverOmp(job.key, job.attempt, `omp:review:${job.key}:${job.attempt}:${round.round}`);
     round.state = "running";
     review.state = "reviewing";
-    await save(job, review, { t3_thread_id: round.threadId, session_id: null });
+    await save(job, review, { execution_id: round.threadId, session_id: null });
     return;
   }
   if (round.state === "pending") {
@@ -111,18 +100,13 @@ async function runReview(job: JobRow) {
     if (!(await save(job, review))) return;
     const title = `${job.key} reviewer a${job.attempt} r${round.round}`;
     try {
-      let threadId: string;
-      if (review.policy.provider === "omp") {
-        await git(root, ["worktree", "add", "--detach", checkout, round.sha]);
-        threadId = await startOmp({ key: job.key, attempt: job.attempt, repo: job.repo, branch: `review/${job.key}-a${job.attempt}-r${round.round}`, threadTitle: title,
-          message: reviewerPrompt(job, round, checkout), harness: review.policy, base: round.sha }, root, config.factory.workRoot,
-        { id: `omp:review:${job.key}:${job.attempt}:${round.round}`, cwd: checkout });
-      } else {
-        threadId = await startThread(host, root, `review/${job.key}-a${job.attempt}-r${round.round}`, title, reviewerPrompt(job, round, "the isolated review worktree created for this session"), review.policy, round.sha);
-      }
+      await git(root, ["worktree", "add", "--detach", checkout, round.sha]);
+      const threadId = await startOmp({ key: job.key, attempt: job.attempt, repo: job.repo, branch: `review/${job.key}-a${job.attempt}-r${round.round}`, threadTitle: title,
+        message: reviewerPrompt(job, round, checkout), harness: review.policy, base: round.sha }, root, config.factory.workRoot,
+      { id: `omp:review:${job.key}:${job.attempt}:${round.round}`, cwd: checkout });
       round.threadId = threadId;
       round.state = "running";
-      if (!(await save(job, review, { t3_thread_id: threadId, session_id: null }))) await threads.interrupt(threadId, `review-stop:${job.attempt}:${round.round}`, "Attempt stopped or changed during reviewer launch.", host);
+      if (!(await save(job, review, { execution_id: threadId, session_id: null }))) await threads.interrupt(threadId, `review-stop:${job.attempt}:${round.round}`, "Attempt stopped or changed during reviewer launch.", host);
     } catch (error) {
       round.error = errorMessage(error);
       round.state = maybeStarted(error) ? "launching" : "held";
@@ -134,7 +118,7 @@ async function runReview(job: JobRow) {
   if (round.state !== "running" || !round.threadId) return;
   const read = await threads.read(round.threadId, host);
   if (read.checkout) round.checkout = read.checkout;
-  await db.update(runs).set({ job_key: job.key, branch, role: "reviewer", title: `${job.key} reviewer round ${round.round}` }).where(eq(runs.t3_thread_id, round.threadId));
+  await db.update(runs).set({ job_key: job.key, branch, role: "reviewer", title: `${job.key} reviewer round ${round.round}` }).where(eq(runs.execution_id, round.threadId));
   if (read.state === "running") {
     if (Date.now() - round.startedAt > (config.factory.stuckAfterMinutes + config.factory.failAfterNudgeMinutes) * 60_000) {
       await threads.interrupt(round.threadId, `review-timeout:${job.attempt}:${round.round}`, "Independent review exceeded the execution window.", host);
@@ -156,7 +140,7 @@ async function runReview(job: JobRow) {
     review.automaticRepairs++;
     review.state = "repairing";
     review.delivery = { id: `review-fix:${job.attempt}:${round.round}`, state: "uncertain", message: `Address these independent review blockers, test and commit changes, run factory-verify --json, then report_work handoff with sha and evidenceEventId. Do not self-review or open a PR.\n${JSON.stringify(result)}` };
-    if (!(await save(job, review, { t3_thread_id: review.builderThreadId, session_id: review.builderSessionId, stage: "building", builder_handoff: null, attention: null, stage_summary: "Builder addressing independent review findings" }))) return;
+    if (!(await save(job, review, { execution_id: review.builderThreadId, session_id: review.builderSessionId, stage: "building", builder_handoff: null, attention: null, stage_summary: "Builder addressing independent review findings" }))) return;
     if (!review.builderThreadId) throw new Error("Builder session is unavailable for review fixes.");
     await threads.send(review.builderThreadId, review.delivery.message, host);
     review.delivery.state = "accepted";
@@ -164,11 +148,11 @@ async function runReview(job: JobRow) {
     return;
   }
   if (result.verdict === "PASS") {
-    if (!(await save(job, review, { t3_thread_id: review.builderThreadId, session_id: review.builderSessionId, stage_summary: "Independent review passed; publishing reviewed commit" }))) return;
+    if (!(await save(job, review, { execution_id: review.builderThreadId, session_id: review.builderSessionId, stage_summary: "Independent review passed; publishing reviewed commit" }))) return;
     await publishReviewed(job, review, root, repository.default_branch);
     return;
   }
-  await save(job, review, { t3_thread_id: review.builderThreadId, session_id: review.builderSessionId, stage: "reviewing", attention: { eventId: `review-held:${job.attempt}:${round.round}`, at: Date.now(), reason: result.summary, action: "Inspect independent review findings and request changes or another review." }, stage_summary: "Independent review needs owner action" });
+  await save(job, review, { execution_id: review.builderThreadId, session_id: review.builderSessionId, stage: "reviewing", attention: { eventId: `review-held:${job.attempt}:${round.round}`, at: Date.now(), reason: result.summary, action: "Inspect independent review findings and request changes or another review." }, stage_summary: "Independent review needs owner action" });
 }
 
 async function publishReviewed(job: JobRow, review: AttemptReview, root: string, base: string) {
@@ -211,7 +195,7 @@ export async function reviewJobs() {
       if (current?.attempt_review && current.attempt === job.attempt) {
         const review = structuredClone(current.attempt_review);
         if (["building", "repairing"].includes(review.state)) {
-          review.builderThreadId ??= current.t3_thread_id;
+          review.builderThreadId ??= current.execution_id;
           review.builderSessionId ??= current.session_id;
         }
         review.state = "held";
@@ -232,20 +216,20 @@ export async function handleReviewAction(intent: { id: string; job_id: string | 
   if (!review?.policy.enabled || review.state !== "held") return { refused: "Review is not held." };
   if (review.delivery?.id === intent.id) return { refused: "Action already has a delivery reservation; inspect its outcome." };
   const host = hosts.forJob(job);
-  if (job.t3_thread_id && (await threads.state(job.t3_thread_id, host)) === "running") return { refused: "An agent is still running; stop or wait before recovery." };
+  if (job.execution_id && (await threads.state(job.execution_id, host)) === "running") return { refused: "An agent is still running; stop or wait before recovery." };
   if (review.rounds.at(-1)?.state === "launching") return { refused: "Reviewer launch ownership is uncertain; reconcile the original session before recovery." };
   review.automaticRepairs = 2; // Further repairs require another explicit owner action.
   if (input.action === "review") {
     if (!job.builder_handoff || job.builder_handoff.attempt !== job.attempt) return { refused: "Builder handoff is missing; request builder changes to produce verified evidence before review." };
     review.state = "building";
     review.delivery = { id: intent.id, state: "accepted", message: "Owner requested independent review" };
-    if (!(await save(job, review, { t3_thread_id: review.builderThreadId, session_id: review.builderSessionId, stage: "building", attention: null, stage_summary: "Owner requested another independent review" }))) return { refused: "Attempt changed or stopped." };
+    if (!(await save(job, review, { execution_id: review.builderThreadId, session_id: review.builderSessionId, stage: "building", attention: null, stage_summary: "Owner requested another independent review" }))) return { refused: "Attempt changed or stopped." };
     return { accepted: "review" };
   }
   if (!review.builderThreadId) return { refused: "Builder session is unavailable." };
   review.state = "repairing";
   review.delivery = { id: intent.id, state: "uncertain", message: `Owner requested changes. Implement, test and commit, run factory-verify --json, then report_work handoff with sha and evidenceEventId. Do not self-review or open a PR.\n${input.body}` };
-  if (!(await save(job, review, { t3_thread_id: review.builderThreadId, session_id: review.builderSessionId, stage: "building", builder_handoff: null, attention: null, stage_summary: "Owner requested builder changes" }))) return { refused: "Attempt stopped." };
+  if (!(await save(job, review, { execution_id: review.builderThreadId, session_id: review.builderSessionId, stage: "building", builder_handoff: null, attention: null, stage_summary: "Owner requested builder changes" }))) return { refused: "Attempt stopped." };
   await threads.send(review.builderThreadId, review.delivery.message, host);
   review.delivery.state = "accepted";
   await save(job, review);

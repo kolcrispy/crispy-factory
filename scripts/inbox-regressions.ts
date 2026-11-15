@@ -219,7 +219,7 @@ async function job(name: string, over: Partial<typeof jobs.$inferInsert>, pull?:
       machine_id: TEST_MACHINE_ID,
       repo: REPO,
       provider: "claudeAgent",
-      t3_thread_id: `thread-${k}`,
+      execution_id: `thread-${k}`,
       session_id: `session-${k}`,
       stage_event_id: `inbox-regress-stage-${k}`,
       stage_at: new Date(),

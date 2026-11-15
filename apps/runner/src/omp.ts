@@ -149,7 +149,7 @@ async function connect(record: AttemptRecord) {
     await ompRuntime.report([{
       eventId: `omp-start:${record.id}`, sessionId: record.id, at: Date.now(), kind: "session_start",
       cwd: record.cwd, branch: record.role === "reviewer" ? undefined : record.branch, repo: record.repo.split("/").pop()!, model: record.model,
-      t3ThreadId: record.id, transcriptPath: record.sessionFile,
+      executionId: record.id, transcriptPath: record.sessionFile,
     }]);
     if (record.needsResume && record.delivery === "accepted" && state.isSettled) {
       await rpc.request({ type: "prompt", message: "Factory runner recovered this same attempt after an interruption. Reconcile existing worktree and transcript, then continue outstanding work. Do not repeat completed actions or create another attempt. Report progress through report_work; completion requires an explicit verified handoff." });

@@ -41,7 +41,7 @@ async function insert(name: string, handoff = true, overrides: Partial<typeof jo
   keys.push(key);
   await db.insert(jobs).values(internalJob(key, key, {
     repo, machine_id: TEST_MACHINE_ID, stage: "building", stage_at: old, updated_at: old,
-    t3_thread_id: `thread-${key}`, session_id: `session-${key}`,
+    execution_id: `thread-${key}`, session_id: `session-${key}`,
     source_state: { actor: "owner", issueUrl: `https://github.com/${repo}/issues/1` },
     builder_handoff: handoff ? { eventId: `handoff-${key}`, at: old.getTime(), attempt: 1, sha, evidenceEventId: `evidence-${key}`, summary: "Verified work" } : null,
     evidence: { sha, attempt: 1, clean: true, checks: [], source: "none", producer: "agent", at: old.toISOString() },

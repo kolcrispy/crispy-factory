@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-Crispy Factory turns internally managed jobs into agent-built pull requests. An optional Next.js panel exposes stages, evidence, spend, and owner decisions; a single Bun runner executes T3-backed harnesses or direct OMP locally in attempt-isolated worktrees. Spend is measured, not capped.
+Crispy Factory turns internally managed jobs into agent-built pull requests. An optional Next.js panel exposes stages, evidence, spend, and owner decisions; a single Bun runner executes direct OMP locally in attempt-isolated worktrees. Spend is measured, not capped.
 
 ## Architecture & Data Flow
 
 1. Dashboard and trusted CLI create jobs in PostgreSQL and record durable control intents. Repository registration is prepared asynchronously by the runner.
 2. `packages/core/src/ingest.ts` transactionally appends deduplicated events and updates Postgres projections. Session locks, attempt identity, and stage guards prevent stale reports from rolling state backward.
 3. `apps/runner/src/index.ts` consumes intents through polling and startup reconciliation under an exclusive PostgreSQL advisory lock.
-4. The runner claims jobs, launches agent sessions, reconciles stops and usage, and performs GitHub operations through its authenticated `gh`. Hooks, MCP, and the explicit OMP extension send reports through a durable outbox to the runner's loopback report server. There is no separate gateway.
+4. The runner claims jobs, launches agent sessions, reconciles stops and usage, and performs GitHub operations through its authenticated `gh`. The explicit OMP extension and verifier send reports through a durable outbox to the runner's loopback report server. There is no separate gateway.
 5. The optional panel reads projections through owner-protected live endpoints and records actions as intents. Only `apps/runner/src/merge-service.ts` performs GitHub merges. The trusted operator CLI uses local database credentials without a dashboard account.
 
 Postgres is authoritative shared state. Dashboard live endpoints poll projections; React providers remain inside the component tree.
@@ -19,8 +19,8 @@ Postgres is authoritative shared state. Dashboard live endpoints poll projection
 - `apps/dashboard/`: optional Next.js App Router UI, browser authentication, server actions, and live endpoints.
 - `apps/runner/src/`: orchestration, intent handling, launch/recovery, reporting endpoint, merge service, and local runtime adapters.
 - `apps/cli/src/`: trusted local operator commands and owner account provisioning.
-- `packages/core/src/`: shared use cases and domain logic. `packages/integrations/src/`: GitHub/gh, T3, and OMP RPC clients. `packages/platform/src/`: host utilities.
-- `packages/storage/src/`, `drizzle/`: Drizzle schema/client and SQL migrations. `packages/reporting/src/`: lifecycle hooks, reporting MCP server, and OMP extension.
+- `packages/core/src/`: shared use cases and domain logic. `packages/integrations/src/`: GitHub/gh and OMP RPC clients. `packages/platform/src/`: host utilities.
+- `packages/storage/src/`, `drizzle/`: Drizzle schema/client and SQL migrations. `packages/reporting/src/`: verification CLI and trusted OMP extension.
 - `scripts/`: guarded regression programs and operational utilities. `playbooks/` contains shipped agent instructions; `docs/operations.md` is the operational reference. Research notes/mockups are not implementation authority.
 
 ## Development Commands
@@ -55,8 +55,8 @@ bun run db:migrate               # Apply migrations to configured database
 - Use shared `attemptBranch`/`parseBranch` helpers in `packages/core/src/factory.ts` and SQL helpers in `packages/core/src/branch-sql.ts`. Branches are `factory/<key>` and `factory/<key>-a<n>`; retries must remain attempt-isolated.
 - Preserve event idempotency, monotonic usage, stage-transition validation, and atomic projection updates. Rejected transitions remain auditable without moving state.
 - Runner queue errors are caught/logged; a queue timeout does not cancel underlying work. Preserve leases, pending markers, and overlap guards to avoid duplicate execution after ambiguous starts.
-- OMP uses the installed runtime's credentials/models and an explicit trusted reporting extension, with global extension discovery disabled. Tools run with runner account permissions, not in a security sandbox. Session recovery must establish ownership before resuming; ambiguous prompt delivery holds the attempt rather than launching twice. See `docs/operations.md` and ADR 0004 for the execution contract.
-- Reporting hooks must not interrupt agent execution on delivery failure. Keep bounded outbox delivery separate from domain-action error handling.
+- OMP uses the installed runtime's credentials/models and an explicit trusted reporting extension, with global extension discovery disabled. Tools run with runner account permissions, not in a security sandbox. Session recovery must establish ownership before resuming; ambiguous prompt delivery holds the attempt rather than launching twice. See `docs/operations.md` and ADR 0008 for the execution contract.
+- Reporting delivery failures must not interrupt agent execution. Keep bounded outbox delivery separate from domain-action error handling.
 - Authorize dashboard operations through active PostgreSQL owner accounts and sessions. Provision/reset/disable accounts using the trusted CLI; dashboard transports cannot mint trusted operators. Production browser access requires HTTPS.
 
 ## Important Files
@@ -65,7 +65,7 @@ bun run db:migrate               # Apply migrations to configured database
 - `apps/runner/src/index.ts`, `packages/core/src/ingest.ts`, `packages/storage/src/schema.ts`: orchestration, projections, persistence.
 - `packages/core/src/config.ts`: machine configuration; default file `~/.config/crispy-factory/config.json`, overridable with `CRISPY_FACTORY_CONFIG`.
 - `eslint.config.mjs`, `tsconfig.json`: architecture boundaries and compiler settings.
-- `apps/runner/src/threads.ts`, `apps/runner/src/omp.ts`, `apps/runner/src/harnesses.ts`: shared lifecycle dispatch, direct OMP runtime, and combined harness inventory.
+- `apps/runner/src/threads.ts`, `apps/runner/src/omp.ts`, `apps/runner/src/harnesses.ts`: injectable execution seam, direct OMP runtime, and installed OMP inventory.
 - `drizzle.config.ts`, `scripts/migrate-guard.ts`: migration connection and production-branch protection.
 
 ## Runtime/Tooling Preferences

@@ -2,10 +2,9 @@ import { z } from "zod";
 import { matchesAny } from "./globs";
 
 // Browser screenshots the agent attaches to its pr assessment, so the owner sees what the agent saw.
-// The assessment names files in the Playwright MCP server's output dir; the reporter (hooks/report.ts
-// under Claude Code, mcp/factory-report.ts elsewhere) reads each one (lib/screenshot-files.ts) and
-// sends it as a screenshot event ahead of the stage event. Ingest keeps the bytes in
-// job_screenshots, keyed by that stage event and the file, and the panel serves them to the owner.
+// The trusted reporting extension reads assessment screenshot files and sends image events
+// ahead of their associated report. Ingest retains bytes by report identity and file;
+// the panel serves them only to the owner.
 
 /** Where the sandbox's headless browser writes its screenshots; see browserServer in lib/sandbox.ts. */
 export const SCREENSHOT_DIR = "/work/browser";
