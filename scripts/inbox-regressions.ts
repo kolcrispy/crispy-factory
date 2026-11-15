@@ -218,7 +218,7 @@ async function job(name: string, over: Partial<typeof jobs.$inferInsert>, pull?:
     internalJob(`inbox-regress-${k}`, k, {
       machine_id: TEST_MACHINE_ID,
       repo: REPO,
-      provider: "claudeAgent",
+      provider: "omp",
       execution_id: `thread-${k}`,
       session_id: `session-${k}`,
       stage_event_id: `inbox-regress-stage-${k}`,
@@ -233,7 +233,7 @@ const owner = { email: OWNER, emailVerified: true };
 const stranger = { email: "someone@example.com", emailVerified: true };
 const replies: { key: string; requestId: string; body: string }[] = [];
 const filed: Parameters<NewJobDeps["file"]>[0][] = [];
-const harnesses: Harness[] = [{ id: "claudeAgent", driver: "claudeAgent", name: "Claude Code", enabled: true, models: [] }];
+const harnesses: Harness[] = [{ id: "omp", driver: "omp", name: "OMP", enabled: true, models: [] }];
 const deps = (user: typeof owner | null = owner) => ({
   db,
   user: async () => user,
@@ -499,7 +499,7 @@ try {
     pr_url: prUrl(16),
     url: "https://linear.app/x/issue/REVERTED",
     merge_decision: revertDecision,
-    source_state: { actor: OWNER, requestedProvider: "claudeAgent" },
+    source_state: { actor: OWNER, requestedProvider: "omp" },
   });
   const revertedId = (await row(REVERTED)).id;
   assert.equal(inboxKind(await row(REVERTED)), "revert_failed");
@@ -526,7 +526,7 @@ try {
   assert.equal((await intentRows(REVERTED)).length, 0, "no runner intent: the merged attempt's thread is not involved");
 
   harnesses[0]!.enabled = false;
-  const REVERTED2 = await job("REVERTED2", { stage: "done", merge_decision: revertDecision, source_state: { actor: OWNER, requestedProvider: "claudeAgent" } });
+  const REVERTED2 = await job("REVERTED2", { stage: "done", merge_decision: revertDecision, source_state: { actor: OWNER, requestedProvider: "omp" } });
   assert.equal((await inbox.fileFollowUp(deps(), (await row(REVERTED2)).id, crypto.randomUUID(), "Fix it.")).ok, true);
   assert.equal(filed.at(-1)!.provider, undefined, "an unavailable provider falls back to Settings");
   harnesses[0]!.enabled = true;
