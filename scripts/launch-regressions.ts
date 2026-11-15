@@ -110,7 +110,7 @@ try {
   // One failed start does not stop the batch; a clear failure frees its marker, a timeout keeps it.
   const markers = new Map<string, string>();
   const released: string[] = [];
-  const entry = (key: string) => ({ key, sandbox_id: null, attempt: 1, source: "internal" as const, repo: "ski043/factory-demo", base: "main", branch: `factory/${key}`, threadTitle: key, message: "m", harness, ticket: null });
+  const entry = (key: string) => ({ jobId: `internal:${key}`, key, sandbox_id: null, attempt: 1, source: "internal" as const, repo: "ski043/factory-demo", base: "main", branch: `factory/${key}`, threadTitle: key, message: "m", harness, ticket: null });
   const results = await launchEntries([entry("A"), entry("B"), entry("C")], {
     claim: async (key, marker) => (markers.set(key, marker), true),
     start: async ({ key }) => {

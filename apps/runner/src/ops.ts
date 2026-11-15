@@ -396,6 +396,7 @@ export async function toLaunch() {
     .orderBy(asc(jobs.claimed_at), asc(jobs.key));
   return parseJobs(rows).map((job) => ({
     job,
+    jobId: job.id,
     key: job.key,
     attempt: job.attempt,
     source: job.source,
@@ -619,6 +620,7 @@ export async function pendingLaunches() {
     .from(jobs)
     .where(and(await mine(), sql`${jobs.execution_id} like ${`${PENDING}%`}`));
   return rows.map((i) => ({
+    jobId: i.id,
     key: i.key,
     repo: i.repo,
     marker: i.execution_id!,

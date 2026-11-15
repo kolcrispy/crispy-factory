@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { launchEntries, MaybeStartedError, type LaunchEntry } from "@factory/runner/launch";
 import { db } from "@factory/storage/client";
 
-const entry: LaunchEntry = { key: "JOB-1", attempt: 1, repo: "test/repo", branch: "factory/JOB-1", threadTitle: "Repair", message: "Repair", harness: { provider: "codex", model: "test" }, base: "origin/main" };
+const entry: LaunchEntry = { jobId: "internal:fixture", key: "JOB-1", attempt: 1, repo: "test/repo", branch: "factory/JOB-1", threadTitle: "Repair", message: "Repair", harness: { provider: "omp", model: "test" }, base: "origin/main" };
 try {
   const released: string[] = [];
   const deps = { claim: async () => true, start: async () => "thread-1", bind: async () => { throw new Error("database disconnected after thread started"); }, release: async (key: string) => { released.push(key); }, now: () => 1 };

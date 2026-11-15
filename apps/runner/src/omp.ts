@@ -13,7 +13,7 @@ import type { LaunchEntry } from "./launch";
 import type { InterruptOutcome, SubagentThread, ThreadActivity, ThreadRead } from "./threads";
 
 const recordSchema = z.object({
-  id: z.string(), key: z.string(), attempt: z.number().int().positive(), repo: z.string(), role: z.enum(["builder", "reviewer"]).optional(),
+  id: z.string(), jobId: z.string().optional(), key: z.string(), attempt: z.number().int().positive(), repo: z.string(), role: z.enum(["builder", "reviewer"]).optional(),
   branch: z.string(), cwd: z.string(), model: z.string(), sessionDir: z.string(),
   sessionId: z.string().optional(), sessionFile: z.string().optional(), pid: z.number().optional(),
   started: z.boolean(), pendingMessage: z.string().optional(), delivery: z.enum(["uncertain", "accepted"]).optional(),
@@ -39,7 +39,7 @@ export const ompRuntime = {
   command: ompCommand,
   report: (events: FactoryEvent[]) => reportEvents(events, 3000),
 };
-export const ompIdentity = (key: string, attempt: number) => `omp:${key}:${attempt}`;
+export const ompIdentity = (jobId: string, attempt: number) => `omp:${jobId}:${attempt}`;
 export const isOmp = (id: string | null | undefined) => Boolean(id?.startsWith("omp:"));
 const fileOf = (id: string) => join(ompRuntime.root, `${createHash("sha256").update(id).digest("hex")}.json`);
 const readRecord = (id: string) => recordSchema.parse(JSON.parse(readFileSync(fileOf(id), "utf8")));
@@ -178,15 +178,18 @@ async function owned(id: string) {
 }
 
 export async function startOmp(entry: LaunchEntry, checkout: string, workRoot: string, review?: { id: string; cwd: string }) {
-  const id = review?.id ?? ompIdentity(entry.key, entry.attempt);
+  const id = review?.id ?? ompIdentity(entry.jobId, entry.attempt);
   let record: AttemptRecord;
-  if (existsSync(fileOf(id))) record = readRecord(id);
+  if (existsSync(fileOf(id))) {
+    record = readRecord(id);
+    if (record.jobId !== entry.jobId || record.key !== entry.key || record.attempt !== entry.attempt || record.repo !== entry.repo) throw new Error("OMP execution belongs to another job; refusing reuse.");
+  }
   else {
-    const cwd = review?.cwd ?? join(workRoot, ".factory-worktrees", entry.key, String(entry.attempt));
+    const cwd = review?.cwd ?? join(workRoot, ".factory-worktrees", createHash("sha256").update(entry.jobId).digest("hex"), String(entry.attempt));
     mkdirSync(dirname(cwd), { recursive: true });
     // Record the reservation before filesystem effects. Partial creation must never launch twice.
-    record = { id, key: entry.key, attempt: entry.attempt, repo: entry.repo, branch: entry.branch, cwd, ...(review && { role: "reviewer" as const }),
-      model: entry.harness.model, sessionDir: join(ompRuntime.root, "sessions", entry.key, String(entry.attempt), ...(review ? [id.replaceAll(":", "-")] : [])), started: false, needsResume: false, children: {}, pendingMessage: entry.message };
+    record = { id, jobId: entry.jobId, key: entry.key, attempt: entry.attempt, repo: entry.repo, branch: entry.branch, cwd, ...(review && { role: "reviewer" as const }),
+      model: entry.harness.model, sessionDir: join(ompRuntime.root, "sessions", createHash("sha256").update(entry.jobId).digest("hex"), String(entry.attempt), ...(review ? [id.replaceAll(":", "-")] : [])), started: false, needsResume: false, children: {}, pendingMessage: entry.message };
     save(record);
     if (!review) await exec("git", ["worktree", "add", "-b", entry.branch, cwd, entry.base], { cwd: checkout, timeoutMs: 120_000 });
   }
@@ -211,10 +214,11 @@ export async function startOmp(entry: LaunchEntry, checkout: string, workRoot: s
   return id;
 }
 
-export async function recoverOmp(key: string, attempt: number, identity = ompIdentity(key, attempt)) {
-  const id = identity;
+export async function recoverOmp(key: string, attempt: number, identity: string | undefined, jobId: string) {
+  const id = identity ?? ompIdentity(jobId, attempt);
   if (!existsSync(fileOf(id))) throw new Error(`OMP launch ${id} has no durable record; inspect before retrying.`);
   const record = readRecord(id);
+  if (record.jobId !== jobId || record.key !== key || record.attempt !== attempt) throw new Error("OMP execution belongs to another job; refusing recovery.");
   if (record.pendingMessage) throw new Error(`OMP launch ${id} was not delivered; inspect before retrying.`);
   if (record.delivery === "uncertain") throw new Error(`OMP launch ${id} has uncertain prompt delivery; inspect before retrying.`);
   await owned(id);

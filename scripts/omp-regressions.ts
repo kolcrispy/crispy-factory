@@ -36,18 +36,21 @@ try {
   const pending = rpc.request({ type: "timeout" });
   rpc.reply({ type: "exit" });
   await assert.rejects(pending, /exited/);
-  const { ompRuntime, readOmp, recoverOmp } = await import("@factory/runner/omp");
+  const { ompRuntime, readOmp, recoverOmp, startOmp, ompIdentity } = await import("@factory/runner/omp");
   const originalRoot = ompRuntime.root;
   ompRuntime.root = root;
   const id = "omp:review:missing-transcript:1:1";
   const recordPath = join(root, `${createHash("sha256").update(id).digest("hex")}.json`);
-  const record = { id, key: "missing-transcript", attempt: 1, repo: "fixture/repo", role: "reviewer", branch: "review/fixture", cwd: root, model: "fixture", sessionDir: root, started: true, delivery: "accepted", needsResume: true };
+  const record = { id, jobId: "internal:missing", key: "missing-transcript", attempt: 1, repo: "fixture/repo", role: "reviewer", branch: "review/fixture", cwd: root, model: "fixture", sessionDir: root, started: true, delivery: "accepted", needsResume: true };
   try {
     writeFileSync(recordPath, JSON.stringify({ ...record, pid: process.pid }));
     await assert.rejects(readOmp(id), /refusing duplicate execution/, "a missing transcript must not hide a live owner");
     writeFileSync(recordPath, JSON.stringify(record));
     assert.equal((await readOmp(id)).read.state, "gone", "a stopped session without a transcript must allow owner-requested fresh review");
-    await assert.rejects(recoverOmp(record.key, 1, id), /no persisted transcript/, "missing transcripts still prohibit resuming the original session");
+    await assert.rejects(recoverOmp(record.key, 1, id, record.jobId), /no persisted transcript/, "missing transcripts still prohibit resuming the original session");
+    await assert.rejects(recoverOmp(record.key, 1, id, "internal:new-job"), /another job/, "a reused display key must not recover a prior job's execution");
+    assert.notEqual(ompIdentity("internal:old", 1), ompIdentity("internal:new", 1), "separate job UUIDs cannot share execution identity after a display-key reset");
+    await assert.rejects(startOmp({ jobId: "internal:new-job", key: record.key, attempt: 1, repo: record.repo, branch: "factory/JOB-1", threadTitle: "New job", message: "new prompt", harness: { provider: "omp", model: "fixture" }, base: "main" }, root, root, { id, cwd: root }), /another job/, "launch cannot adopt another job's durable reservation or send its prompt");
   } finally { ompRuntime.root = originalRoot; }
   console.log("OMP RPC correlation, uncertain delivery, process exit and portable reporting schema regressions passed");
 } finally {

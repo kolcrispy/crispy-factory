@@ -15,7 +15,7 @@ import { localizeJobImages } from "./job-images";
 
 export class MaybeStartedError extends Error {}
 export type LaunchEntry = {
-  key: string; attempt: number; repo: string; branch: string; threadTitle: string; message: string;
+  jobId: string; key: string; attempt: number; repo: string; branch: string; threadTitle: string; message: string;
   harness: HarnessChoice; base: string;
 };
 export type LaunchDeps = {
@@ -56,7 +56,7 @@ export async function recoverPending(checkouts: ReadonlyMap<string, string>) {
   for (const pending of await pendingLaunches()) {
     if (!checkouts.has(pending.repo) || Date.now() - Number(pending.marker.slice(PENDING.length)) < 120_000) continue;
     try {
-      const id = await recoverOmp(pending.key, pending.attempt);
+      const id = await recoverOmp(pending.key, pending.attempt, undefined, pending.jobId);
       await bindThread(pending.key, id);
       recovered.push({ key: pending.key, threadId: id });
     } catch (error) {

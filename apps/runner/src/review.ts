@@ -84,7 +84,7 @@ async function runReview(job: JobRow) {
   const round = review.rounds.at(-1);
   if (!round) throw new Error("Review round is missing.");
   if (round.state === "launching") {
-    round.threadId = await recoverOmp(job.key, job.attempt, `omp:review:${job.key}:${job.attempt}:${round.round}`);
+    round.threadId = await recoverOmp(job.key, job.attempt, `omp:review:${job.id}:${job.attempt}:${round.round}`, job.id);
     round.state = "running";
     review.state = "reviewing";
     await save(job, review, { execution_id: round.threadId, session_id: null });
@@ -93,7 +93,7 @@ async function runReview(job: JobRow) {
   if (round.state === "pending") {
     const problem = reviewConfigurationProblem(review.policy, await readHarnesses());
     if (problem) throw new Error(problem);
-    const checkout = join(config.factory.workRoot, ".factory-reviews", job.key, String(job.attempt), String(round.round));
+    const checkout = join(config.factory.workRoot, ".factory-reviews", job.id.replaceAll(":", "-"), String(job.attempt), String(round.round));
     round.checkout = checkout;
     round.state = "launching";
     review.state = "reviewing";
@@ -101,9 +101,9 @@ async function runReview(job: JobRow) {
     const title = `${job.key} reviewer a${job.attempt} r${round.round}`;
     try {
       await git(root, ["worktree", "add", "--detach", checkout, round.sha]);
-      const threadId = await startOmp({ key: job.key, attempt: job.attempt, repo: job.repo, branch: `review/${job.key}-a${job.attempt}-r${round.round}`, threadTitle: title,
+      const threadId = await startOmp({ jobId: job.id, key: job.key, attempt: job.attempt, repo: job.repo, branch: `review/${job.key}-a${job.attempt}-r${round.round}`, threadTitle: title,
         message: reviewerPrompt(job, round, checkout), harness: review.policy, base: round.sha }, root, config.factory.workRoot,
-      { id: `omp:review:${job.key}:${job.attempt}:${round.round}`, cwd: checkout });
+      { id: `omp:review:${job.id}:${job.attempt}:${round.round}`, cwd: checkout });
       round.threadId = threadId;
       round.state = "running";
       if (!(await save(job, review, { execution_id: threadId, session_id: null }))) await threads.interrupt(threadId, `review-stop:${job.attempt}:${round.round}`, "Attempt stopped or changed during reviewer launch.", host);
