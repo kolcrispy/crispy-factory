@@ -63,7 +63,18 @@ let sends = 0;
 threads.read = async () => ({ state: "stopped", status: "completed", checkout: "review-checkout", lastMessage: JSON.stringify({ sha, verdict, summary: "Concrete review outcome", findings: verdict === "FIX" ? [{ severity: "blocking", file: "src/a.ts", title: "Wrong result", impact: "Incorrect consumer output", reason: "Observed wrong branch" }] : [] }) });
 threads.send = async () => { sends++; };
 hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => ({ stdout: args.includes("status") ? "" : sha, stderr: "" }) });
+const { OmpRpcTimeout } = await import("@factory/integrations/omp-rpc");
 try {
+  const pollingReview: AttemptReview = { ...structuredClone(review), state: "building", rounds: [] };
+  await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", t3_thread_id: "builder", attempt_review: pollingReview }));
+  threads.read = async () => { throw new OmpRpcTimeout("get_state"); };
+  await reviewJobs();
+  const [polling] = await db.select().from(jobs).where(eq(jobs.key, key));
+  assert.equal(polling!.attempt_review!.state, "building", "a status read timeout must not permanently hold a still-owned builder");
+  assert.equal(polling!.attention, null, "a transient status read does not require owner recovery");
+  assert.equal(publications, 0, "an unavailable status cannot authorize publication");
+  await db.delete(jobs).where(eq(jobs.key, key));
+  threads.read = async () => ({ state: "stopped", status: "completed", checkout: "review-checkout", lastMessage: JSON.stringify({ sha, verdict, summary: "Concrete review outcome", findings: verdict === "FIX" ? [finding] : [] }) });
   for (const [outcome, repairs, expected, deliveries] of [["PASS", 0, "passed", 0], ["BLOCKED", 0, "held", 0], ["FIX", 0, "repairing", 1], ["FIX", 2, "held", 0]] as const) {
     verdict = outcome;
     sends = 0;
@@ -86,7 +97,7 @@ try {
   for (const scenario of ["wrong-verdict-sha", "changed-builder-sha", "dirty-reviewer", "changed-reviewer-head", "dirty-builder", "uncertain-delivery", "stop-during-read", "attempt-during-read", "passed-restart"] as const) {
     verdict = "PASS";
     sends = 0;
-    const before = publications;
+    const before: number = publications;
     const active: AttemptReview = structuredClone(review);
     active.state = scenario === "dirty-builder" ? "building" : scenario === "uncertain-delivery" ? "repairing" : scenario === "passed-restart" ? "passed" : "reviewing";
     if (active.state !== "passed") active.rounds[0] = { ...active.rounds[0]!, state: "running", result: undefined };

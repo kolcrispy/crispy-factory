@@ -17,6 +17,7 @@ import type { RepoName } from "@factory/integrations/github/gh";
 import { postEvent } from "./ingest-client";
 import { runnerEventId } from "@factory/core/stages";
 import { listThreads, showThread } from "@factory/integrations/t3-client";
+import { OmpRpcTimeout } from "@factory/integrations/omp-rpc";
 
 const busy = new Set<string>();
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -202,6 +203,10 @@ export async function reviewJobs() {
       if (job.attempt_review?.delivery?.state === "uncertain") throw new Error("Builder repair delivery is uncertain; inspect session before retrying.");
       await runReview(job);
     } catch (error) {
+      if (error instanceof OmpRpcTimeout && error.command === "get_state") {
+        console.warn(JSON.stringify({ event: "review:status-unavailable", key: job.key, error: error.message }));
+        continue;
+      }
       const [current] = await db.select().from(jobs).where(eq(jobs.id, job.id));
       if (current?.attempt_review && current.attempt === job.attempt) {
         const review = structuredClone(current.attempt_review);

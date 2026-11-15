@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OmpRpc } from "@factory/integrations/omp-rpc";
+import { OmpRpc, OmpRpcTimeout } from "@factory/integrations/omp-rpc";
 import reporting from "@factory/reporting/omp-extension";
 import { db } from "@factory/storage/client";
 
@@ -28,10 +28,11 @@ try {
   await assert.rejects(rpc.request({ type: "reject" }), /Refused/);
   await assert.rejects(rpc.request({ type: "timeout" }, 20), /delivery is uncertain/);
   assert.equal((await rpc.request<{ value: string }>({ type: "echo", value: "after-timeout" })).value, "after-timeout", "one uncertain command does not poison later requests");
+  await assert.rejects(rpc.request({ type: "get_state", delay: 100 }, 20), error => error instanceof OmpRpcTimeout && error.command === "get_state" && !error.message.includes("delivery is uncertain"));
   let schema: Record<string, unknown> | undefined;
   reporting({ registerTool: tool => { schema = tool.parameters; } });
-  assert.deepEqual(schema?.required, ["stage", "summary"], "the runtime receives JSON Schema, not an incompatible Zod object");
-  assert.equal((schema?.properties as Record<string, { type: string }>).stage.type, "string");
+  assert.deepEqual(schema?.required, ["action", "summary"], "the runtime receives the builder report JSON Schema");
+  assert.equal((schema?.properties as Record<string, { type: string }>).action.type, "string");
   const pending = rpc.request({ type: "timeout" });
   rpc.reply({ type: "exit" });
   await assert.rejects(pending, /exited/);
