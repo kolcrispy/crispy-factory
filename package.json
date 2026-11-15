@@ -25,6 +25,7 @@
     "@factory/reporting": "workspace:*",
     "@factory/runner": "workspace:*",
     "@factory/storage": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/bun": "latest",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
