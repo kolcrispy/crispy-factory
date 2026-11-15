@@ -1,10 +1,11 @@
-import { asc, desc } from "drizzle-orm";
+import { asc, desc, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { agents, jobs, machines, repoSettings, runs } from "@factory/storage/schema";
-import type { AgentRow, JobRow, MachineRow, RepoSettingsRow, RunRow } from "@factory/storage/schema";
+import type { AgentRow, AuditRow, EventRow, JobRow, MachineRow, RepoSettingsRow, RunRow } from "@factory/storage/schema";
 import { branchCosts, type BranchCost } from "./spend";
 import { attemptBranch } from "./factory";
 import { inboxKind } from "./inbox";
+import { auditActivity, eventActivity, type JobActivity } from "./activity";
 
 export interface RealtimeSnapshot {
   version: 1;
@@ -14,6 +15,7 @@ export interface RealtimeSnapshot {
   machines: MachineRow[];
   spend: Record<string, BranchCost>;
   repositories: Pick<RepoSettingsRow, "repo" | "display_name" | "enabled" | "is_default">[];
+  activity: JobActivity[];
 }
 
 /** One repeatable-read snapshot shared by desktop and browser. No transcript bodies or credentials. */
@@ -33,6 +35,28 @@ export async function realtimeSnapshot(): Promise<RealtimeSnapshot> {
     const machineRows = await tx.select().from(machines).orderBy(asc(machines.name), asc(machines.id));
     const repositories = await tx.select({ repo: repoSettings.repo, display_name: repoSettings.display_name, enabled: repoSettings.enabled, is_default: repoSettings.is_default }).from(repoSettings).orderBy(asc(repoSettings.repo));
     const spend = await branchCosts(tx, jobRows.map(job => attemptBranch(job.key, job.attempt)));
-    return { version: 1 as const, jobs: jobRows.map(job => ({ ...job, needs_human: inboxKind(job) !== null })), runs: runRows, agents: agentRows, machines: machineRows, repositories, spend };
+    const ids = jobRows.map(job => job.id);
+    const activity: JobActivity[] = [];
+    if (ids.length) {
+      const eventRows = await tx.execute<EventRow & { job_id: string }>(sql`
+        SELECT j.id AS job_id, e.* FROM jobs j
+        CROSS JOIN LATERAL (
+          SELECT e.* FROM events e
+          WHERE (e.job_key = j.key OR e.session_id IN (SELECT r.session_id FROM runs r WHERE r.job_key = j.key))
+            AND e.kind <> 'usage'
+          ORDER BY e.at DESC, e.event_id DESC LIMIT 100
+        ) e WHERE j.id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+      const auditRows = await tx.execute<AuditRow>(sql`
+        SELECT a.* FROM jobs j CROSS JOIN LATERAL (
+          SELECT a.* FROM audit_log a WHERE a.job_id = j.id ORDER BY a.at DESC, a.id DESC LIMIT 50
+        ) a WHERE j.id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+      for (const row of eventRows.rows) {
+        const item = eventActivity(row.job_id, row);
+        if (item) activity.push(item);
+      }
+      activity.push(...auditRows.rows.map(auditActivity));
+      activity.sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
+    }
+    return { version: 1 as const, jobs: jobRows.map(job => ({ ...job, needs_human: inboxKind(job) !== null })), runs: runRows, agents: agentRows, machines: machineRows, repositories, spend, activity };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }

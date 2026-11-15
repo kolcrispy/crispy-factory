@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { db } from "@factory/storage/client";
-import { jobs, realtimeClients, realtimePairings } from "@factory/storage/schema";
+import { auditLog, events, jobs, realtimeClients, realtimePairings } from "@factory/storage/schema";
 import { eq } from "drizzle-orm";
 import { createRealtimePairing, redeemRealtimePairing, revokeRealtimeClient } from "@factory/core/realtime-auth";
 import { readRealtime } from "@factory/core/realtime-client";
@@ -42,6 +42,13 @@ try {
   await db.update(jobs).set({ stage: "building" }).where(eq(jobs.key, key));
   const changed = await snapshot;
   assert.equal((changed.jobs as { key: string; stage: string }[]).find(job => job.key === key)?.stage, "building");
+  snapshot = next();
+  await db.insert(events).values({ event_id: "realtime-activity-event", session_id: "activity-session", job_key: key, kind: "builder_report", at: new Date(), payload: { eventId: "realtime-activity-event", sessionId: "activity-session", jobKey: key, branch: `factory/${key}`, at: Date.now(), kind: "builder_report", action: "progress", summary: "Implementation verified" }, refusal: null });
+  const progress = (await snapshot).activity as { id: string; summary: string; jobId: string }[];
+  assert.equal(progress.find(item => item.id === "event:realtime-activity-event")?.summary, "Implementation verified", "activity-only commit streams without a job projection update");
+  snapshot = next();
+  await db.insert(auditLog).values({ id: "realtime-activity-audit", at: new Date(), actor: "fixture-operator", action: "merge_requested", job_id: internalJob(key, key).id, target: "https://github.com/fixture/repo/pull/1", head_sha: "a".repeat(40) });
+  assert.ok(((await snapshot).activity as { id: string }[]).some(item => item.id === "audit:realtime-activity-audit"), "audit-only commit streams immediately");
   controller.abort(); await stream;
   const reconnect = new AbortController();
   snapshot = next();
@@ -57,6 +64,8 @@ try {
 } finally {
   controller.abort();
   await close(); await server.stop();
+  await db.delete(events).where(eq(events.event_id, "realtime-activity-event"));
+  await db.delete(auditLog).where(eq(auditLog.id, "realtime-activity-audit"));
   await db.delete(jobs).where(eq(jobs.key, key));
   if (clientId) await db.delete(realtimeClients).where(eq(realtimeClients.id, clientId));
   await db.delete(realtimePairings).where(eq(realtimePairings.label, "SSE regression"));

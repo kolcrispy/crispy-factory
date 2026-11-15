@@ -18,7 +18,7 @@ import { useArchiveAction, type ArchiveAction } from "./archive-action";
 import { EventFeed } from "./event-feed";
 import { FullViewToggle, type FullView } from "./full-view";
 import { EvidenceSection } from "./evidence";
-import { AuditLog } from "./audit-log";
+import { JobActivityTimeline } from "./job-activity";
 import { formatUsd, runCost, runTitle, shortId } from "./format";
 import { MergeButton } from "./merge-button";
 import { MergeDecisionSection } from "./merge-decision";
@@ -29,14 +29,10 @@ import { Time } from "./time";
 import { STAGE_META } from "./stages";
 import { JobReview } from "./job-review";
 
-/** The job's audit feed. */
-function JobRecords({ feed, path }: { feed: Feed<AuditRow>; path: string }) {
+/** Keep database history as the disconnected fallback for the shared live activity. */
+function JobRecords({ feed, path, jobId, events }: { feed: Feed<AuditRow>; path: string; jobId: string; events: readonly EventRow[] }) {
   const { rows } = useFeed(feed, path);
-  return (
-    <>
-      <AuditLog rows={rows} />
-    </>
-  );
+  return <JobActivityTimeline jobId={jobId} events={events} audit={rows} />;
 }
 
 
@@ -258,7 +254,7 @@ export function RunDetail({
       <StageTimeline events={stageRows} />
     </section>
   );
-  const records = audit && <JobRecords feed={audit.feed} path={audit.path} />;
+  const records = audit && job && <JobRecords feed={audit.feed} path={audit.path} jobId={job.id} events={[...stageRows, ...eventRows.filter(row => !stageRows.some(stage => stage.event_id === row.event_id))]} />;
   const activity = (
     <>
       <Separator />

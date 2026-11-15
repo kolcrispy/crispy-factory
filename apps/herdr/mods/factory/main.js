@@ -15,6 +15,7 @@ export default class Factory extends View {
   init(_props, cx) {
     this.jobs = [];
     this.spend = {};
+    this.activity = [];
     this.repositories = [];
     this.repo = "All repositories";
     this.stage = "All stages";
@@ -57,6 +58,7 @@ export default class Factory extends View {
             if (snapshot.version !== 1 || !Array.isArray(snapshot.jobs)) throw new Error("Unsupported runner snapshot");
             this.jobs = snapshot.jobs; this.repositories = snapshot.repositories;
             this.spend = snapshot.spend ?? {};
+            this.activity = snapshot.activity ?? [];
             const selectedRevision = JSON.stringify(snapshot.jobs.find(job => job.id === this.selected));
             if (selectedRevision !== this.selectedRevision) {
               this.selectedRevision = selectedRevision;
@@ -305,6 +307,13 @@ export default class Factory extends View {
       })));
       detail.child(actions);
       detail.child(div().text_size(13).child(selected.description || "No description."));
+      detail.child(div().text_size(14).font_semibold().child("Activity"));
+      const activity = this.activity.filter(item => item.jobId === selected.id);
+      if (!activity.length) detail.child(muted(this.live ? "No activity yet." : "Connect runner to stream activity."));
+      detail.children(activity.map(item => v_flex().id(`activity-${item.id}`).gap(3).pb(8)
+        .child(muted(`${new Date(item.at).toLocaleString()} · ${item.kind.replaceAll("_", " ")}`))
+        .child(div().text_size(12).whitespace_normal().child(item.summary))
+        .when(Boolean(item.refusal), el => el.child(div().text_size(12).text_color(t.blocked).child(`Refused: ${item.refusal}`)))));
     }
     const form = v_flex().id("factory-action-form").flex_1().min_h(0).overflow_y_scroll().p(18).gap(12);
     if (this.form) {

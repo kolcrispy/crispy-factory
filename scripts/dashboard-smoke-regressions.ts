@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { chromium, type Request } from "playwright";
 import { manageOwner } from "@factory/core/auth/accounts";
 import { db } from "@factory/storage/client";
-import { jobs, repoSettings, machines } from "@factory/storage/schema";
+import { events, jobs, repoSettings, machines } from "@factory/storage/schema";
 import { internalJob } from "./fixtures";
 import { createRealtimePairing } from "@factory/core/realtime-auth";
 import { startRealtimeServer } from "@factory/runner/realtime-server";
@@ -34,6 +34,7 @@ const stopRealtimeListener = await listenForWork(db.$client, realtime.refresh, e
 mkdirSync(root, { recursive: true });
 cpSync(join(workspace, "apps/dashboard"), root, { recursive: true, filter: source => !["node_modules", ".next"].includes(source.split(/[\\/]/).at(-1)!) });
 await Bun.write(join(root, "app/merge-smoke/page.tsx"), `import { MergeButton } from "../../components/panel/merge-button";\nexport default function Page() { return <MergeButton jobId="internal:dashboard-smoke" jobKey="JOB-9001" />; }`);
+await Bun.write(join(root, "app/activity-smoke/page.tsx"), `import { RunnerRealtime } from "../../components/panel/runner-realtime";\nimport { JobActivityTimeline } from "../../components/panel/job-activity";\nexport default function Page() { return <RunnerRealtime><JobActivityTimeline jobId="internal:dashboard-smoke" events={[]} audit={[]} /></RunnerRealtime>; }`);
 symlinkSync(join(workspace, "apps/dashboard/node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 let logs = "";
 const child = Bun.spawn([process.execPath, join(workspace, "node_modules/next/dist/bin/next"), "dev", root, "--hostname", "127.0.0.1", "--port", String(port)], {
@@ -78,6 +79,14 @@ try {
   await page.getByRole("button", { name: "Pair", exact: true }).click();
   await page.getByText("Runner live", { exact: true }).waitFor();
   console.log("Dashboard paired directly to runner SSE");
+  await page.goto(origin + "/activity-smoke");
+  await page.getByText("Runner live", { exact: true }).waitFor();
+  await db.insert(events).values({ event_id: "browser-activity", session_id: "browser-session", job_key: "JOB-9001", kind: "builder_report", at: new Date(), payload: { eventId: "browser-activity", sessionId: "browser-session", jobKey: "JOB-9001", branch: "factory/JOB-9001", at: Date.now(), kind: "builder_report", action: "progress", summary: "Live activity arrived without polling" } });
+  await page.getByText("Live activity arrived without polling", { exact: true }).waitFor();
+  const activityEvidence = resolve(process.env.FACTORY_SMOKE_ARTIFACTS ?? join(workspace, ".scratch", "dashboard-smoke-evidence"));
+  mkdirSync(activityEvidence, { recursive: true });
+  await page.screenshot({ path: join(activityEvidence, "activity.png"), fullPage: true });
+  console.log("Dashboard activity rendered from event-only SSE update");
   // Exercise the real merge component without a runner or any GitHub writes.
   const { eq } = await import("drizzle-orm");
   const { intents } = await import("@factory/storage/schema");
