@@ -186,11 +186,6 @@ writeFileSync(configPath, JSON.stringify({ ingestUrl: `http://localhost:${server
 const verifyScript = join(import.meta.dirname, "../packages/reporting/src/hooks/verify.ts");
 const childEnv = (over: Record<string, string> = {}) => {
   const env: Record<string, string | undefined> = { ...process.env, HOME: dir, CRISPY_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: join(dir, "state"), ...over };
-  // These repos' check scripts are POSIX shell, which is what a sandbox or the Mac runs. Windows'
-  // npm would hand them to cmd.exe, where "exit 3" and "true" mean something else.
-  const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : null;
-  if (bash) env.npm_config_script_shell = bash;
-  if (bash) env.PATH = `C:/Program Files/Git/bin;${env.PATH ?? ""}`;
   for (const name of ["FACTORY_JOB_KEY", "FACTORY_ATTEMPT", "FACTORY_SESSION_ID", "GITHUB_TOKEN"]) if (!(name in over)) delete env[name];
   env.FACTORY_SESSION_ID = over.FACTORY_SESSION_ID ?? "omp:evidence-regression";
   return env as NodeJS.ProcessEnv;
@@ -219,12 +214,6 @@ function repoWith(branch: string, scripts: Record<string, string>, extra: Record
   gitIn(repo, "commit", "-q", "-m", "init");
   gitIn(repo, "remote", "add", "origin", "https://github.com/acme/demo.git");
   return repo;
-}
-const priorEvidencePath = process.env.PATH;
-const priorEvidenceShell = process.env.npm_config_script_shell;
-if (process.platform === "win32") {
-  process.env.PATH = `C:/Program Files/Git/bin;${process.env.PATH ?? ""}`;
-  process.env.npm_config_script_shell = "C:/Program Files/Git/bin/bash.exe";
 }
 
 const SECRET_TOKEN = "ghp_cliSecretToken0123456789abcdef";
@@ -453,10 +442,6 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  if (priorEvidencePath === undefined) delete process.env.PATH;
-  else process.env.PATH = priorEvidencePath;
-  if (priorEvidenceShell === undefined) delete process.env.npm_config_script_shell;
-  else process.env.npm_config_script_shell = priorEvidenceShell;
   await server.close();
   const ids = (await db.select({ id: jobs.id }).from(jobs).where(like(jobs.id, `${jobId("internal", "evidence-regress-")}%`))).map((j) => j.id);
   if (ids.length > 0) await db.delete(auditLog).where(inArray(auditLog.job_id, ids));

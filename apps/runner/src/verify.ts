@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { ExecError } from "@factory/platform/exec";
+import { localShell } from "@factory/platform/shell";
 import { eventSchema, type FactoryEvent } from "@factory/core/events";
 import { combined, planChecks, runChecks, type CheckRunner } from "@factory/core/evidence";
 import { attemptBranch } from "@factory/core/factory";
@@ -57,7 +58,8 @@ const hostRunner =
   (host: JobHost, dir: string): CheckRunner =>
   async (command, timeoutMs) => {
     try {
-      const { stdout, stderr } = await host.run("bash", ["-c", combined(command)], { cwd: dir, timeoutMs, maxBuffer: 64 * 1024 * 1024 });
+      const shell = localShell();
+      const { stdout, stderr } = await host.run(shell.command, ["-c", combined(command)], { cwd: dir, env: shell.env, timeoutMs, maxBuffer: 64 * 1024 * 1024 });
       return { exitCode: 0, output: `${stdout}${stderr}` };
     } catch (error) {
       const failed = error as ExecError;

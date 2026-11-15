@@ -29,3 +29,19 @@ jobs:
           name: dashboard-smoke
           path: .scratch/dashboard-smoke-evidence/
           if-no-files-found: ignore
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Locate PostgreSQL tools
+        shell: pwsh
+        run: |
+          $bin = Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'bin' } | Where-Object { Test-Path (Join-Path $_ 'initdb.exe') } | Select-Object -First 1
+          if (-not $bin) { throw 'PostgreSQL tools missing' }
+          $bin >> $env:GITHUB_PATH
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/test-postgres.ts evidence omp schema agent-tools database-maintenance

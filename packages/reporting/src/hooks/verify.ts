@@ -9,6 +9,7 @@ import { parseBranch } from "@factory/core/factory";
 import { readIngestTarget, reportEvents } from "@factory/core/outbox";
 import { parseRecipe, RECIPE_PATH, UNMERGED_RECIPE_PATH } from "@factory/core/recipe";
 import { reportIdentity } from "@factory/core/report-identity";
+import { localShell } from "@factory/platform/shell";
 
 // factory-verify: runs the repo's checks at the current HEAD and reports what ran as evidence for
 // that exact commit, through the outbox, so the merge decision can hold the PR's head to it.
@@ -35,7 +36,8 @@ const localRunner =
   (cwd: string): CheckRunner =>
   (command, ms) =>
     new Promise((resolve) => {
-      const child = spawn("bash", ["-c", combined(command)], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const shell = localShell();
+      const child = spawn(shell.command, ["-c", combined(command)], { cwd, env: shell.env, stdio: ["ignore", "pipe", "pipe"] });
       let output = "";
       const keep = (chunk: Buffer) => {
         output = (output + chunk.toString("utf8")).slice(-OUTPUT_KEEP_CHARS);

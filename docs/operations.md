@@ -61,6 +61,8 @@ Merge confirms the displayed SHA; attempt-sensitive actions retain the displayed
 The repository `.agents/skills/factory-jobs/` is authoritative. `bun run skills:sync` installs it to `~/.agents/skills/factory-jobs`; `--target <directory>` selects another installation. `bun run skills:check` proves a fresh installation is byte-identical; add `--target <directory>` to detect drift in an existing installation. Edit repository sources, then synchronize, rather than editing installed copies.
 
 For agent investigations, use bounded service log tails rather than full transcripts. Read a complete relevant source block before patching it. On polling UI, refresh the browser snapshot before each ref-based action, or use stable semantic selectors. Prefer the smoke command over rebuilding fixture/startup/auth setup for each UI check.
+Read only the relevant skill or source section; avoid batching whole large guides. For eval tool composition, import `checkedTool` from `scripts/agent-tools.mjs` using the absolute checkout path and wrap each tool call: `await checkedTool(tool.edit(args))`. It rejects both MCP-style `isError` and native `hasError`/`errorKind` envelopes. Never print credential-bearing tool results. After saving Herdr pairing, call `verifyRunnerCredential(path)` from the same helper; it authenticates with the saved file, not an in-memory token. This helper is available to repo-aware agents, not injected into the host runtime.
+
 
 
 ## Runner
@@ -194,5 +196,15 @@ Each run uses a temporary PostgreSQL cluster. Never point regressions at the app
 bun run db:generate
 bun run db:migrate
 ```
+### Verified backup and reset
+
+Run `bun scripts/database-maintenance.ts identify` first. It prints nonsecret server identity and authentication shape. Supply a direct URL; maintenance accepts only the `sslmode` query option so libpq cannot silently select a different target.
+
+`bun run db:backup --backup <new-file.dump>` checks client/server major versions, refuses overwriting, verifies the custom archive with `pg_restore --list`, and writes a SHA-256/target manifest beside it. Select compatible binaries with `FACTORY_PG_DUMP` and `FACTORY_PG_RESTORE`, or use `--ssh <host-alias>` to run installed remote tools. Remote authentication fields travel over SSH stdin, never argv. On POSIX files use mode 0600; on Windows use a private user directory protected by its ACL. Archives contain application data and must remain private.
+
+After explicit user authorization, gracefully stop runner/dashboard and other database clients. Run `bun run db:reset --backup <verified.dump> --services-stopped --confirm <host:port/database>`. Reset checks the manifest, hash, target identity, runner ownership lock, remaining client connections and unexpected schemas before dropping public/drizzle and applying checkout migrations. Keep services stopped. `--services-stopped` is an operator assertion, not a process discovery mechanism. Backup and reset are explicit operational commands, never routine validation.
+
+`bun run schema:check` compares the latest journal snapshot with the TypeScript schema. Disposable `schema` regressions compare migrated tables, column types/nullability, constraint/index names and enum values; they do not prove every SQL expression equivalent. CI runs the check and a Windows evidence/OMP subset. Local Windows verification resolves Git Bash centrally through `packages/platform/src/shell.ts`; `FACTORY_BASH_PATH` overrides detection. System WSL bash is not used.
+
 
 The local cutover requires a fresh database. Destructive migrations refuse populated legacy schemas instead of deleting user data.
