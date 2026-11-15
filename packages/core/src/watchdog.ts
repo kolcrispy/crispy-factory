@@ -33,7 +33,7 @@ export function watch(input: WatchInput, limits: FactoryLimits): WatchAction {
   const nudged = input.nudgedAt !== null && input.nudgedStage === input.stage;
 
   if (input.thread === "gone") {
-    return { kind: "fail", reason: `its T3 thread is gone (stage ${input.stage})` };
+    return { kind: "fail", reason: `its OMP thread is gone (stage ${input.stage})` };
   }
   if (!input.tracked) return input.nudgedAt ? { kind: "reset" } : { kind: "ok" };
   const stuck =

@@ -110,12 +110,12 @@ function Why({ item }: { item: Item }) {
     case "stop_unconfirmed":
       return (
         <Alert variant="warning">
-          <AlertTitle>Stop not confirmed — check the thread in T3</AlertTitle>
+          <AlertTitle>Stop not confirmed - inspect the OMP session</AlertTitle>
           <AlertDescription className="flex flex-col gap-1">
             <span>{inboxReason(item)}</span>
             <span>
-              Open the run, then Open in T3, and stop the thread there if it still works; then dismiss this. Retry stop asks T3 to interrupt it again. The label
-              can&apos;t retry the job until this is dismissed.
+              Inspect the owned OMP session and stop it if still active, then dismiss this. Retry stop asks the runner to interrupt it again. The job
+              cannot retry until this is dismissed.
             </span>
           </AlertDescription>
         </Alert>

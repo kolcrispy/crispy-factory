@@ -9,7 +9,6 @@ import { db } from "@factory/storage/client";
 import { machines } from "@factory/storage/schema";
 import { loadConfig } from "@factory/core/config";
 import { UNKNOWN, type Heartbeat, type Inventory } from "@factory/core/machine";
-import { connectStatus, readProjects, readT3Runtime } from "@factory/integrations/t3-state";
 import { readHarnesses } from "./harnesses";
 import { message, withTimeout } from "./queue";
 
@@ -86,9 +85,6 @@ export function inventoryCollectors(): InventoryCollectors {
   const { factory } = loadConfig();
   return {
     runnerSha: async () => (await text("git", ["rev-parse", "HEAD"], RUNNER_DIR)).trim(),
-    t3: async () => readT3Runtime(),
-    connect: connectStatus,
-    projects: () => readProjects({ statePath: factory.t3StatePath, repos: factory.repos }),
     repos: async () =>
       Promise.all(
         factory.repos.map(async (path) => ({
@@ -101,15 +97,12 @@ export function inventoryCollectors(): InventoryCollectors {
 }
 
 export async function collectInventory(collectors: InventoryCollectors): Promise<Inventory> {
-  const [runnerSha, t3, connect, projects, repos, harnesses] = await Promise.all([
+  const [runnerSha, repos, harnesses] = await Promise.all([
     settle(collectors.runnerSha),
-    settle(collectors.t3),
-    settle(collectors.connect),
-    collectors.projects().catch((): Inventory["projects"] => ({ source: UNKNOWN })),
     collectors.repos().catch((): Inventory["repos"] => []),
     settle(collectors.harnesses),
   ]);
-  return { runnerSha, t3, connect, projects, repos, harnesses };
+  return { runnerSha, repos, harnesses };
 }
 
 export async function writeHeartbeat(machine: Machine, heartbeat: Heartbeat, now: Date) {

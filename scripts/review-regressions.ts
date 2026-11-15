@@ -5,11 +5,11 @@ import { resolveReviewPolicy, reviewAllowsPublication, reviewConfigurationProble
 
 const builder = { provider: "omp", model: "builder-model" };
 assert.deepEqual(resolveReviewPolicy(builder), { enabled: true, ...builder });
-assert.deepEqual(resolveReviewPolicy(builder, { provider: "codex", model: "review-model" }, { enabled: false }, { enabled: true }), {
-  enabled: true, provider: "codex", model: "review-model",
+assert.deepEqual(resolveReviewPolicy(builder, { provider: "omp", model: "review-model" }, { enabled: false }, { enabled: true }), {
+  enabled: true, provider: "omp", model: "review-model",
 });
-assert.deepEqual(resolveReviewPolicy(builder, { model: "global-model" }, { provider: "codex" }, { model: "job-model" }), {
-  enabled: true, provider: "codex", model: "job-model",
+assert.deepEqual(resolveReviewPolicy(builder, { model: "global-model" }, { provider: "omp" }, { model: "job-model" }), {
+  enabled: true, provider: "omp", model: "job-model",
 });
 assert.equal(reviewConfigurationProblem({ enabled: false, ...builder }, null), null);
 assert.match(reviewConfigurationProblem({ enabled: true, ...builder }, [])!, /not available/);
@@ -41,7 +41,10 @@ try {
   assert.ok(JSON.stringify(outcome).includes("Independent review PASS"));
   assert.equal((await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.stage, "building");
 } finally { await db.delete(jobs).where(eq(jobs.key, key)); }
-mock.module("../apps/runner/src/harnesses", () => ({ readHarnesses: async () => [{ id: "t3-review", driver: "codex", name: "Isolated reviewer", enabled: true, models: [{ slug: "review-model", name: "Review" }] }] }));
+mock.module("../apps/runner/src/harnesses", () => ({ readHarnesses: async () => [{ id: "omp", driver: "omp", name: "OMP", enabled: true, models: [{ slug: "review-model", name: "Review" }] }] }));
+let recoverReviewer = async (): Promise<string> => { throw new Error("Ownership unavailable"); };
+let startReviewer = async (): Promise<string> => { throw new Error("Unexpected replacement launch"); };
+mock.module("../apps/runner/src/omp", () => ({ recoverOmp: () => recoverReviewer(), startOmp: () => startReviewer(), isOmp: (id: string) => id.startsWith("omp:"), readOmp: async () => { throw new Error("Unexpected runtime read"); }, sendOmp: async () => {}, ompSubagents: async () => [], interruptOmp: async () => ({ kind: "requested" }), reconcileOmpUsage: async () => {}, closeOmpSessions: async () => {} }));
 const { reviewJobs, handleReviewAction } = await import("@factory/runner/review");
 const { threads } = await import("@factory/runner/threads");
 const { hosts } = await import("@factory/core/host");
@@ -66,7 +69,7 @@ hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) =>
 const { OmpRpcTimeout } = await import("@factory/integrations/omp-rpc");
 try {
   const pollingReview: AttemptReview = { ...structuredClone(review), state: "building", rounds: [] };
-  await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", t3_thread_id: "builder", attempt_review: pollingReview }));
+  await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", execution_id: "builder", attempt_review: pollingReview }));
   threads.read = async () => { throw new OmpRpcTimeout("get_state"); };
   await reviewJobs();
   const [polling] = await db.select().from(jobs).where(eq(jobs.key, key));
@@ -79,7 +82,7 @@ try {
     verdict = outcome;
     sends = 0;
     const active = { ...review, state: "reviewing" as const, automaticRepairs: repairs, rounds: [{ ...review.rounds[0]!, state: "running" as const, result: undefined }] };
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", t3_thread_id: "reviewer", attempt_review: active,
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", execution_id: "reviewer", attempt_review: active,
       builder_handoff: { eventId: "builder-handoff", at: Date.now(), attempt: 2, sha, evidenceEventId: "builder-proof", summary: "Verified" } }));
     await reviewJobs();
     const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
@@ -103,7 +106,7 @@ try {
     if (active.state !== "passed") active.rounds[0] = { ...active.rounds[0]!, state: "running", result: undefined };
     if (scenario === "uncertain-delivery") active.delivery = { id: "crashed-delivery", state: "uncertain", message: "Repair" };
     if (scenario === "passed-restart") active.rounds[0]!.round = 2;
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "reviewing", t3_thread_id: scenario === "passed-restart" ? active.builderThreadId : "reviewer", session_id: scenario === "passed-restart" ? active.builderSessionId : null, attempt_review: active,
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "reviewing", execution_id: scenario === "passed-restart" ? active.builderThreadId : "reviewer", session_id: scenario === "passed-restart" ? active.builderSessionId : null, attempt_review: active,
       builder_handoff: { eventId: "scenario-handoff", at: Date.now(), attempt: 2, sha, evidenceEventId: "scenario-proof", summary: "Verified" },
     }));
     threads.read = async () => {
@@ -127,35 +130,27 @@ try {
   }
   for (const ambiguous of [false, true]) {
     const active = structuredClone(review);
-    active.policy.provider = "t3-review";
+    active.policy.provider = "omp";
     active.state = "held";
     active.rounds[0] = { ...active.rounds[0]!, state: "launching", threadId: null, result: undefined };
     await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", attempt_review: active }));
-    const commands: string[][] = [];
-    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
-      commands.push(args);
-      return { stdout: JSON.stringify(args.includes("list") ? (ambiguous ? [{ threadId: "one" }, { threadId: "two" }] : [{ threadId: "one" }]) : { thread: { branch: `review/${key}-a2-r1` } }), stderr: "" };
-    } });
+    recoverReviewer = async () => { if (ambiguous) throw new Error("Ambiguous ownership"); return "omp:review:owned:2:1"; };
     await reviewJobs();
     const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
     assert.equal(settled!.attempt_review!.state, ambiguous ? "held" : "reviewing");
-    assert.equal(settled!.attempt_review!.rounds[0]!.threadId, ambiguous ? null : "one", "restart adopts only uniquely owned reviewer");
-    assert.ok(commands.every(args => !args.includes("create") && !args.includes("send")), "launch reservation recovery never starts a replacement session");
+    assert.equal(settled!.attempt_review!.rounds[0]!.threadId, ambiguous ? null : "omp:review:owned:2:1", "restart adopts only confirmed owned reviewer");
     await db.delete(jobs).where(eq(jobs.key, key));
   }
   {
     const active = structuredClone(review);
-    active.policy.provider = "t3-review";
+    active.policy.provider = "omp";
     active.state = "reviewing";
     active.rounds[0] = { ...active.rounds[0]!, state: "launching", threadId: null, result: undefined };
     await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", attempt_review: active }));
-    hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
-      if (args.includes("list")) {
-        await db.update(jobs).set({ stop: requestedStop({ at: new Date(), by: "regression", reason: "Stop while recovering launch", reopen: false }) }).where(eq(jobs.key, key));
-        return { stdout: JSON.stringify([{ threadId: "late-reviewer" }]), stderr: "" };
-      }
-      return { stdout: JSON.stringify({ thread: { branch: `review/${key}-a2-r1` } }), stderr: "" };
-    } });
+    recoverReviewer = async () => {
+      await db.update(jobs).set({ stop: requestedStop({ at: new Date(), by: "regression", reason: "Stop while recovering launch", reopen: false }) }).where(eq(jobs.key, key));
+      return "omp:review:late:2:1";
+    };
     const before = publications;
     await reviewJobs();
     const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
@@ -184,17 +179,17 @@ try {
   }
   {
     const active = structuredClone(review);
-    active.policy = { enabled: true, provider: "t3-review", model: "review-model" };
+    active.policy = { enabled: true, provider: "omp", model: "review-model" };
     active.state = "building";
     active.rounds = [];
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", t3_thread_id: "builder", attempt_review: active,
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", execution_id: "builder", attempt_review: active,
       builder_handoff: { eventId: "builder-handoff", at: Date.now(), attempt: 2, sha, evidenceEventId: "builder-proof", summary: "Verified" },
       evidence: { sha, attempt: 2, clean: true, producer: "agent", source: "package", at: new Date().toISOString(), checks: [{ name: "test", passed: true, exitCode: 0, durationMs: 1 }] },
     }));
     threads.read = async () => ({ state: "stopped", status: "completed", checkout: "builder-checkout", lastMessage: "Ready" });
     let launches = 0;
+    startReviewer = async () => { launches++; return "immediate-reviewer"; };
     hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
-      if (args.includes("start")) { launches++; return { stdout: JSON.stringify({ threadId: "immediate-reviewer" }), stderr: "" }; }
       return { stdout: args.includes("status") ? "" : sha, stderr: "" };
     } });
     await reviewJobs();

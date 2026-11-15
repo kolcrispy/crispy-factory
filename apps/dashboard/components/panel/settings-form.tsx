@@ -1,17 +1,16 @@
 "use client";
 
-import { TriangleAlertIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { saveSettings } from "../../app/actions/settings";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter } from "../ui/card";
-import { Field, FieldDescription, FieldLabel } from "../ui/field";
+import { Field, FieldLabel } from "../ui/field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import type { MachineRow, SettingsRow } from "@factory/storage/schema";
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, harnessLabel, trackingOf, type Harness, type Tracking } from "@factory/core/harness";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, harnessLabel, trackingOf, type Harness } from "@factory/core/harness";
 import { reportedHarnesses } from "@factory/core/machine";
 import { useFeed, type Feed } from "./sealed";
 import { PanelFooter, PanelHeader } from "./panel-header";
@@ -36,25 +35,11 @@ const describe = (harnesses: readonly Harness[], provider: string, model: string
   };
 };
 
-function UntrackedWarning({ name, tracking }: { name: string; tracking: Exclude<Tracking, "full"> }) {
-  const shows =
-    tracking === "stages"
-      ? `Runs on ${name} report their stages, questions and pull requests through the factory-report MCP server, and the runner reads their cost from ${name}'s session logs. A run whose usage can't be read, or whose model has no price, has an unknown cost. The quiet-run watchdog does not apply to them.`
-      : `Runs on ${name} will not show stages, agents or cost on the board yet. The quiet-run watchdog does not apply to them, so check them in T3 directly.`;
-  return (
-    <div role="note" className="flex gap-2.5 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
-      <p>
-        {shows} The board still shows when a run is queued and launched, and the watchdog still fails a run whose thread is gone.
-      </p>
-    </div>
-  );
-}
 
 
 function Current({ saved, harnesses }: { saved: SettingsRow | null; harnesses: readonly Harness[] }) {
   const provider = saved?.provider ?? DEFAULT_PROVIDER;
-  const model = saved?.model ?? DEFAULT_MODEL;
+  const model = saved?.model || harnesses.find(h => h.id === provider)?.defaultModel || "Runtime default";
   const current = describe(harnesses, provider, model);
   return (
     <div className="flex flex-col gap-1 text-sm">
@@ -89,7 +74,7 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
   const reported = reportedHarnesses(rows, now ?? 0);
   const harnesses = reported?.filter((h) => h.enabled) ?? [];
 
-  const [provider, setProvider] = useState(saved?.provider ?? DEFAULT_PROVIDER);
+  const provider = DEFAULT_PROVIDER;
   const [model, setModel] = useState(saved?.model ?? DEFAULT_MODEL);
   const [review, setReview] = useState<ReviewOverrides>(saved?.review ?? {});
   const [failure, setFailure] = useState<string | null>(null);
@@ -97,17 +82,8 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
   const [pending, startTransition] = useTransition();
 
   const harness = harnesses.find((h) => h.id === provider);
-  const modelKnown = harness?.models.some((m) => m.slug === model) ?? false;
+  const modelKnown = model === "" || (harness?.models.some((m) => m.slug === model) ?? false);
   const unchanged = saved !== null && saved.provider === provider && saved.model === model && JSON.stringify(saved.review ?? {}) === JSON.stringify(review);
-  const chosen = describe(harnesses, provider, model);
-
-  const pickHarness = (id: string | null) => {
-    if (id === null) return;
-    const next = harnesses.find((h) => h.id === id);
-    setProvider(id);
-    if (!next?.models.some((m) => m.slug === model)) setModel(next?.models[0]?.slug ?? "");
-    setSavedNow(false);
-  };
 
   const submit = () => {
     setFailure(null);
@@ -154,30 +130,9 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
                     <ReviewSettings value={review} onChange={setReview} harnesses={harnesses} global />
                     <div className="grid gap-5 sm:grid-cols-2">
                       <Field>
-                        <FieldLabel htmlFor="settings-harness">Harness</FieldLabel>
-                        <Select
-                          items={harnesses.map((h) => ({ value: h.id, label: h.name }))}
-                          value={harness ? provider : null}
-                          onValueChange={pickHarness}
-                        >
-                          <SelectTrigger id="settings-harness" className="w-full">
-                            <SelectValue placeholder="Pick a harness" />
-                          </SelectTrigger>
-                          <SelectPopup>
-                            {harnesses.map((h) => (
-                              <SelectItem key={h.id} value={h.id}>
-                                {h.name}
-                                {h.name !== h.id && <span className="font-mono text-xs text-muted-foreground">{h.id}</span>}
-                              </SelectItem>
-                            ))}
-                          </SelectPopup>
-                        </Select>
-                        <FieldDescription>The enabled agent runtimes your machines report, including direct OMP.</FieldDescription>
-                      </Field>
-                      <Field>
                         <FieldLabel htmlFor="settings-model">Model</FieldLabel>
                         <Select
-                          items={harness?.models.map((m) => ({ value: m.slug, label: m.name })) ?? []}
+                          items={[{ value: "", label: "Runtime default" }, ...(harness?.models.map((m) => ({ value: m.slug, label: m.name })) ?? [])]}
                           value={modelKnown ? model : null}
                           onValueChange={(slug) => {
                             if (slug === null) return;
@@ -187,9 +142,10 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
                           disabled={!harness || harness.models.length === 0}
                         >
                           <SelectTrigger id="settings-model" className="w-full">
-                            <SelectValue placeholder={harness && harness.models.length === 0 ? "T3 lists no models for this harness" : "Pick a model"} />
+                            <SelectValue placeholder="Pick a model" />
                           </SelectTrigger>
                           <SelectPopup>
+                            <SelectItem value="">Runtime default</SelectItem>
                             {harness?.models.map((m) => (
                               <SelectItem key={m.slug} value={m.slug}>
                                 {m.name}
@@ -200,7 +156,6 @@ export function SettingsForm({ machines, saved }: { machines: Feed<MachineRow>; 
                         </Select>
                       </Field>
                     </div>
-                    {harness && chosen.tracking !== "full" && <UntrackedWarning name={chosen.harness} tracking={chosen.tracking} />}
                   </div>
                 )}
                 {failure && (

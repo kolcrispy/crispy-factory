@@ -2,11 +2,20 @@
 
 Runtime reference for the local factory. PostgreSQL is authoritative shared state.
 
+## OMP-only cutover
+
+OMP is the sole execution adapter. Migration `0059_omp_only_execution` renames execution bindings to `execution_id`; session-start events use `executionId`. T3 launch, pairing, inventory, hooks and MCP integration are removed. Do not run old processes against this schema. Preserve installed applications, credentials and existing user sessions.
+
+For an explicitly authorized fresh start: verify code against an isolated database, identify the direct configured target without printing credentials, back it up, stop dashboard and runner gracefully, reset application schemas and apply checkout migrations. Keep services stopped until the operator provisions accounts and repositories. Never automatically reset on startup.
+
+`bun scripts/cleanup-reporting.ts` explicitly removes only hooks pointing at this checkout and a marker-delimited MCP block whose executable arguments point at this checkout. It backs up changed configuration files and retains unrelated settings. Startup never installs or removes global integrations.
+
+
 ## Job lifecycle cutover
 
 Migration `0058_loving_sunspot` replaces phases with Queued, Building, Reviewing, Ready, Done and Failed. Needs human preserves phase and records actionable intervention; CI and slot waits alone do not count. Only confirmed merge means Done. Recovery ambiguity holds work rather than declaring terminal failure.
 
-Stop old runners and dashboards, reconcile owned sessions, then migrate before starting this revision. Do not mix old reporters with the new contract. Restart installs updated hooks/MCP; OMP sessions must load the updated explicit extension. Reinstall Herdr and synchronize Factory skills. Preserve pairing credentials and unrelated settings.
+Stop old runners and dashboards, reconcile owned sessions, then migrate before starting this revision. Do not mix old reporters with the new contract. OMP sessions must load the updated explicit extension. Reinstall Herdr and synchronize Factory skills. Preserve realtime pairing credentials and unrelated settings.
 
 Builders use `report_work` actions progress, needs_human and handoff. Handoff names the exact SHA and evidence event ID from `factory-verify --json`; only clean successful current-attempt evidence is accepted. Builders do not choose phases or publish PRs, including review-disabled attempts. The runner publishes after a valid handoff and independent PASS when enabled. Ready may still await checks or owner approval. Review FIX clears the old handoff and returns Building; BLOCKED retains Reviewing with Needs human.
 
@@ -20,7 +29,7 @@ Rename custom environment overrides to `CRISPY_FACTORY_ENV` and `CRISPY_FACTORY_
 
 On macOS, run the old checkout's `bun scripts/install-runner.ts --uninstall` before switching revisions, then install from the new checkout. The new LaunchAgent label is `com.crispy-factory.runner`; its installer does not unload an older label.
 
-Reporting startup replaces the existing owned Codex MCP block even when its marker uses a previous product name. Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained.
+Existing PR decision comments remain historical; new comments use `<!-- crispy-factory:decision -->`. Git author identity for new automated reverts is `crispy-factory`. Existing jobs, attempts, and outbox files are retained unless a database reset is separately authorized.
 
 ## Dashboard development watcher
 
@@ -36,9 +45,24 @@ Install Chromium once with `bun x playwright install chromium`, then run `bun ru
 
 Run detail's Merge confirmation closes immediately after confirmation. The durable approval stays queued for the runner; the Merge trigger shows pending work and notifications report completion or refusal while the detail remains open. Closing the dialog does not authorize a different SHA or bypass merge checks.
 
+## Herdr native job controls
+
+Reinstall with `bun apps/herdr/install.ts` after updating the checkout. Factory offers native New job and detail actions: answer, changes, merge, stop, retry, close, held-review recovery, archive and unarchive. Repository, model and account administration remain CLI/dashboard operations. New jobs inherit repository/global builder and independent-review policy; the preview is informational and claim resolves current policy.
+
+Herdr invokes the trusted local CLI using structured argv and the configured checkout/Bun. It runs with the OS user's operator authority, not browser owner authentication. Do not share that OS account with untrusted users. SSE pairing remains read-only and grants no mutation permission. Briefs and feedback must not contain secrets.
+
+Automatic job updates come only from SSE; Herdr has no periodic CLI refresh, including while disconnected. A one-time startup read and explicit Refresh can load jobs through the local CLI. New job loads defaults on opening. Selected-job controls update when its SSE projection changes; pending receipts reconcile on startup, changed job snapshots, or explicit Refresh. Offline data stays stale until reconnection or manual Refresh.
+
+Merge confirms the displayed SHA; attempt-sensitive actions retain the displayed attempt and answers retain question identity. Runner merge/review/stop safeguards still apply. Offline acceptance means queued, not completed. Drafts are memory-only. Herdr home's `factory-pending-actions.json` retains only request/intent IDs and action metadata across reloads, outside the watched mod directory. Refresh inspects receipts without replaying mutations. For unknown outcomes, inspect CLI request status and job history before using Resolve inspected request and typing its UUID. Releasing a local hold neither cancels nor retries work; an original process can still finish. Never file a duplicate merely because a response was lost.
+
+
+## Agent operations
+
 The repository `.agents/skills/factory-jobs/` is authoritative. `bun run skills:sync` installs it to `~/.agents/skills/factory-jobs`; `--target <directory>` selects another installation. `bun run skills:check` proves a fresh installation is byte-identical; add `--target <directory>` to detect drift in an existing installation. Edit repository sources, then synchronize, rather than editing installed copies.
 
 For agent investigations, use bounded service log tails rather than full transcripts. Read a complete relevant source block before patching it. On polling UI, refresh the browser snapshot before each ref-based action, or use stable semantic selectors. Prefer the smoke command over rebuilding fixture/startup/auth setup for each UI check.
+Read only the relevant skill or source section; avoid batching whole large guides. For eval tool composition, import `checkedTool` from `scripts/agent-tools.mjs` using the absolute checkout path and wrap each tool call: `await checkedTool(tool.edit(args))`. It rejects both MCP-style `isError` and native `hasError`/`errorKind` envelopes. Never print credential-bearing tool results. After saving Herdr pairing, call `verifyRunnerCredential(path)` from the same helper; it authenticates with the saved file, not an in-memory token. This helper is available to repo-aware agents, not injected into the host runtime.
+
 
 
 ## Runner
@@ -53,7 +77,7 @@ For agent investigations, use bounded service log tails rather than full transcr
 - **GitHub.** All API work goes through the runner's authenticated `gh`. The dashboard never holds credentials.
 - **Execution.** Every attempt runs locally in an attempt-isolated `factory/<KEY>` or `factory/<KEY>-a<n>` worktree.
 - **Cleanup.** Startup and hourly cleanup remove finished builder and reviewer worktrees. Failed jobs retain the configured grace period. Reviewer cleanup includes prior-attempt review history and requires a registered checkout at the reviewed SHA, no uncommitted files, and confirmed stopped execution; unknown ownership holds it. Remote `factory/*` branches are deleted only when the PR merged at the exact current branch SHA, using a force-with-lease deletion to reject concurrent pushes. Already-absent remote branches need no action. Active, dirty or unmerged remote branches remain untouched.
-- **Reporting.** At startup the runner installs branch-guarded Claude Code hooks in `~/.claude/settings.json` and the `factory-report` MCP server in `~/.codex/config.toml`. Both files are merged idempotently and preserve unrelated settings. Committed target-repository files are never modified.
+- **Reporting.** Only the trusted explicit OMP extension reports agent actions. The runner does not modify user-level agent hooks or MCP servers.
 
 ### Realtime clients
 
@@ -67,15 +91,15 @@ Dashboard overview feeds stop polling while SSE is live; detail/history endpoint
 
 ### Direct OMP harness
 
-OMP runs directly, without a T3 server. Install and authenticate OMP under the runner account; optionally set `FACTORY_OMP_PATH` to its native executable. The runner advertises harness `omp` and provider-qualified models from the installed runtime. Select OMP per job, repository, or Settings. Existing defaults remain unchanged.
+Install and authenticate OMP under the runner account; optionally set `FACTORY_OMP_PATH` to its native executable. The runner advertises harness `omp` and provider-qualified models from the installed runtime. Harness selectors are hidden while OMP is the only adapter. Builder and reviewer model selection remains available; an empty builder model uses OMP's native default.
 
 Factory creates a separate worktree and durable OMP session for every attempt under `~/.local/state/crispy-factory/omp`. Answers and feedback continue that session; retries create a different session. The runner checks process ownership and OMP session leases before reconnecting. Unknown ownership or uncertain prompt delivery holds recovery for inspection instead of creating duplicate work.
 
 A started session with a missing transcript cannot resume. Status observation reports it gone only after the recorded process is dead and any known OMP session lease is confirmed free; live or unknown ownership remains an error. For a held reviewer, `jobs review` can then request a new review round without discarding builder evidence or reusing the broken session.
 
-Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_work` delivers progress, human needs and verified handoff through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership. OMP sessions have no Open in T3 link.
+Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_work` delivers progress, human needs and verified handoff through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership.
 
-The existing `t3_thread_id` database column and `t3ThreadId` session-start field store the runner execution binding for both adapters. An `omp:<job>:<attempt>` binding is never a T3 thread id and is dispatched only to the direct adapter; this preserves existing stored T3 bindings without rewriting history. OMP subagent transcript identities are persisted before terminal snapshots disappear from the runtime registry, allowing cumulative usage reconciliation after restart.
+`execution_id` and the `executionId` session-start field bind an attempt to its owned adapter session. OMP subagent transcript identities persist before terminal snapshots disappear, allowing cumulative usage reconciliation after restart.
 
 ### Independent pre-PR review
 
@@ -172,5 +196,15 @@ Each run uses a temporary PostgreSQL cluster. Never point regressions at the app
 bun run db:generate
 bun run db:migrate
 ```
+### Verified backup and reset
+
+Run `bun scripts/database-maintenance.ts identify` first. It prints nonsecret server identity and authentication shape. Supply a direct URL; maintenance accepts only the `sslmode` query option so libpq cannot silently select a different target.
+
+`bun run db:backup --backup <new-file.dump>` checks client/server major versions, refuses overwriting, verifies the custom archive with `pg_restore --list`, and writes a SHA-256/target manifest beside it. Select compatible binaries with `FACTORY_PG_DUMP` and `FACTORY_PG_RESTORE`, or use `--ssh <host-alias>` to run installed remote tools. Remote authentication fields travel over SSH stdin, never argv. On POSIX files use mode 0600; on Windows use a private user directory protected by its ACL. Archives contain application data and must remain private.
+
+After explicit user authorization, gracefully stop runner/dashboard and other database clients. Run `bun run db:reset --backup <verified.dump> --services-stopped --confirm <host:port/database>`. Reset checks the manifest, hash, target identity, runner ownership lock, remaining client connections and unexpected schemas before dropping public/drizzle and applying checkout migrations. Keep services stopped. `--services-stopped` is an operator assertion, not a process discovery mechanism. Backup and reset are explicit operational commands, never routine validation.
+
+`bun run schema:check` compares the latest journal snapshot with the TypeScript schema. Disposable `schema` regressions compare migrated tables, column types/nullability, constraint/index names and enum values; they do not prove every SQL expression equivalent. CI runs the check and a Windows evidence/OMP subset. Local Windows verification resolves Git Bash centrally through `packages/platform/src/shell.ts`; `FACTORY_BASH_PATH` overrides detection. System WSL bash is not used.
+
 
 The local cutover requires a fresh database. Destructive migrations refuse populated legacy schemas instead of deleting user data.

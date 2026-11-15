@@ -1,4 +1,4 @@
-import { ExternalLinkIcon, MonitorIcon } from "lucide-react";
+import { MonitorIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import Link from "next/link";
 import { Spinner } from "../ui/spinner";
@@ -58,8 +58,7 @@ function AgentsAndCost({
 
 const TRACKING_HINT: Record<Tracking, string | undefined> = {
   full: undefined,
-  stages: "The runner reads this harness's cost from its session logs; it shows once usage is read and the model has a price.",
-  none: "This harness reports no stages, agents or cost; check the run in T3.",
+  none: "This execution adapter does not report lifecycle or usage.",
 };
 
 function MergeLine({ decision }: { decision: MergeDecision | null }) {
@@ -85,18 +84,12 @@ const STOP_TONE: Record<StopView["kind"], string> = {
   unconfirmed: "text-destructive",
 };
 
-/** Where the job's stop is; an unconfirmed one links to its thread in T3 when the card knows the link. */
-export function StopLine({ view, t3Href }: { view: StopView; t3Href?: string }) {
+/** Current stop state and observed ownership evidence. */
+export function StopLine({ view }: { view: StopView }) {
   return (
     <p className={cn("flex flex-wrap items-center gap-x-1.5 text-xs", STOP_TONE[view.kind])} title={view.kind === "stopping" ? undefined : view.kind === "confirmed" ? view.evidence : view.reason}>
       {view.kind === "stopping" && <Spinner className="size-2.5" />}
       {stopLine(view)}
-      {view.kind === "unconfirmed" && t3Href && (
-        <a href={t3Href} className="relative inline-flex items-center gap-0.5 underline underline-offset-2">
-          Open in T3
-          <ExternalLinkIcon className="size-3" />
-        </a>
-      )}
     </p>
   );
 }
@@ -107,7 +100,6 @@ export function StageCard({
   selected,
   machineName,
   repoLabel,
-  t3Href,
 }: {
   card: BoardCard;
   agents: readonly AgentRow[];
@@ -115,8 +107,6 @@ export function StageCard({
   machineName: string | null;
   /** Shown only while more than one repo has jobs. */
   repoLabel?: string;
-  /** The job's thread in its machine's T3, for a stop that couldn't be confirmed. */
-  t3Href?: string;
 }) {
   const { latest } = card;
   const where = card.runsOn && whereLine(card.runsOn, machineName);
@@ -134,7 +124,7 @@ export function StageCard({
       {card.needsHuman && <span className="text-xs text-muted-foreground">{STAGE_META[card.stage].label}</span>}
       {showsDecision(card) && <MergeLine decision={card.mergeDecision} />}
       {card.evidence && <EvidenceLine line={card.evidence} />}
-      {card.stop && <StopLine view={card.stop.view} t3Href={t3Href} />}
+      {card.stop && <StopLine view={card.stop.view} />}
       {card.nudgedAt && (
         <p className="text-xs text-warning">
           Stuck · nudged <Time date={card.nudgedAt} />
@@ -152,7 +142,7 @@ export function StageCard({
               {formatUsd(attemptCost(card.attemptRuns, agents))}
             </span>
           ) : (
-            <span title={TRACKING_HINT[card.harness.tracking]}>{card.harness.tracking === "stages" ? "cost unknown" : "not tracked"}</span>
+            <span title={TRACKING_HINT[card.harness.tracking]}>not tracked</span>
           )}
           {where && (
             <span title={where} className="flex items-center gap-1">

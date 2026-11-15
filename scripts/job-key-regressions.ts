@@ -1,7 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { attemptBranch, isJobKey, jobKey, parseBranch } from "@factory/core/factory";
-import { mcpIdentity } from "@factory/core/report-identity";
+import { reportIdentity } from "@factory/core/report-identity";
 
 // One parser for every attempt branch: the Linear branches already out there and the generic format.
 const branches: [string | undefined, ReturnType<typeof parseBranch>][] = [
@@ -45,8 +45,8 @@ assert.throws(() => jobKey("GH", 1, "y".repeat(80)), /cannot make a job key/, "a
 for (const bad of ["FAC-5-a2", "GH-x", "GH-X-1", "FAC 5", "factory/FAC-5", "FAC-5."]) assert.equal(isJobKey(bad), false, bad);
 
 // The report identity reads a generic key from its branch or env like a Linear one.
-assert.deepEqual(mcpIdentity({}, "/w", () => "factory/GH-demo-9-a2"), { jobKey: "GH-demo-9", branch: "factory/GH-demo-9-a2", sessionId: "mcp:factory/GH-demo-9-a2" });
-assert.deepEqual(mcpIdentity({ FACTORY_JOB_KEY: "GH-demo-9", FACTORY_ATTEMPT: "3" }, "/w"), { jobKey: "GH-demo-9", branch: "factory/GH-demo-9-a3", sessionId: "mcp:factory/GH-demo-9-a3" });
-assert.equal(mcpIdentity({}, "/w", () => "factory/onboarding"), undefined);
+assert.deepEqual(reportIdentity({ FACTORY_SESSION_ID: "omp:GH-demo-9:2" }, "/w", () => "factory/GH-demo-9-a2"), { jobKey: "GH-demo-9", branch: "factory/GH-demo-9-a2", sessionId: "omp:GH-demo-9:2" });
+assert.deepEqual(reportIdentity({ FACTORY_JOB_KEY: "GH-demo-9", FACTORY_ATTEMPT: "3", FACTORY_SESSION_ID: "omp:GH-demo-9:3" }, "/w"), { jobKey: "GH-demo-9", branch: "factory/GH-demo-9-a3", sessionId: "omp:GH-demo-9:3" });
+assert.equal(reportIdentity({}, "/w", () => "factory/onboarding"), undefined);
 
 console.log("job key regressions passed");

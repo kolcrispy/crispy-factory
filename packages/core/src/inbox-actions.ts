@@ -35,6 +35,7 @@ export type InboxDeps = {
   /** Files a job the way the panel's New job does. */
   newJob: NewJobDeps;
   now?: () => Date;
+  expected?: { attempt: number; questionEventId?: string | null };
 };
 
 /** An action done at once has no intent, and may say what it did. */
@@ -73,13 +74,20 @@ async function replay(deps: InboxDeps, jobId: JobId, kind: IntentKind, requestId
 
 async function record(deps: InboxDeps, job: JobRow, kind: IntentKind, requestId: string, detail: object): Promise<InboxOutcome> {
   const id = `panel:${kind}:${requestId}`;
-  await deps.db
-    .insert(intents)
-    .values({ id, kind, job_id: job.id, pr_url: job.pr_url, detail: JSON.stringify(detail), created_at: (deps.now ?? (() => new Date()))() })
-    .onConflictDoNothing();
-  const existing = await replay(deps, job.id, kind, requestId);
-  if (existing) return existing;
-  return { ok: true, intentId: id };
+  return deps.db.transaction(async tx => {
+    if (deps.expected) {
+      const [current] = await tx.select().from(jobs).where(eq(jobs.id, job.id)).for("update");
+      const previous = await replay({ ...deps, db: tx as unknown as InboxDeps["db"] }, job.id, kind, requestId);
+      if (previous) return previous;
+      if (!current || current.attempt !== deps.expected.attempt || current.attempt !== job.attempt ||
+        (kind === "answer" && (current.attention?.eventId ?? null) !== deps.expected.questionEventId)) {
+        return { ok: false, message: "The attempt or question changed. Refresh before acting." };
+      }
+    }
+    await tx.insert(intents).values({ id, kind, job_id: job.id, pr_url: job.pr_url, detail: JSON.stringify(detail), created_at: (deps.now ?? (() => new Date()))() }).onConflictDoNothing();
+    const existing = await replay({ ...deps, db: tx as unknown as InboxDeps["db"] }, job.id, kind, requestId);
+    return existing ?? { ok: true, intentId: id };
+  });
 }
 
 const badRequest = (requestId: string) => !requestIdSchema.safeParse(requestId).success;
@@ -255,7 +263,7 @@ export async function retryFailed(deps: InboxDeps, jobId: JobId, requestId: stri
 }
 
 /**
- * Hides a failed job, or an unconfirmed stop the owner checked in T3, from the inbox and changes
+ * Hides a failed job, or an unconfirmed stop the owner checked in OMP, from the inbox and changes
  * nothing else; a later failure shows again. Dismissing an unconfirmed stop also lets the label retry the job.
  */
 export async function dismissJob(deps: InboxDeps, jobId: JobId): Promise<InboxOutcome> {

@@ -64,7 +64,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     branch: z.string().optional(),
     repo: z.string().optional(),
     source: z.enum(["startup", "resume", "compact"]).optional(),
-    t3ThreadId: z.string().optional(),
+    executionId: z.string().optional(),
     title: z.string().optional(),
     model: z.string().optional(),
   }),

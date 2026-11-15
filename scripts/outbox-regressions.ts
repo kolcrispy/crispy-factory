@@ -1,11 +1,8 @@
 import "./test-guard";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { eq, inArray, like, or } from "drizzle-orm";
 import type { FactoryEvent } from "@factory/core/events";
 import { serve } from "./serve";
@@ -15,12 +12,9 @@ const { events, jobs, runs } = await import("@factory/storage/schema");
 const { internalJob } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
-const { eventSchema, ingestBodySchema } = await import("@factory/core/events");
+const { ingestBodySchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
-const { REPORT_WORK_TOOL } = await import("@factory/core/factory");
 const { appendEvent, flushOutbox, localFs, outboxDir, rejectedDir } = await import("@factory/core/outbox");
-const { mcpIdentity, mcpPosts } = await import("@factory/core/report-identity");
-const { boardCards, harnessLine } = await import("../apps/dashboard/components/panel/cards");
 const { flushLocalOutbox, outboxClient } = await import("@factory/runner/outbox");
 
 
@@ -35,7 +29,7 @@ const pending = (state: string) => (existsSync(outboxDir(state)) ? readdirSync(o
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   keys.push(k);
-  await db.insert(jobs).values(internalJob(`outbox-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "building", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
+  await db.insert(jobs).values(internalJob(`outbox-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "building", provider: "omp", execution_id: `omp:${k}:1`, updated_at: hourAgo, ...over }));
   return k;
 }
 
@@ -44,11 +38,9 @@ const stageEvent = (k: string, eventId: string, over: Record<string, unknown> = 
 
 // A local stand-in for the deployed ingest function: same auth, same body schema, same projection.
 const SECRET = "test-secret";
-let ingestDown = false;
 const received: string[][] = [];
 const server = await serve(0, async (request) => {
   if (request.headers.get("authorization") !== `Bearer ${SECRET}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-  if (ingestDown) return Response.json({ error: "down" }, { status: 503 });
   const parsed = ingestBodySchema.safeParse(await request.json());
   if (!parsed.success) return Response.json({ error: "invalid body" }, { status: 400 });
   received.push(parsed.data.map((e) => e.eventId));
@@ -56,49 +48,6 @@ const server = await serve(0, async (request) => {
 });
 const configPath = join(dir, "config.json");
 writeFileSync(configPath, JSON.stringify({ ingestUrl: `http://localhost:${server.port}/ingest`, secret: SECRET }));
-const state = join(dir, "state");
-const childEnv = (over: Record<string, string> = {}) => {
-  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, CRISPY_FACTORY_CONFIG: configPath, FACTORY_STATE_DIR: state, ...over };
-  for (const name of ["CLAUDECODE", "FACTORY_REPORTER", "FACTORY_JOB_KEY", "FACTORY_ATTEMPT", "FACTORY_SESSION_ID"]) if (!(name in over)) delete env[name];
-  return env as NodeJS.ProcessEnv & Record<string, string>;
-};
-
-async function mcp(env: Record<string, string>, cwd = dir) {
-  const client = new Client({ name: "outbox-regress", version: "0" });
-  await client.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dirname, "../packages/reporting/src/mcp/factory-report.ts")], env: childEnv(env), cwd, stderr: "ignore" }));
-  return {
-    report: async (args: Record<string, unknown>) => {
-      const result = (await client.callTool({ name: "report_work", arguments: args })) as { content: { text: string }[] };
-      return result.content[0]!.text;
-    },
-    close: () => client.close(),
-  };
-}
-
-const hook = join(import.meta.dirname, "../packages/reporting/src/hooks/report.ts");
-// Spawned without blocking, since the stand-in ingest answers from this process.
-const runHook = (input: Record<string, unknown>) =>
-  new Promise<void>((resolve, reject) => {
-    const child = spawn("bun", [hook], { env: childEnv(), stdio: ["pipe", "ignore", "ignore"] });
-    child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`the hook exited ${code}`))));
-    child.stdin.end(JSON.stringify(input));
-  });
-
-function gitRepo(branch: string) {
-  const repo = mkdtempSync(join(dir, "repo-"));
-  execFileSync("git", ["init", "-q", "-b", branch, repo]);
-  execFileSync("git", ["-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
-  return repo;
-}
-
-// The six-check shape agents reported before confidence replaced it; ingest still takes it.
-const assessment = {
-  recommendation: "handover",
-  interpretation: "Added the flag.",
-  assumptions: [],
-  checks: Object.fromEntries(["interpretation", "proven", "contained", "reversible", "noTasteCalls", "noSurprises"].map((c) => [c, { ok: c !== "proven", note: "n" }])),
-};
 
 try {
   // The outbox on its own: ordering, failure, refusal and the cap.
@@ -151,84 +100,6 @@ try {
     assert.ok(/builder_report c1/.test(droppedLog) && /builder_report c2/.test(droppedLog), "each dropped event is logged by id and kind");
   }
 
-  // Who the MCP server reports for.
-  assert.equal(mcpPosts({ FACTORY_REPORTER: "mcp", CLAUDECODE: "1" }), true);
-  assert.equal(mcpPosts({ FACTORY_REPORTER: "hook" }), false);
-  assert.equal(mcpPosts({ CLAUDECODE: "1" }), false, "wiring without the variable stays quiet under Claude Code");
-  assert.equal(mcpPosts({}), true);
-  assert.deepEqual(mcpIdentity({ FACTORY_JOB_KEY: "FAC-5", FACTORY_ATTEMPT: "2" }, "/nowhere"), { jobKey: "FAC-5", branch: "factory/FAC-5-a2", sessionId: "mcp:factory/FAC-5-a2" });
-  assert.deepEqual(mcpIdentity({}, "/x", () => "factory/FAC-6"), { jobKey: "FAC-6", branch: "factory/FAC-6", sessionId: "mcp:factory/FAC-6" }, "else the checked-out branch");
-  assert.equal(mcpIdentity({}, "/x", () => "main"), undefined, "off a factory branch it reports nothing");
-  assert.equal(mcpIdentity({ FACTORY_JOB_KEY: "FAC-5", FACTORY_ATTEMPT: "0" }, "/x"), undefined);
-
-  // Codex: the MCP server posts every stage through the outbox, and the job moves.
-  const CODEX = await insert("CODEX", {});
-  const codexEnv = { FACTORY_REPORTER: "mcp", FACTORY_JOB_KEY: CODEX, FACTORY_ATTEMPT: "1", FACTORY_REPO: "factory-demo" };
-  const session = `mcp:factory/${CODEX}`;
-  const first = await mcp(codexEnv);
-  ingestDown = true;
-  assert.match(await first.report({ action: "progress", summary: "Reading the issue." }), /queued for later delivery/);
-  assert.equal(pending(state).length, 2, "the run's opening and the stage wait in the outbox");
-  assert.equal((await row(CODEX)).stage, "building", "nothing reached ingest");
-  ingestDown = false;
-  received.length = 0;
-  assert.match(await first.report({ action: "progress", summary: "Adding the flag." }), /^Recorded progress\./);
-  assert.equal(pending(state).length, 0, "the next call delivered the backlog and its own event");
-  assert.equal(received.length, 1, "in one batch");
-  assert.deepEqual(received[0]!.slice(0, 1), [`mcp-start:${session}`], "oldest first: the opening, then triage, then implementing");
-  let job = await row(CODEX);
-  assert.deepEqual([job.stage, job.stage_summary, job.session_id], ["building", "Adding the flag.", session], "progress preserves runner phase and links session");
-  const stagesOf = async (k: string) => (await db.select().from(events).where(eq(events.job_key, k))).map(e => eventSchema.parse(e.payload)).filter(e => e.kind === "builder_report").map(e => e.action);
-  assert.deepEqual(await stagesOf(CODEX), ["progress", "progress"]);
-  const [run] = await db.select().from(runs).where(eq(runs.session_id, session));
-  assert.deepEqual([run!.job_key, run!.branch, run!.repo], [CODEX, `factory/${CODEX}`, "factory-demo"], "run retains attempt identity");
-
-  await first.close();
-
-  // A restarted server opens the same run once and goes on.
-  const second = await mcp(codexEnv);
-  assert.equal(await second.report({ action: "needs_human", summary: "Need a decision.", question: "Which API version?" }), "Recorded needs_human.");
-  await second.close();
-  job = await row(CODEX);
-  assert.deepEqual([job.stage, job.question, job.attention?.reason], ["building", "Which API version?", "Need a decision."]);
-  const opened = await db.select().from(events).where(eq(events.event_id, `mcp-start:${session}`));
-  assert.equal(opened.length, 1, "one opening across server restarts");
-
-  // Redelivering an event ingest already has changes nothing.
-  const before = (await db.select().from(events).where(eq(events.job_key, CODEX))).length;
-  const [delivered] = await db.select().from(events).where(eq(events.job_key, CODEX));
-  appendEvent(state, delivered!.payload as FactoryEvent);
-  const again = await flushOutbox(localFs, state, async (batch) => ({ kind: "delivered", spend: (await ingest(db, batch)).spend }), { budgetMs: 5_000 });
-  assert.equal(again.delivered, 1);
-  assert.equal((await db.select().from(events).where(eq(events.job_key, CODEX))).length, before, "ingest stores each eventId once");
-  assert.equal((await row(CODEX)).stage, "building");
-
-  // Claude Code: its hooks report, the server only validates, so a stage lands once.
-  const CLAUDE = await insert("CLAUDE", { provider: "claudeAgent" });
-  const repo = gitRepo(`factory/${CLAUDE}`);
-  for (const env of [{ CLAUDECODE: "1" }, { FACTORY_REPORTER: "hook" }] as Record<string, string>[]) {
-    const quiet = await mcp(env, repo);
-    assert.match(await quiet.report({ action: "progress", summary: "Reading." }), /^Recorded progress\./);
-    await quiet.close();
-  }
-  assert.equal(pending(state).length, 0, "the server under Claude Code queues nothing");
-  assert.deepEqual(await stagesOf(CLAUDE), [], "and posts nothing");
-  const post = { hook_event_name: "PostToolUse", session_id: `claude-${CLAUDE}`, cwd: repo, tool_name: REPORT_WORK_TOOL, tool_use_id: "tu-1", tool_input: { action: "progress", summary: "Reading." } };
-  await runHook({ hook_event_name: "SessionStart", session_id: `claude-${CLAUDE}`, cwd: repo, source: "startup" });
-  await runHook(post);
-  await runHook(post);
-  assert.deepEqual(await stagesOf(CLAUDE), ["progress"], "the hook's report lands once, however often it fires");
-  assert.deepEqual((await db.select().from(runs).where(eq(runs.job_key, CLAUDE))).map((r) => r.session_id), [`claude-${CLAUDE}`], "no second run from the MCP server");
-
-  // The hook queues while ingest is down and the next hook call, even one with no event, delivers it.
-  ingestDown = true;
-  await runHook({ ...post, tool_use_id: "tu-2", tool_input: { action: "progress", summary: "Building." } });
-  assert.equal(pending(state).length, 1, "a failed POST leaves the hook's event in the outbox");
-  assert.equal((await row(CLAUDE)).stage_summary, "Reading.");
-  ingestDown = false;
-  await runHook({ hook_event_name: "PreToolUse", session_id: `claude-${CLAUDE}`, cwd: repo, tool_name: "Bash", tool_input: {} });
-  assert.equal(pending(state).length, 0);
-  assert.equal((await row(CLAUDE)).stage_summary, "Building.", "delivered by the next hook");
 
   // Runner reconciliation delivers durable local reports without sandbox lifecycle dependencies.
   const runnerState = join(dir, "runner-state");

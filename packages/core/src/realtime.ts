@@ -22,7 +22,7 @@ export async function realtimeSnapshot(): Promise<RealtimeSnapshot> {
     const jobRows = await tx.select().from(jobs).orderBy(desc(jobs.claimed_at), asc(jobs.id)).limit(200);
     const runRows = await tx.select({
       session_id: runs.session_id, repo: runs.repo, branch: runs.branch, job_key: runs.job_key,
-      t3_thread_id: runs.t3_thread_id, role: runs.role, title: runs.title, status: runs.status,
+      execution_id: runs.execution_id, role: runs.role, title: runs.title, status: runs.status,
       stage: runs.stage, stage_at: runs.stage_at, stage_summary: runs.stage_summary,
       question: runs.question, pr_url: runs.pr_url, started_at: runs.started_at,
       last_event_at: runs.last_event_at, model: runs.model,

@@ -1,8 +1,7 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq, inArray, sql } from "drizzle-orm";
-import type { JobHost } from "@factory/core/host";
-import type { InterruptOutcome, SubagentThread } from "@factory/integrations/t3-client";
+import type { InterruptOutcome, SubagentThread } from "@factory/runner/threads";
 import type { ThreadActivity } from "@factory/runner/threads";
 
 const { db } = await import("@factory/storage/client");
@@ -12,12 +11,11 @@ const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { inboxKind, inboxReason } = await import("@factory/core/inbox");
 const { parseStop } = await import("@factory/core/stop");
-const { listSubagents, interruptThread } = await import("@factory/integrations/t3-client");
 const { canReclaim, canReclaimSql, stopping } = await import("@factory/runner/binding");
 const { bindThread, ingestClient, machineInFlight, stopJob, threads } = await import("@factory/runner/ops");
 const { confirmStops, retryStop } = await import("@factory/runner/stops");
 
-// --- fakes: the job's threads in T3, the source, ingest
+// Owned execution activity, subagents, interrupts and reporting.
 const activity = new Map<string, ThreadActivity | Error>();
 const subagents = new Map<string, SubagentThread[]>();
 const interrupts: { threadId: string; requestId: string }[] = [];
@@ -53,55 +51,9 @@ const reclaimSql = async (k: string) =>
 const S = 1000;
 
 try {
-  // --- the client: subagent threads come from T3's MCP endpoint, the token goes on stdin and the session is revoked
-  {
-    const calls: { command: string; args: string[]; input?: string }[] = [];
-    const listing = [
-      { threadId: "child", status: "running", latestRunId: "r-c", parentThreadId: "parent", relationshipToParent: "subagent" },
-      { threadId: "grandchild", status: "completed", latestRunId: "r-g", parentThreadId: "child", relationshipToParent: "subagent" },
-      { threadId: "fork", status: "running", latestRunId: "r-f", parentThreadId: "parent", relationshipToParent: "fork" },
-      { threadId: "other", status: "running", latestRunId: "r-o", parentThreadId: "someone-else", relationshipToParent: "subagent" },
-    ];
-    const sandbox: JobHost = {
-      t3: "t3",
-      async run(command, args, options) {
-        calls.push({ command, args, input: options?.input });
-        if (args[0] === "auth" && args[2] === "issue") return { stdout: JSON.stringify({ sessionId: "sess-1", token: "secret-token" }), stderr: "" };
-        if (args[0] === "auth" && args[2] === "revoke") return { stdout: "", stderr: "" };
-        const { tool, args: toolArgs } = JSON.parse(options!.input!) as { tool: string; args: Record<string, unknown> };
-        if (tool === "t3_thread_list") {
-          // Children listed before their parent still count; two pages.
-          const page = toolArgs.cursor === 0 ? [listing[1], listing[2]] : [listing[0], listing[3]];
-          return { stdout: JSON.stringify({ structuredContent: { threads: page, nextCursor: toolArgs.cursor === 0 ? 2 : null } }), stderr: "" };
-        }
-        if (toolArgs.threadId === "full-access") {
-          return { stdout: JSON.stringify({ isError: true, content: [{ type: "text", text: "Thread full-access now runs in full-access mode, above this caller's." }] }), stderr: "" };
-        }
-        return { stdout: JSON.stringify({ structuredContent: { threadId: toolArgs.threadId, runId: "r", status: "interrupt_requested" } }), stderr: "" };
-      },
-      readFile: async (path) => (path.replaceAll("\\", "/").endsWith("/server-runtime.json") ? JSON.stringify({ origin: "http://127.0.0.1:3773" }) : null),
-      writeFile: async () => {},
-      exists: async () => true,
-      list: async () => [],
-      mtimeMs: async () => 0,
-      remove: async () => {},
-    };
-    const found = await listSubagents(sandbox, "parent", "proj-1");
-    assert.deepEqual(found.map((t) => t.threadId).sort(), ["child", "grandchild"], "every subagent below the thread, and nothing else");
-    assert.deepEqual(await interruptThread(sandbox, "t-1", "req-1", "stop"), { kind: "requested" });
-    const refused = await interruptThread(sandbox, "full-access", "req-2", "stop");
-    assert.equal(refused.kind, "refused", "T3's refusal is an outcome, not an error");
-    assert.ok(calls.every((c) => !c.args.join(" ").includes("secret-token")), "the token never goes into argv");
-    const scripts = calls.filter((c) => c.command === process.execPath);
-    assert.ok(scripts.length >= 4 && scripts.every((c) => c.input?.includes("secret-token") && c.input.includes("http://127.0.0.1:3773")), "native MCP calls keep short-lived credentials on stdin");
-    const issues = calls.filter((c) => c.args[2] === "issue");
-    assert.deepEqual(issues[0]!.args.filter((a, i) => issues[0]!.args[i - 1] === "--scope"), ["orchestration:read"], "a read signs in read-only");
-    assert.ok(issues.every((c) => c.args.includes("--ttl") && c.args[c.args.indexOf("--ttl") + 1] === "5m"), "short-lived sessions");
-    assert.equal(calls.filter((c) => c.args[2] === "revoke").length, issues.length, "every session is revoked after use");
-  }
 
   // --- a polite stop the thread obeys: confirmed once it stays quiet for the settle time
-  const A = await insert("A", { t3_thread_id: "thread-A" });
+  const A = await insert("A", { execution_id: "thread-A" });
   activity.set("thread-A", running());
   const inFlightBefore = await machineInFlight(TEST_MACHINE_ID);
   assert.equal(await stopJob(await idOf(A), "the factory label was removed"), "stopped");
@@ -133,7 +85,7 @@ try {
   assert.deepEqual(inboxKind(await row(A)), "failed", "a stopped job shows as failed, as before");
 
   // --- still running after the grace: interrupt the thread and its running subagents, then wait for both
-  const B = await insert("B", { t3_thread_id: "thread-B" });
+  const B = await insert("B", { execution_id: "thread-B" });
   activity.set("thread-B", running("run-B"));
   subagents.set("thread-B", [
     { threadId: "sub-B1", status: "running", latestRunId: "run-B1" },
@@ -166,8 +118,8 @@ try {
   assert.match((await stopOf(B)).evidence!, /its 2 subagent threads have settled/);
   assert.ok(!interrupts.some((i) => i.threadId === "thread-unrelated"), "other threads are never touched");
 
-  // --- T3 refuses the interrupt and the thread keeps going: unconfirmed, in the inbox, holding off a retry
-  const D = await insert("D", { t3_thread_id: "thread-D" });
+  // --- OMP refuses the interrupt and the thread keeps going: unconfirmed, in the inbox, holding off a retry
+  const D = await insert("D", { execution_id: "thread-D" });
   activity.set("thread-D", running("run-D"));
   interruptAnswer = { kind: "refused", reason: "Thread thread-D now runs in full-access mode, above this caller's." };
   await stopJob(await idOf(D), "the factory label was removed");
@@ -188,8 +140,8 @@ try {
   assert.deepEqual(await retryStop(d, t0 + 320 * S), { retried: D });
   assert.equal(interrupts.length, before + 1, "the retry interrupts at once");
   const firstRound = interrupts.slice(0, before).filter((i) => i.threadId === "thread-D").map((i) => i.requestId);
-  assert.ok(firstRound.length > 0 && new Set(firstRound).size === 1, "within one round the request id repeats, so T3 ignores the repeat");
-  assert.ok(!firstRound.includes(interrupts[before]!.requestId), "the retry is a new request id, so T3 does not take it for a repeat");
+  assert.ok(firstRound.length > 0 && new Set(firstRound).size === 1, "within one round the request id repeats, so OMP ignores the repeat");
+  assert.ok(!firstRound.includes(interrupts[before]!.requestId), "the retry is a new request id, so OMP does not take it for a repeat");
   assert.deepEqual([(await stopOf(D)).state, (await stopOf(D)).retries], ["escalated", 1]);
   assert.deepEqual(await retryStop(d, t0 + 321 * S), { refused: "The stop is not waiting on you." }, "a retry is only offered for an unconfirmed stop");
   activity.set("thread-D", idle);
@@ -200,12 +152,12 @@ try {
   assert.notEqual(inboxKind(dRow), "stop_unconfirmed");
 
   // --- an unconfirmed stop the owner dismisses lets the label retry the job
-  const U = await insert("U", { t3_thread_id: "thread-U" });
-  activity.set("thread-U", new Error("T3 did not answer"));
+  const U = await insert("U", { execution_id: "thread-U" });
+  activity.set("thread-U", new Error("OMP did not answer"));
   await stopJob(await idOf(U), "the factory label was removed");
   t0 = Date.now();
   await confirmStops({ only: [await idOf(U)], now: t0 + 30 * S });
-  assert.match((await stopOf(U)).step!, /^Could not read the thread: T3 did not answer/);
+  assert.match((await stopOf(U)).step!, /^Could not read the thread: OMP did not answer/);
   await confirmStops({ only: [await idOf(U)], now: t0 + 310 * S });
   assert.equal((await stopOf(U)).state, "unconfirmed", "a thread that can't be read is never taken as stopped");
   await db.update(jobs).set({ dismissed_at: new Date(t0 + 400 * S) }).where(eq(jobs.key, U));
@@ -213,7 +165,7 @@ try {
   assert.deepEqual([canReclaim(uRow), await reclaimSql(U)], [false, false], "dismissal cannot turn an unconfirmed execution into a terminal attempt");
 
   // --- a stop recorded while the launch is pending reaches the thread once it is bound
-  const P = await insert("P", { t3_thread_id: "pending:launch-P" });
+  const P = await insert("P", { execution_id: "pending:launch-P" });
   await stopJob(await idOf(P), "the factory label was removed");
   assert.equal((await stopOf(P)).state, "requested", "nothing to deliver to yet");
   activity.set("thread-P", running());
@@ -221,11 +173,11 @@ try {
   assert.deepEqual([(await stopOf(P)).state, (await stopOf(P)).thread], ["delivered", "thread-P"]);
 
   // --- a job that never got a thread: confirmed at once
-  const N = await insert("N", { stage: "queued", machine_id: null, t3_thread_id: null });
+  const N = await insert("N", { stage: "queued", machine_id: null, execution_id: null });
   await stopJob(await idOf(N), "the factory label was removed");
   assert.deepEqual([(await stopOf(N)).state, (await stopOf(N)).evidence], ["confirmed", "No thread was started, so nothing ran."]);
 
-  const O = await insert("O", { stage: "queued", machine_id: null, t3_thread_id: null, attempt: 2 });
+  const O = await insert("O", { stage: "queued", machine_id: null, execution_id: null, attempt: 2 });
   assert.deepEqual(await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 1 }), { refused: "The job has moved to another attempt." });
   assert.equal((await row(O)).stage, "queued", "a stale operator request must not stop a newer attempt");
   await stopJob(await idOf(O), "cancel", { actor: "local:operator", attempt: 2 });
@@ -237,13 +189,13 @@ try {
     stage: "failed",
     stage_event_id: `stop:W-${stamp}`,
     stop_event_id: `stop:W-${stamp}`,
-    t3_thread_id: "thread-W",
+    execution_id: "thread-W",
     stop_sent_to: "thread-W",
     stop: { ...(await stopOf(B)), state: "delivered", reopen: false, thread: "thread-W", checkedAt: null, quietSince: null, settledAt: null, evidence: null },
   });
   activity.set("thread-W", { state: "gone", activeRunId: null, projectId: null });
   await confirmStops({ only: [await idOf(W)] });
-  assert.equal((await stopOf(W)).state, "confirmed", "a thread T3 no longer has is stopped");
+  assert.equal((await stopOf(W)).state, "confirmed", "a thread OMP no longer has is stopped");
 
   console.log("stop regressions passed");
 } catch (error) {

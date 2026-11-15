@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDownIcon, FolderGit2Icon, FolderIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { FolderGit2Icon } from "lucide-react";
+import { type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import type { MachineRow } from "@factory/storage/schema";
@@ -21,8 +21,6 @@ import { Time, useNow } from "./time";
 
 const CLOCK_TICK_MS = 30_000;
 const GIB = 1024 ** 3;
-/** Projects shown before the list folds; a Mac's T3 can hold dozens that have nothing to do with the factory. */
-const PROJECTS_SHOWN = 5;
 
 const gb = (bytes: number) => `${(bytes / GIB).toFixed(bytes >= 100 * GIB ? 0 : 1)} GB`;
 
@@ -93,11 +91,6 @@ function Resources({ heartbeat }: { heartbeat: Heartbeat | null }) {
   );
 }
 
-const PROJECT_SOURCE: Record<string, string> = {
-  sqlite: "from T3's state",
-  probe: "probed with the t3 CLI",
-  [UNKNOWN]: "unknown",
-};
 
 function ListSection({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
@@ -126,17 +119,9 @@ function PathRow({ icon, title, path, aside }: { icon: ReactNode; title: ReactNo
   );
 }
 
-/** The factory's checkouts on this machine, then the rest of its T3 projects, folded past a few. */
+/** Factory-managed checkouts reported by this runner. */
 function Workspaces({ inventory }: { inventory: Inventory | null }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!inventory) return <p className="text-muted-foreground">The runner has not reported its repos and T3 projects yet.</p>;
-  // When T3's projects could not be read, nothing is known to be missing from it.
-  const scanned = inventory.projects.source !== UNKNOWN;
-  const projects = inventory.projects.source === UNKNOWN ? [] : inventory.projects.items;
-  const projectPaths = new Set(projects.map((p) => p.path));
-  const repoPaths = new Set(inventory.repos.map((r) => r.path));
-  const others = projects.filter((p) => !repoPaths.has(p.path));
-  const shown = expanded ? others : others.slice(0, PROJECTS_SHOWN);
+  if (!inventory) return <p className="text-muted-foreground">The runner has not reported its repositories yet.</p>;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <ListSection title="Factory repos" note={inventory.repos.length}>
@@ -147,28 +132,8 @@ function Workspaces({ inventory }: { inventory: Inventory | null }) {
             icon={<FolderGit2Icon />}
             title={<span className="font-mono text-[13px]">{known(r.origin) ?? "origin unknown"}</span>}
             path={r.path}
-            aside={!scanned ? undefined : projectPaths.has(r.path) ? "T3 project" : <span className="text-warning">not in T3</span>}
           />
         ))}
-      </ListSection>
-      <ListSection title="Other T3 projects" note={inventory.projects.source === UNKNOWN ? "unknown" : `${others.length} · ${PROJECT_SOURCE[inventory.projects.source]}`}>
-        {others.length === 0 && <li className="px-3 py-2 text-muted-foreground">{scanned ? "None" : "The runner could not read T3's projects."}</li>}
-        {shown.map((p) => (
-          <PathRow key={p.path} icon={<FolderIcon />} title={p.title} path={p.path} />
-        ))}
-        {others.length > PROJECTS_SHOWN && (
-          <li>
-            <button
-              type="button"
-              onClick={() => setExpanded((e) => !e)}
-              aria-expanded={expanded}
-              className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-            >
-              <ChevronDownIcon className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
-              {expanded ? "Show fewer" : `Show ${others.length - PROJECTS_SHOWN} more`}
-            </button>
-          </li>
-        )}
       </ListSection>
     </div>
   );
@@ -176,22 +141,9 @@ function Workspaces({ inventory }: { inventory: Inventory | null }) {
 
 /** The facts that say whether the machine can take work, in one line under its name. */
 function Facts({ machine, inventory }: { machine: MachineRow; inventory: Inventory | null }) {
-  const t3 = known(inventory?.t3);
   const sha = known(inventory?.runnerSha);
-  const connect = inventory ? known(inventory.connect) : null;
   return (
     <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      <div className="flex gap-1.5">
-        <dt>T3</dt>
-        <dd className={cn(t3 && !t3.up && "text-destructive")}>
-          {t3 ? (t3.up ? "up" : "down") : "unknown"}
-          {t3?.version && <span className="ms-1.5 font-mono text-faint">{t3.version}</span>}
-        </dd>
-      </div>
-      <div className="flex gap-1.5">
-        <dt>Connect</dt>
-        <dd>{connect ?? "unknown"}</dd>
-      </div>
       <div className="flex gap-1.5">
         <dt>Runner</dt>
         <dd className="font-mono">{sha ? sha.slice(0, 7) : "unknown"}</dd>

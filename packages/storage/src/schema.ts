@@ -74,7 +74,7 @@ export const runs = pgTable(
     repo: text("repo"),
     branch: text("branch"),
     job_key: text("job_key"),
-    t3_thread_id: text("t3_thread_id"),
+    execution_id: text("execution_id"),
     role: text("role").$type<"builder" | "reviewer">().notNull().default("builder"),
     title: text("title"),
     status: runStatus("status").notNull().default("active"),
@@ -161,9 +161,9 @@ export const jobs = pgTable(
     stop: jsonb("stop").$type<StopRecord>(),
     /** The PR head the factory last sent back to its thread because it conflicted with main. */
     conflict_head: text("conflict_head"),
-    t3_thread_id: text("t3_thread_id"),
+    execution_id: text("execution_id"),
     machine_id: text("machine_id"),
-    /** The T3 provider instance and model this attempt's thread was launched with; null before a launch. */
+    /** The execution adapter and model selected for this attempt; null before launch. */
     provider: text("provider"),
     model: text("model"),
     review_overrides: jsonb("review_overrides").$type<ReviewOverrides>(),
@@ -255,7 +255,6 @@ export const intentKind = pgEnum("intent_kind", [
   "answer",
   "merged",
   "recheck_conflicts",
-  "open_t3",
   "approve_merge",
   "request_changes",
   "close_job",
@@ -267,8 +266,7 @@ export const intentKind = pgEnum("intent_kind", [
 
 /**
  * Durable dashboard, CLI, and runner requests. The runner executes each idempotently,
- * then records its result and handled_at. Repository registration uses onboard_repo;
- * open_t3 results contain a one-time pairing link, cleared on read or expiry.
+ * then records its result and handled_at. Repository registration uses onboard_repo.
  */
 export const intents = pgTable(
   "intents",
@@ -316,7 +314,7 @@ export const machines = pgTable("machines", {
 /** Factory-wide settings the panel edits; the one row has id "factory". */
 export const settings = pgTable("settings", {
   id: text("id").primaryKey(),
-  /** The T3 provider instance new threads start on. */
+  /** The OMP provider instance new threads start on. */
   provider: text("provider").notNull(),
   model: text("model").notNull(),
   review: jsonb("review").$type<ReviewOverrides>(),
@@ -346,7 +344,7 @@ export const repoSettings = pgTable(
     is_default: boolean("is_default").notNull().default(false),
     /** A disabled repo takes no new jobs; a Repository label naming it goes to the default. */
     enabled: boolean("enabled").notNull().default(true),
-    /** The T3 provider instance this repo's jobs start on without a Harness label; null means Settings. */
+    /** The OMP provider instance this repo's jobs start on without a Harness label; null means Settings. */
     provider: text("provider"),
     /** Model override for the explicitly selected harness; null inherits its default. */
     model: text("model"),

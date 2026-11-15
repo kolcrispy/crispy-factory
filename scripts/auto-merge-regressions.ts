@@ -161,7 +161,6 @@ const gitCalls: GitCall[] = [];
 let parentsOf = (sha: string) => `${sha} p1`;
 let failOn: string | null = null;
 revertDeps.host = {
-  t3: "t3",
   async run(command, args, options) {
     assert.equal(command, "git");
     gitCalls.push({ args, cwd: options?.cwd, env: options?.env });

@@ -48,7 +48,7 @@ async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResul
   if (!feedback.body.trim() && comments.length === 0) return { skipped: "the review has no text" };
 
   const host = hosts.forJob(job);
-  if ((await threads.state(job.t3_thread_id, host)) === "gone") {
+  if ((await threads.state(job.execution_id, host)) === "gone") {
     return { refused: "The job's thread is gone, so it can't take the feedback. Close the job, or retry the issue as a new attempt." };
   }
   const claimed = await db
@@ -61,7 +61,7 @@ async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResul
     .returning({ key: jobs.key });
   if (claimed.length === 0) return { skipped: "already sent, or the job moved on" };
   try {
-    await threads.send(job.t3_thread_id!, changesMessage({ prUrl: job.pr_url, feedback, comments }), host);
+    await threads.send(job.execution_id!, changesMessage({ prUrl: job.pr_url, feedback, comments }), host);
   } catch (error) {
     await db
       .update(jobs)
@@ -202,7 +202,7 @@ export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail)
     attempt: next, previous_failure: job.stage_summary, stage: "queued", stage_at: null,
     stage_summary: null, question: null, pr_url: null, stage_event_id: null, synced_event_id: null,
     attention: null, builder_handoff: null,
-    t3_thread_id: null, machine_id: null, provider: null, model: null,
+    execution_id: null, machine_id: null, provider: null, model: null,
     attempt_review: null,
     review_history: job.attempt_review ? [...job.review_history, job.attempt_review] : job.review_history,
     session_id: null, nudged_at: null, nudged_stage: null,

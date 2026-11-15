@@ -1,41 +1,15 @@
-import { join } from "node:path";
-import { z } from "zod";
 import type { JobRow } from "@factory/storage/schema";
 import { planCleanup, type BranchState } from "./cleanup";
 import { attemptBranch, parseBranch } from "./factory";
 import type { RepoName } from "@factory/integrations/github/gh";
 import { github } from "@factory/integrations/github/pulls";
 import { localHost, type JobHost } from "./host";
-import { listThreads, showThread } from "@factory/integrations/t3-client";
 
 type ClaimedJob = Pick<JobRow, "key" | "attempt" | "stage" | "stage_at" | "claimed_at">;
 
 const sh = async (host: JobHost, cmd: string, args: string[], cwd?: string) =>
   (await host.run(cmd, args, { cwd, timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 })).stdout.trim();
 
-type Thread = { threadId: string; branch: string | null; archived: boolean; running: boolean; worktreePath: string | null };
-
-/** Every T3 thread of the project, newest first, with the branch and worktree it is bound to. */
-async function projectThreads(repo: string, host: JobHost): Promise<Thread[]> {
-  const list = z
-    .array(z.object({ threadId: z.string() }))
-    .parse(await listThreads(host, repo, { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 }));
-  return Promise.all(
-    list.map(async ({ threadId }) => {
-      const { thread } = z
-        .object({
-          thread: z.object({
-            branch: z.string().nullable(),
-            archived: z.boolean(),
-            activeRunId: z.string().nullable(),
-            worktreePath: z.string().nullable(),
-          }),
-        })
-        .parse(await showThread(host, threadId, { timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 }));
-      return { threadId, branch: thread.branch, archived: thread.archived, running: thread.activeRunId !== null, worktreePath: thread.worktreePath };
-    }),
-  );
-}
 
 /** Linked worktrees by branch. The main checkout is listed first and never counts, whatever it has checked out. */
 export async function linkedWorktrees(repo: string, host: JobHost = localHost) {
@@ -92,25 +66,19 @@ async function sizeKb(host: JobHost, path: string) {
 export type CleanupReport = {
   removed: { key: string; worktree: string | null; freedKb: number; salvagedTo?: string }[];
   held: { key: string; reason: string }[];
-  /** Threads whose worktree and branch are gone; the intake pass archives them in T3. */
-  archive: { key: string; threadId: string }[];
 };
 
-/**
- * Removes finished factory worktrees and local factory branches in one repo, per lib/cleanup.ts,
- * and names the T3 threads left behind so the intake pass can archive them.
- */
+/** Removes finished factory worktrees and branches after execution ownership is observed. */
 export async function cleanupRepo(
   repo: string,
   jobsByKey: Map<string, ClaimedJob>,
   graceDays: number,
   { now = new Date(), dryRun = false, host = localHost, directBranches = new Map<string, boolean>() } = {},
 ): Promise<CleanupReport> {
-  const report: CleanupReport = { removed: [], held: [], archive: [] };
-  const [remote, trees, threads, branchList, remoteList] = await Promise.all([
+  const report: CleanupReport = { removed: [], held: [] };
+  const [remote, trees, branchList, remoteList] = await Promise.all([
     checkoutRepo(repo, host),
     linkedWorktrees(repo, host),
-    directBranches.size ? Promise.resolve([] as Thread[]) : projectThreads(repo, host),
     sh(host, "git", ["branch", "--list", "factory/*", "--format=%(refname:short)"], repo),
     sh(host, "git", ["ls-remote", "--heads", "origin", "refs/heads/factory/*"], repo),
   ]);
@@ -119,7 +87,7 @@ export async function cleanupRepo(
     const [sha, ref] = line.split(/\s+/);
     return [ref.replace("refs/heads/", ""), sha] as const;
   }));
-  const branches = new Set([...localBranches, ...remoteBranches.keys(), ...trees.keys(), ...threads.flatMap((t) => (t.branch ? [t.branch] : []))]);
+  const branches = new Set([...localBranches, ...remoteBranches.keys(), ...trees.keys()]);
 
   const checkedOut = await sh(host, "git", ["branch", "--show-current"], repo);
   for (const branch of branches) {
@@ -131,15 +99,12 @@ export async function cleanupRepo(
         report.held.push({ key, reason: "checked out in the main repo" });
         continue;
       }
-      // Direct runtime cleanup never needs T3. Unobserved legacy branches remain held.
-      if (directBranches.size && !directBranches.has(branch)) {
+      // Unknown execution ownership must hold the branch, including an empty inventory.
+      if (!directBranches.has(branch)) {
         report.held.push({ key, reason: "execution ownership was not observed for this branch" });
         continue;
       }
       const worktreePath = trees.get(branch) ?? null;
-      const branchThreads = threads.filter(
-        (t) => t.branch === branch || (worktreePath !== null && t.worktreePath === worktreePath),
-      );
       const local = localBranches.has(branch);
       const head = local ? await sh(host, "git", ["rev-parse", branch], repo) : remoteBranches.get(branch) ?? null;
       const state: BranchState = {
@@ -150,7 +115,7 @@ export async function cleanupRepo(
         ...(await outcomeOf(remote, branch, jobsByKey.get(key), head)),
         dirtyFiles: worktreePath && (await host.exists(worktreePath)) ? await countLines(host, "git", ["status", "--porcelain"], worktreePath) : 0,
         unpushedCommits: local ? await countLines(host, "git", ["rev-list", branch, "--not", "--remotes"], repo) : 0,
-        threadRunning: directBranches.get(branch) ?? branchThreads.some((t) => t.running),
+        threadRunning: directBranches.get(branch)!,
       };
       const plan = planCleanup(state, now, graceDays);
       const remoteHead = remoteBranches.get(branch);
@@ -186,10 +151,6 @@ export async function cleanupRepo(
         }
         report.removed.push({ key, worktree: worktreePath, freedKb });
       }
-      const finished = plan.kind === "remove" || plan.reason === "already clean";
-      if (finished) {
-        for (const t of branchThreads) if (!t.archived) report.archive.push({ key, threadId: t.threadId });
-      }
     } catch (error) {
       report.held.push({ key, reason: `cleanup failed: ${(error as Error).message.split("\n")[0]}` });
     }
@@ -205,7 +166,7 @@ export async function cleanupReviewerWorktrees(
   isRunning: (threadId: string) => Promise<boolean>,
   { now = new Date(), dryRun = false, host = localHost } = {},
 ): Promise<CleanupReport> {
-  const report: CleanupReport = { removed: [], held: [], archive: [] };
+  const report: CleanupReport = { removed: [], held: [] };
   const linked = new Set((await allLinkedWorktrees(repo, host)).map(tree => tree.path.replaceAll("\\", "/")));
   for (const job of jobs) {
     if (job.stage !== "done" && job.stage !== "failed") continue;
@@ -244,79 +205,3 @@ async function allLinkedWorktrees(repo: string, host: JobHost) {
   return trees;
 }
 
-/** When git last touched the worktree: a commit, checkout or index write. */
-async function lastTouched(path: string, host: JobHost) {
-  const gitDir = await sh(host, "git", ["rev-parse", "--absolute-git-dir"], path);
-  const stamps: number[] = [];
-  for (const file of ["index", "logs/HEAD", "HEAD"].map((f) => join(gitDir, f))) {
-    if (await host.exists(file)) stamps.push(await host.mtimeMs(file));
-  }
-  return Math.max(0, ...stamps);
-}
-
-/**
- * Claude Code puts isolated subagents in <repo>/.claude/worktrees/agent-<id> on a branch of their
- * own, and leaves them behind when the run ends early. An idle one goes the same way as a factory
- * worktree: uncommitted work holds it, and commits no remote has are first pushed to
- * factory-salvage/<branch> so removing it loses nothing.
- */
-export async function cleanupSubagentWorktrees(
-  repo: string,
-  idleHours: number,
-  { now = Date.now(), dryRun = false, host = localHost } = {},
-): Promise<CleanupReport> {
-  const report: CleanupReport = { removed: [], held: [], archive: [] };
-  const root = join(repo, ".claude/worktrees") + "/";
-  for (const tree of await allLinkedWorktrees(repo, host)) {
-    if (!tree.path.startsWith(root)) continue;
-    const key = tree.path.slice(root.length);
-    if (!(await host.exists(tree.path))) continue;
-    if (now - (await lastTouched(tree.path, host)) < idleHours * 3_600_000) {
-      report.held.push({ key, reason: "touched within the idle window; a subagent may still use it" });
-      continue;
-    }
-    const dirty = await countLines(host, "git", ["status", "--porcelain"], tree.path);
-    if (dirty > 0) {
-      report.held.push({ key, reason: `${dirty} uncommitted files` });
-      continue;
-    }
-    const unique = await countLines(host, "git", ["rev-list", "HEAD", "--not", "--remotes"], tree.path);
-    const freedKb = await sizeKb(host, tree.path);
-    if (dryRun) {
-      report.removed.push({ key, worktree: tree.path, freedKb });
-      continue;
-    }
-    let salvagedTo: string | undefined;
-    if (unique > 0) {
-      const salvage = `factory-salvage/${tree.branch ?? key}`;
-      try {
-        await sh(host, "git", ["push", "origin", `HEAD:refs/heads/${salvage}`], tree.path);
-      } catch (error) {
-        report.held.push({ key, reason: `push to ${salvage} failed: ${(error as Error).message.split("\n")[0]}` });
-        continue;
-      }
-      const remote = await sh(host, "git", ["ls-remote", "origin", `refs/heads/${salvage}`], repo);
-      const head = await sh(host, "git", ["rev-parse", "HEAD"], tree.path);
-      if (!remote.startsWith(head)) {
-        report.held.push({ key, reason: `push to ${salvage} not confirmed` });
-        continue;
-      }
-      salvagedTo = `origin/${salvage}`;
-    }
-    try {
-      await sh(host, "git", ["worktree", "remove", "--force", tree.path], repo);
-    } catch (error) {
-      report.held.push({ key, reason: `git worktree remove failed: ${(error as Error).message.split("\n")[0]}` });
-      continue;
-    }
-    if (await host.exists(tree.path)) await host.remove(tree.path);
-    await sh(host, "git", ["worktree", "prune"], repo);
-    if (tree.branch) {
-      await sh(host, "git", ["branch", "-D", tree.branch], repo).catch((error: Error) =>
-        report.held.push({ key, reason: `worktree removed, but git branch -D ${tree.branch} failed: ${error.message.split("\n")[0]}` }),
-      );
-    }
-    report.removed.push({ key, worktree: tree.path, freedKb, salvagedTo });
-  }
-  return report;
-}

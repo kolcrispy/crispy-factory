@@ -1,11 +1,10 @@
-import { and, eq, isNull, like, lt, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@factory/storage/client";
 import { intentReceipts, intents, type IntentKind } from "@factory/storage/schema";
 import { ONLINE_WINDOW_MS } from "@factory/core/machine";
-import { PAIRING_TTL_MINUTES, type PairingResult } from "@factory/core/t3-pairing";
 
 // Which machine acts on an intent. A job belongs to the machine in jobs.machine_id: only that
-// machine can reach its T3 thread, its worktree and its transcripts.
+// machine can reach its execution, worktree and transcripts.
 //
 //   any        one machine, whichever leases it first; a claim ends in claimLaunch's compare-and-set
 //   owner      the job's machine; a job no machine holds yet goes to any machine
@@ -16,7 +15,6 @@ export const INTENT_ROUTES = {
   answer: "owner",
   merged: "owner",
   recheck_conflicts: "broadcast",
-  open_t3: "owner",
   approve_merge: "owner",
   request_changes: "owner",
   close_job: "owner",
@@ -27,9 +25,8 @@ export const INTENT_ROUTES = {
 } as const satisfies Record<IntentKind, "any" | "owner" | "broadcast">;
 
 /**
- * How often a failing intent is tried before it is closed with its error. A pairing link is asked
- * for by someone watching the panel, so it fails at once rather than retrying for a day; so does
- * an approval after a few tries, since the owner sees the error and can approve again. A GitHub
+ * How often a failing intent is tried before it is closed with its error. An approval
+ * fails after a few tries, since the owner sees the error and can approve again. A GitHub
  * review that waits on its job gives up after REVIEW_WAIT_MS, so its tries outlast that day.
  */
 export const INTENT_ATTEMPTS = {
@@ -38,7 +35,6 @@ export const INTENT_ATTEMPTS = {
   answer: 50,
   merged: 50,
   recheck_conflicts: 50,
-  open_t3: 1,
   approve_merge: 3,
   request_changes: 60,
   close_job: 50,
@@ -51,27 +47,6 @@ export const INTENT_ATTEMPTS = {
   review_action: 1,
 } as const satisfies Record<IntentKind, number>;
 
-/** An intent's result as the runner logs it: a pairing link only ever goes to the intent row. */
-export function loggable(kind: IntentKind, result: object) {
-  if (kind !== "open_t3" || !("pairUrl" in result)) return result;
-  return { pairing: "minted", expiresAt: (result as Extract<PairingResult, { pairUrl: string }>).expiresAt };
-}
-
-/** Clears pairing links the panel never took once their token has expired. */
-export async function expirePairings() {
-  const cleared = await db
-    .update(intents)
-    .set({ result: JSON.stringify({ cleared: "expired" } satisfies PairingResult) })
-    .where(
-      and(
-        eq(intents.kind, "open_t3"),
-        like(intents.result, '%"pairUrl"%'),
-        lt(intents.handled_at, sql`now() - make_interval(mins => ${PAIRING_TTL_MINUTES})`),
-      ),
-    )
-    .returning({ id: intents.id });
-  return cleared.length;
-}
 
 export type Delivery = "lease" | "receipt" | "skip";
 

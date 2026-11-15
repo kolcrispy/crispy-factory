@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@factory/storage/client";
-import { intents, repoSettings } from "@factory/storage/schema";
+import { intents, repoSettings, jobs } from "@factory/storage/schema";
+import { internalJob } from "./fixtures";
 
 const id = `cli-regression:${randomUUID()}`;
 const requestId = randomUUID();
 const repo = `regression/cli-${randomUUID()}`;
 let registrationIntentId: string | undefined;
+const job = internalJob(`cli-native-${requestId}`, `CLI-${requestId}`, { repo, stage: "building", attempt: 2 });
 async function cli(input: object, wait?: string, resource = "requests", action = "show", extra: Record<string, string> = {}) {
   const child = Bun.spawn([process.execPath, "apps/cli/src/index.ts", resource, action, "--actor", "local:cli-regression", "--input", JSON.stringify(input), ...(wait === undefined ? [] : ["--wait", wait])], {
     env: { ...process.env, ...extra },
@@ -20,6 +22,17 @@ async function cli(input: object, wait?: string, resource = "requests", action =
   return { code, value: JSON.parse(out) };
 }
 try {
+  await db.insert(jobs).values(job);
+  assert.ok((await cli({ jobId: job.id }, undefined, "jobs", "controls")).value.actions.includes("stop"));
+  assert.ok(Array.isArray((await cli({}, undefined, "jobs", "defaults")).value.repositories));
+  const stale = await cli({ jobId: job.id, expectedAttempt: 1, requestId: randomUUID() }, undefined, "jobs", "stop");
+  assert.equal(stale.value.ok, false, "a stale native stop must not target the new attempt");
+  const stopId = randomUUID();
+  const stopped = await cli({ jobId: job.id, expectedAttempt: 2, requestId: stopId }, undefined, "jobs", "stop");
+  assert.equal(stopped.value.status, "queued");
+  await db.update(jobs).set({ attempt: 3 }).where(eq(jobs.id, job.id!));
+  assert.equal((await cli({ jobId: job.id, expectedAttempt: 2, requestId: stopId }, undefined, "jobs", "stop")).value.intentId, stopped.value.intentId, "recorded requests replay after the attempt advances");
+  await db.delete(intents).where(eq(intents.id, stopped.value.intentId));
   const registration = await cli({ requestId, repo }, undefined, "repositories", "add");
   assert.equal(registration.code, 0);
   assert.equal(registration.value.status, "queued", "offline registration stays inspectable without GitHub credentials");
@@ -57,5 +70,6 @@ try {
   await db.delete(intents).where(eq(intents.id, id));
   if (registrationIntentId) await db.delete(intents).where(eq(intents.id, registrationIntentId));
   await db.delete(repoSettings).where(eq(repoSettings.repo, repo));
+  await db.delete(jobs).where(eq(jobs.id, job.id!));
   await db.$client.end();
 }

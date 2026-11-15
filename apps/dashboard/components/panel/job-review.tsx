@@ -28,7 +28,6 @@ export function JobReview({ job }: { job: JobRow }) {
         <label>Review before PR<select aria-label="Job review policy" value={policy.enabled == null ? "inherit" : String(policy.enabled)} onChange={event => setPolicy({ ...policy, enabled: event.target.value === "inherit" ? null : event.target.value === "true" })}>
           <option value="inherit">Inherit</option><option value="true">Enabled</option><option value="false">Disabled</option>
         </select></label>
-        <Input aria-label="Job reviewer harness" placeholder="Reviewer harness (empty inherits)" value={policy.provider ?? ""} onChange={event => setPolicy({ ...policy, provider: event.target.value || null })} />
         <Input aria-label="Job reviewer model" placeholder="Reviewer model (empty inherits)" value={policy.model ?? ""} onChange={event => setPolicy({ ...policy, model: event.target.value || null })} />
         <Button variant="outline" disabled={pending} onClick={() => start(async () => { try { const result = await saveReview({ jobId: job.id, review: policy }); setMessage(result.ok ? "Saved for next attempt; current review unchanged." : result.message); } catch { setMessage("Could not save review settings."); } })}>Save review settings</Button>
       </div>

@@ -1,10 +1,8 @@
-import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { jobs } from "@factory/storage/schema";
 import type { ExecError } from "@factory/platform/exec";
-import { localHost, type JobHost } from "@factory/core/host";
+import { localHost } from "@factory/core/host";
 import { withPlaybook } from "@factory/core/playbook";
-import { listThreads, showThread, startThread as t3Start } from "@factory/integrations/t3-client";
 import type { HarnessChoice } from "@factory/core/settings";
 import { withRepoDefaults, readRegistry } from "@factory/core/repositories";
 import { db } from "@factory/storage/client";
@@ -16,13 +14,6 @@ import { bindThread, claimLaunch, config, factoryCheckouts, launchSettings, mach
 import { localizeJobImages } from "./job-images";
 
 export class MaybeStartedError extends Error {}
-export function parseThreadId(stdout: string) {
-  try { return z.object({ threadId: z.string().min(1) }).parse(JSON.parse(stdout)).threadId; }
-  catch { throw new MaybeStartedError("t3 thread start returned no valid thread identity."); }
-}
-export async function startThread(host: JobHost, repo: string, branch: string, title: string, message: string, { provider, model }: HarnessChoice, base = "origin/main") {
-  return parseThreadId(await t3Start(host, { project: repo, message, worktree: base, branch, title, provider, model }));
-}
 export type LaunchEntry = {
   key: string; attempt: number; repo: string; branch: string; threadTitle: string; message: string;
   harness: HarnessChoice; base: string;
@@ -64,24 +55,13 @@ export async function recoverPending(checkouts: ReadonlyMap<string, string>) {
   const recovered = [];
   for (const pending of await pendingLaunches()) {
     if (!checkouts.has(pending.repo) || Date.now() - Number(pending.marker.slice(PENDING.length)) < 120_000) continue;
-    if (pending.provider === "omp") {
-      try {
-        const id = await recoverOmp(pending.key, pending.attempt);
-        await bindThread(pending.key, id);
-        recovered.push({ key: pending.key, threadId: id });
-      } catch (error) {
-        recovered.push({ key: pending.key, held: true, error: String(error) });
-      }
-      continue;
+    try {
+      const id = await recoverOmp(pending.key, pending.attempt);
+      await bindThread(pending.key, id);
+      recovered.push({ key: pending.key, threadId: id });
+    } catch (error) {
+      recovered.push({ key: pending.key, held: true, error: String(error) });
     }
-    const list = z.array(z.object({ threadId: z.string() })).parse(await listThreads(localHost, checkouts.get(pending.repo)!));
-    let found: string | undefined;
-    for (const thread of list) {
-      const detail = z.object({ thread: z.object({ branch: z.string().nullable() }) }).parse(await showThread(localHost, thread.threadId));
-      if (detail.thread.branch === pending.branch) { found = thread.threadId; break; }
-    }
-    await (found ? bindThread(pending.key, found) : releaseLaunch(pending.key, pending.marker));
-    recovered.push({ key: pending.key, threadId: found ?? null });
   }
   return recovered;
 }
@@ -99,7 +79,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
     const requested = job.source_state.requestedProvider;
     const selected = requested ? harnesses?.find(harness => harness.id === requested && harness.enabled) : null;
     if (requested && !selected) continue;
-    const harness = selected && selected.id !== defaults.harness.provider ? { provider: selected.id, model: selected.defaultModel ?? selected.models[0]?.slug ?? defaults.harness.model } : defaults.harness;
+    const harness = selected && selected.id !== defaults.harness.provider ? { provider: selected.id, model: selected.defaultModel ?? "" } : { ...defaults.harness, model: defaults.harness.model || harnesses.find(runtime => runtime.id === defaults.harness.provider)?.defaultModel || "" };
     if (harness.provider === "omp" && !harnesses.some(runtime => runtime.id === "omp" && runtime.enabled && runtime.models.some(model => model.slug === harness.model))) continue;
     entries.push({ ...entry, harness, base: `origin/${repository.default_branch}` });
   }
@@ -113,9 +93,7 @@ export async function launchQueued(onWorktree: (check: Record<string, unknown>) 
       const inputs = await localizeJobImages(entry.message, config.factory.workRoot, entry.key, entry.attempt);
       const [claimed] = await db.select().from(jobs).where(eq(jobs.key, entry.key));
       const message = `${await withPlaybook(inputs, localHost, checkout)}${claimed?.attempt_review?.policy.enabled ? "\n\n## Independent review gate\nImplement, test and commit the attempt branch. Run factory-verify --json and report_work handoff with its exact sha and eventId as evidenceEventId, then end the turn. Do not self-review, push or publish a PR. The runner publishes the revision only after independent PASS. Every repair requires fresh handoff." : ""}`;
-      const threadId = entry.harness.provider === "omp"
-        ? await startOmp({ ...entry, message }, checkout, config.factory.workRoot)
-        : await startThread(localHost, checkout, entry.branch, entry.threadTitle, message, entry.harness, entry.base);
+      const threadId = await startOmp({ ...entry, message }, checkout, config.factory.workRoot);
       onWorktree({ key: entry.key, threadId, base: entry.base });
       return threadId;
     },

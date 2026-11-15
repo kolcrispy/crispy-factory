@@ -8,7 +8,8 @@ import { combined, CHECK_TIMEOUT_MS, formatDuration, OUTPUT_KEEP_CHARS, planChec
 import { parseBranch } from "@factory/core/factory";
 import { readIngestTarget, reportEvents } from "@factory/core/outbox";
 import { parseRecipe, RECIPE_PATH, UNMERGED_RECIPE_PATH } from "@factory/core/recipe";
-import { mcpIdentity } from "@factory/core/report-identity";
+import { reportIdentity } from "@factory/core/report-identity";
+import { localShell } from "@factory/platform/shell";
 
 // factory-verify: runs the repo's checks at the current HEAD and reports what ran as evidence for
 // that exact commit, through the outbox, so the merge decision can hold the PR's head to it.
@@ -35,7 +36,8 @@ const localRunner =
   (cwd: string): CheckRunner =>
   (command, ms) =>
     new Promise((resolve) => {
-      const child = spawn("bash", ["-c", combined(command)], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const shell = localShell();
+      const child = spawn(shell.command, ["-c", combined(command)], { cwd, env: shell.env, stdio: ["ignore", "pipe", "pipe"] });
       let output = "";
       const keep = (chunk: Buffer) => {
         output = (output + chunk.toString("utf8")).slice(-OUTPUT_KEEP_CHARS);
@@ -104,7 +106,7 @@ async function main() {
   const ok = clean && checks.length > 0 && passed === checks.length;
   say(ok ? `verified at ${shortSha(sha)} · ${passed}/${checks.length} checks` : `not verified at ${shortSha(sha)} · ${passed}/${checks.length} checks passed${clean ? "" : " · uncommitted changes"}`);
 
-  const identity = mcpIdentity(process.env, top);
+  const identity = reportIdentity(process.env, top);
   const attempt = parseBranch(identity?.branch)?.attempt;
   if (!identity || !attempt) {
     say("this checkout is on no factory branch, so nothing was reported");

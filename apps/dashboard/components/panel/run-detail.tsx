@@ -10,7 +10,6 @@ import { cn } from "../../lib/utils";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import type { AgentRow, AuditRow, EventRow, JobEvidenceRow, JobRow, MachineRow, RunRow } from "@factory/storage/schema";
-import { parseInventory, t3ThreadLink, UNKNOWN } from "@factory/core/machine";
 import { sourceLink } from "@factory/core/sources/shapes";
 import { parseStop, stopLine, stopView } from "@factory/core/stop";
 import { runFeedPath } from "@factory/core/run-links";
@@ -46,15 +45,12 @@ type MenuLink = { label: string; href: string };
 /** The run's links and the job's archive, out of the header's way. */
 function ActionsMenu({
   source,
-  t3,
   archive,
 }: {
   source: MenuLink | null;
-  /** The local runner's T3 thread. */
-  t3: MenuLink | null;
   archive: ArchiveAction | null;
 }) {
-  if (!source && !t3 && !archive) return null;
+  if (!source && !archive) return null;
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon-sm" aria-label="More actions" />}>
@@ -67,15 +63,9 @@ function ActionsMenu({
             Open in {source.label}
           </MenuLinkItem>
         )}
-        {t3 && (
-          <MenuLinkItem render={<a href={t3.href} />}>
-            <ExternalLinkIcon />
-            {t3.label}
-          </MenuLinkItem>
-        )}
         {archive && (
           <>
-            {(source || t3) && <MenuSeparator />}
+            {source && <MenuSeparator />}
             <MenuItem onClick={archive.act} disabled={archive.pending}>
               <archive.Icon />
               {archive.label}
@@ -87,10 +77,10 @@ function ActionsMenu({
   );
 }
 
-/** The job's menu: source, local T3 thread and archive. */
-function JobActions({ job, source, t3Link }: { job: JobRow; source: MenuLink | null; t3Link: MenuLink | null }) {
+/** The job's source and archive menu. */
+function JobActions({ job, source }: { job: JobRow; source: MenuLink | null }) {
   const archive = useArchiveAction(job);
-  return <ActionsMenu source={source} t3={t3Link} archive={archive} />;
+  return <ActionsMenu source={source} archive={archive} />;
 }
 
 const STOP_BOX = {
@@ -100,7 +90,7 @@ const STOP_BOX = {
 } as const;
 
 /** Where the job's stop is: what the runner last did, why it counts as stopped, or why it could not tell. */
-function StopBanner({ job, t3Href }: { job: JobRow; t3Href: string | null }) {
+function StopBanner({ job }: { job: JobRow }) {
   const view = stopView(job.stop);
   const stop = parseStop(job.stop);
   if (!view || !stop) return null;
@@ -116,12 +106,6 @@ function StopBanner({ job, t3Href }: { job: JobRow; t3Href: string | null }) {
       </p>
       {view.kind === "unconfirmed" && (
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          {t3Href && (
-            <Button render={<a href={t3Href} />} variant="outline" size="sm">
-              Open in T3
-              <ExternalLinkIcon data-icon="inline-end" />
-            </Button>
-          )}
           <span className="text-muted-foreground">Retry stop or dismiss it in the inbox once the thread has stopped.</span>
         </div>
       )}
@@ -164,9 +148,6 @@ export function RunDetail({
   const stage = job?.stage ?? run.stage;
   const link = job && sourceLink(job);
   const machineName = machine?.name ?? job?.machine_id ?? null;
-  const t3 = machine && parseInventory(machine.inventory)?.t3;
-  const environmentId = t3 && t3 !== UNKNOWN ? t3.environmentId : null;
-  const stopThread = job && (parseStop(job.stop)?.thread ?? job.t3_thread_id);
 
   const place = machineName && `Local · ${machineName}`;
   const spend = jobSpend ? (
@@ -177,10 +158,6 @@ export function RunDetail({
   ) : (
     formatUsd(runCost(run, agentRows))
   );
-  const t3Link =
-    run.t3_thread_id && !run.t3_thread_id.startsWith("omp:")
-      ? { label: machineName ? `Open in T3 on ${machineName}` : "Open in T3", href: t3ThreadLink(run.t3_thread_id, environmentId) }
-      : null;
 
   const summary = (
     <>
@@ -218,9 +195,9 @@ export function RunDetail({
               </Button>
             )}
             {job ? (
-              <JobActions job={job} source={link ?? null} t3Link={t3Link} />
+              <JobActions job={job} source={link ?? null} />
             ) : (
-              <ActionsMenu source={null} t3={t3Link} archive={null} />
+              <ActionsMenu source={null} archive={null} />
             )}
           </span>
         </div>
@@ -236,7 +213,7 @@ export function RunDetail({
           <span>{run.role} session · {formatUsd(runCost(run, agentRows))}</span>
         </p>
       </div>
-      {job && <StopBanner job={job} t3Href={stopThread && !stopThread.startsWith("omp:") ? t3ThreadLink(stopThread, environmentId) : null} />}
+      {job && <StopBanner job={job} />}
       {job?.nudged_at && job.nudged_stage === job.stage && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs">
           <span className="font-semibold text-warning">Stuck</span> · the

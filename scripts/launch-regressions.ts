@@ -1,8 +1,6 @@
 import "./test-guard";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
-import type { ExecOptions } from "@factory/platform/exec";
-import type { JobHost } from "@factory/core/host";
 
 const { db } = await import("@factory/storage/client");
 const { jobs } = await import("@factory/storage/schema");
@@ -12,8 +10,8 @@ const { internalJob } = await import("./fixtures");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { canReclaim, canReclaimSql, stopDeliverable, stopDeliverableSql } = await import("@factory/runner/binding");
 const { and, sql } = await import("drizzle-orm");
-const { launchEntries, maybeStarted, MaybeStartedError, parseThreadId, startThread } = await import("@factory/runner/launch");
-const { hosts, localHost } = await import("@factory/core/host");
+const { launchEntries, maybeStarted, MaybeStartedError } = await import("@factory/runner/launch");
+const { localHost } = await import("@factory/core/host");
 const { everyAtMost, serialQueue } = await import("@factory/runner/queue");
 const { recheckScheduler } = await import("@factory/runner/recheck");
 
@@ -32,7 +30,7 @@ try {
   assert.equal(await claimLaunch(id, "pending:2", slot), false, "a second launch, after a crash or timeout, does not");
   assert.equal((await pendingLaunches()).find(p => p.key === id)?.marker, "pending:1", "recovery observes the winning launch reservation");
   await releaseLaunch(id, "pending:2");
-  assert.equal((await db.select().from(jobs).where(eq(jobs.key, id)))[0]!.t3_thread_id, "pending:1", "only the holder's marker is released");
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, id)))[0]!.execution_id, "pending:1", "only the holder's marker is released");
   await releaseLaunch(id, "pending:1");
   assert.equal(await claimLaunch(id, "pending:3", slot), true, "a released job can launch again");
   // The binding × stop state space (runner/binding.ts). Each cell checks the predicate, its SQL
@@ -41,18 +39,18 @@ try {
   const watchdogFail = { stage: "failed" as const, stage_event_id: `watchdog:${id}:1:x`, stop_event_id: null, stage_summary: "Watchdog." };
   const mergedAfterStop = { stage: "done" as const, stage_event_id: `merged:${id}:x`, stop_event_id: `stop:${id}:1:x`, stage_summary: "Merged." };
   const cells = [
-    { name: "none, not stopped", row: { ...watchdogFail, t3_thread_id: null, stop_sent_to: null }, delivers: false, reclaim: true },
-    { name: "none, stopped", row: { ...stop, t3_thread_id: null, stop_sent_to: null }, delivers: false, reclaim: true },
-    { name: "pending, not stopped", row: { ...watchdogFail, t3_thread_id: "pending:5", stop_sent_to: null }, delivers: false, reclaim: false },
-    { name: "pending, stopped (owed)", row: { ...stop, t3_thread_id: "pending:5", stop_sent_to: null }, delivers: false, reclaim: false },
-    { name: "bound, not stopped", row: { ...watchdogFail, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: true },
-    { name: "bound, stopped, not sent", row: { ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
-    { name: "bound, stopped, sent", row: { ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: true },
-    { name: "bound, stopped, sent to an older thread", row: { ...stop, t3_thread_id: "mcp:regress-b", stop_sent_to: "mcp:regress-a" }, delivers: true, reclaim: false },
-    { name: "bound, still working", row: { stage: "building" as const, stage_event_id: "e", stop_event_id: null, stage_summary: "s", t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: false },
-    { name: "bound, stopped, merged before the stop was sent", row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
-    { name: "pending, stopped, merged before the thread was known", row: { ...mergedAfterStop, t3_thread_id: "pending:6", stop_sent_to: null }, delivers: false, reclaim: false },
-    { name: "bound, stopped, merged, sent", row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: false },
+    { name: "none, not stopped", row: { ...watchdogFail, execution_id: null, stop_sent_to: null }, delivers: false, reclaim: true },
+    { name: "none, stopped", row: { ...stop, execution_id: null, stop_sent_to: null }, delivers: false, reclaim: true },
+    { name: "pending, not stopped", row: { ...watchdogFail, execution_id: "pending:5", stop_sent_to: null }, delivers: false, reclaim: false },
+    { name: "pending, stopped (owed)", row: { ...stop, execution_id: "pending:5", stop_sent_to: null }, delivers: false, reclaim: false },
+    { name: "bound, not stopped", row: { ...watchdogFail, execution_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: true },
+    { name: "bound, stopped, not sent", row: { ...stop, execution_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
+    { name: "bound, stopped, sent", row: { ...stop, execution_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: true },
+    { name: "bound, stopped, sent to an older thread", row: { ...stop, execution_id: "mcp:regress-b", stop_sent_to: "mcp:regress-a" }, delivers: true, reclaim: false },
+    { name: "bound, still working", row: { stage: "building" as const, stage_event_id: "e", stop_event_id: null, stage_summary: "s", execution_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: false },
+    { name: "bound, stopped, merged before the stop was sent", row: { ...mergedAfterStop, execution_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
+    { name: "pending, stopped, merged before the thread was known", row: { ...mergedAfterStop, execution_id: "pending:6", stop_sent_to: null }, delivers: false, reclaim: false },
+    { name: "bound, stopped, merged, sent", row: { ...mergedAfterStop, execution_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: false },
   ];
   const sqlSays = async (condition: ReturnType<typeof sql> | undefined) =>
     (await db.select({ key: jobs.key }).from(jobs).where(and(eq(jobs.id, jid), condition))).length > 0;
@@ -68,7 +66,7 @@ try {
     assert.deepEqual(await deliverStops(jid), [], `${cell.name}: a second deliverStops sends nothing`);
     assert.deepEqual(
       sent.map((m) => m.threadId),
-      cell.delivers ? [cell.row.t3_thread_id] : [],
+      cell.delivers ? [cell.row.execution_id] : [],
       `${cell.name}: the stop message reaches the bound thread once`,
     );
   }
@@ -80,24 +78,24 @@ try {
       .values(internalJob(id, id))
       .onConflictDoUpdate({ target: jobs.id, set: { attempt: sql`${jobs.attempt} + 1` }, setWhere: canReclaimSql })
       .returning({ attempt: jobs.attempt });
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:8", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ ...stop, execution_id: "pending:8", stop_sent_to: null }).where(eq(jobs.id, jid));
   assert.deepEqual(await retryClaim(), [], "a retry claim is refused while a stopped launch is pending");
-  await db.update(jobs).set({ ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ ...stop, execution_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }).where(eq(jobs.id, jid));
   assert.equal((await retryClaim()).length, 1, "and allowed once the stop reached the thread");
 
   // Transitions out of "pending, stopped": the thread appears, or recovery finds none.
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:6", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ ...stop, execution_id: "pending:6", stop_sent_to: null }).where(eq(jobs.id, jid));
   sent.length = 0;
   assert.deepEqual(await bindThread(id, "mcp:regress-late"), { bound: id, threadId: "mcp:regress-late", stopped: true }, "binding delivers the owed stop at once");
   assert.deepEqual(sent.map((m) => m.threadId), ["mcp:regress-late"], "to the thread it just bound");
   assert.equal(canReclaim((await db.select().from(jobs).where(eq(jobs.id, jid)))[0]!), true, "and then a retry may claim");
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:9", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ ...stop, execution_id: "pending:9", stop_sent_to: null }).where(eq(jobs.id, jid));
   await db.update(jobs).set({ stage: "done", stage_event_id: `merged:${id}:late`, stage_summary: "Merged." }).where(eq(jobs.id, jid));
   sent.length = 0;
   assert.equal((await bindThread(id, "mcp:regress-merged")).stopped, true, "a PR that merged before the stop reached its thread still gets the stop");
   assert.deepEqual(sent.map((m) => m.threadId), ["mcp:regress-merged"]);
   assert.match(sent[0]!.message, /^Stop working on .+\. The factory stopped this run\./, "and the message does not quote the merge as the reason");
-  await db.update(jobs).set({ ...stop, t3_thread_id: "pending:7", stop_sent_to: null }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ ...stop, execution_id: "pending:7", stop_sent_to: null }).where(eq(jobs.id, jid));
   await releaseLaunch(id, "pending:7");
   const [cleared] = await db.select().from(jobs).where(eq(jobs.id, jid));
   assert.equal(stopDeliverable(cleared!), false, "recovery that finds no thread leaves nothing to deliver");
@@ -105,80 +103,9 @@ try {
   assert.deepEqual(await deliverStops(jid), []);
 
 
-  // Every per-job T3 call goes through the job's host, so a fake host sees exactly what T3 would.
-  const calls: { command: string; args: string[]; options?: ExecOptions }[] = [];
-  let shown: Record<string, unknown> = { archived: false, worktreePath: "/sandbox/wt", activeRunId: null };
-  const fake: JobHost = {
-    t3: "/sandbox/t3",
-    run: async (command, args, options) => {
-      calls.push({ command, args, options });
-      if (args[1] === "start") return { stdout: '{"threadId":"mcp:fake"}', stderr: "" };
-      if (args[1] === "show" && args[2] === "mcp:gone") throw Object.assign(new Error("exit 1"), { code: 1, stdout: "", stderr: "Thread mcp:gone is no longer available" });
-      if (args[1] === "show") return { stdout: JSON.stringify({ thread: shown }), stderr: "" };
-      return { stdout: "", stderr: "" };
-    },
-    readFile: async () => null,
-    writeFile: async () => {},
-    exists: async (path) => path === "/sandbox/wt",
-    list: async () => [],
-    mtimeMs: async () => 0,
-    remove: async () => {},
-  };
-  const harness = { provider: "codex", model: "gpt-5.5" };
-  assert.equal(await startThread(fake, "/sandbox/repo", "factory/FAC-1", "FAC-1 Title", "Work FAC-1", harness), "mcp:fake");
-  assert.deepEqual(
-    calls,
-    [
-      {
-        command: "/sandbox/t3",
-        args: ["thread", "start", "/sandbox/repo", "-", "--worktree", "origin/main", "--branch", "factory/FAC-1", "--title", "FAC-1 Title", "--provider", "codex", "--model", "gpt-5.5", "--json"],
-        options: { input: "Work FAC-1", timeoutMs: 60_000, maxBuffer: 16 * 1024 * 1024 },
-      },
-    ],
-    "the launch runs t3 thread start on the job's host, with the message on stdin and the harness as flags",
-  );
-  calls.length = 0;
-  assert.equal(await realThreads.state("mcp:fake", fake), "stopped", "an idle thread whose worktree the host has is stopped");
-  assert.deepEqual(calls, [{ command: "/sandbox/t3", args: ["thread", "show", "mcp:fake", "--json"], options: { timeoutMs: 20_000 } }]);
-  shown = { ...shown, activeRunId: "run-1" };
-  assert.equal(await realThreads.state("mcp:fake", fake), "running");
-  shown = { ...shown, worktreePath: "/elsewhere" };
-  assert.equal(await realThreads.state("mcp:fake", fake), "gone", "a worktree missing on the job's host means gone");
-  assert.equal(await realThreads.state("mcp:gone", fake), "gone", "T3 saying the thread is gone, through the host's error, means gone");
-  const odd: JobHost = {
-    ...fake,
-    run: async () => ({
-      stdout: JSON.stringify({
-        thread: { archived: false, worktreePath: null, activeRunId: null, status: null },
-        messages: [null, { role: "assistant", text: null }, { role: "tool" }, { role: "assistant", text: "done" }],
-      }),
-      stderr: "",
-    }),
-  };
-  assert.equal((await realThreads.read("mcp:odd", odd)).lastMessage, "done", "malformed message entries do not hide the last valid assistant result");
-  calls.length = 0;
-  assert.equal(await realThreads.state("pending:1", fake), "running", "a pending launch asks no host");
-  assert.equal(calls.length, 0);
-  await assert.rejects(realThreads.state("mcp:real", localHost), /t3 thread show was called during a regression run/, "the local host still refuses T3 in a regression");
-  await assert.rejects(startThread(localHost, "/repo", "factory/X", "X", "m", harness), /t3 thread start was called during a regression run/);
-  await assert.rejects(realThreads.send("mcp:real", "m", localHost), /t3 thread send was called during a regression run/);
-
-  // The job's host comes from the resolver: a stop is shown and sent on the host it names.
-  shown = { archived: false, worktreePath: "/sandbox/wt", activeRunId: "run-1" };
-  calls.length = 0;
-  Object.assign(threads, realThreads);
-  const resolve = hosts.forJob;
-  hosts.forJob = (job) => (job.key === id ? fake : localHost);
-  try {
-    await db.update(jobs).set({ ...stop, t3_thread_id: "mcp:fake", stop_sent_to: null, machine_id: TEST_MACHINE_ID }).where(eq(jobs.id, jid));
-    assert.deepEqual(await deliverStops(jid), [id]);
-  } finally {
-    hosts.forJob = resolve;
-    threads.state = async () => "running";
-    threads.send = async (threadId, message) => void sent.push({ threadId, message });
-  }
-  assert.deepEqual(calls.map((c) => c.args.slice(0, 3)), [["thread", "show", "mcp:fake"], ["thread", "send", "mcp:fake"]]);
-  assert.match(calls[1]!.options!.input!, /^Stop working on /, "the stop message goes to the fake host's stdin");
+  const harness = { provider: "omp", model: "test/model" };
+  assert.equal(await realThreads.state("pending:1", localHost), "running", "pending launches retain ownership");
+  await assert.rejects(realThreads.state("unsupported:session", localHost), /Unsupported execution binding/, "unknown adapters never imply completion");
 
   // One failed start does not stop the batch; a clear failure frees its marker, a timeout keeps it.
   const markers = new Map<string, string>();
@@ -187,7 +114,7 @@ try {
   const results = await launchEntries([entry("A"), entry("B"), entry("C")], {
     claim: async (key, marker) => (markers.set(key, marker), true),
     start: async ({ key }) => {
-      if (key === "A") throw new Error("t3: project not found");
+      if (key === "A") throw new Error("OMP launch rejected");
       if (key === "B") throw Object.assign(new Error("timed out"), { killed: true });
       return `thread-${key}`;
     },
@@ -286,11 +213,9 @@ try {
   assert.equal(maybeStarted(missing), false, "a binary that never ran is a clear failure");
   const timedOut = await runWithInput("sleep", ["5"], "x", 200).catch((error: unknown) => error);
   assert.equal(maybeStarted(timedOut), true, "a timeout is maybe started");
-  assert.equal(parseThreadId('{"threadId":"mcp:1"}'), "mcp:1");
-  assert.throws(() => parseThreadId("not json"), MaybeStartedError, "unparsable output rejects as maybe-started");
   const unparsed = await launchEntries([entry("D")], {
     claim: async () => true,
-    start: async () => parseThreadId("garbage"),
+    start: async () => { throw new MaybeStartedError("Prompt delivery is uncertain"); },
     bind: async () => undefined,
     release: async (key) => void released.push(key),
     now: () => 1,

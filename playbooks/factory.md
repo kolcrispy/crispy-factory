@@ -15,7 +15,7 @@ The runner owns phases: Queued, Building, Reviewing, Ready, Done and Failed. Nee
 
 ## Reporting
 
-Use `report_work` from the Factory reporting extension or `factory-report` MCP server:
+Use `report_work` from the trusted Factory reporting extension:
 
 - `action: "progress"`, `summary`: concrete work completed or currently being checked. Progress never means completion.
 - `action: "needs_human"`, `summary`, `question`: actionable owner intervention. Name the missing decision and concrete options. End the turn without guessing. The job keeps its phase.

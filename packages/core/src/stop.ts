@@ -6,8 +6,8 @@ import { z } from "zod";
 //   requested    recorded without changing phase; nothing has reached the thread yet
 //   delivered    the stop message reached the bound thread, or the job's sandbox is being ended
 //   escalated    the thread or one of its subagent threads still ran after the grace, so the runner
-//                asked T3 to interrupt them
-//   confirmed    T3 showed the thread and every subagent thread without an active run for the
+//                asked OMP to interrupt them
+//   confirmed    OMP showed the thread and every subagent thread without an active run for the
 //                settle time, or the job's sandbox is verifiably gone, or no thread was ever started
 //   unconfirmed  still running, or unreadable, after the final timeout; the owner gets an inbox item
 //
@@ -18,7 +18,7 @@ export const STOP_STATES = ["requested", "delivered", "escalated", "confirmed", 
 export type StopState = (typeof STOP_STATES)[number];
 export const PENDING_STOP_STATES = ["requested", "delivered", "escalated"] as const satisfies readonly StopState[];
 
-/** How the stop last reached the work: the polite message or T3's interrupt. */
+/** How the stop last reached the work: the polite message or OMP's interrupt. */
 export const STOP_HOWS = ["message", "interrupt"] as const;
 export type StopHow = (typeof STOP_HOWS)[number];
 
@@ -36,9 +36,9 @@ export const stopSchema = z.object({
   how: z.enum(STOP_HOWS).nullable().default(null),
   deliveredAt: at.nullable().default(null),
   escalatedAt: at.nullable().default(null),
-  /** Since when T3 has shown the thread and its subagents without an active run; cleared when one runs. */
+  /** Since when OMP has shown the thread and its subagents without an active run; cleared when one runs. */
   quietSince: at.nullable().default(null),
-  /** The last look, so ticks closer than the check interval don't ask T3 again. */
+  /** The last look, so ticks closer than the check interval don't ask OMP again. */
   checkedAt: at.nullable().default(null),
   /** What the runner last saw or did, in a sentence. */
   step: z.string().nullable().default(null),
@@ -102,7 +102,7 @@ export function stopLine(view: StopView) {
     case "confirmed":
       return "Stopped · confirmed";
     case "unconfirmed":
-      return "Stop not confirmed — check the thread in T3";
+      return "Stop not confirmed - check the thread in OMP";
     default: {
       const never: never = view;
       throw new Error(`unknown stop view ${JSON.stringify(never)}`);

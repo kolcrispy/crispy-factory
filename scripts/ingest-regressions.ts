@@ -86,7 +86,7 @@ try {
 
 
   const allowed = await ingest(db, [
-    ev(12, { kind: "session_start", at: t0 + 60_000, cwd: "/tmp/x", branch: `factory/${jobKey}`, t3ThreadId: "thread-1" }),
+    ev(12, { kind: "session_start", at: t0 + 60_000, cwd: "/tmp/x", branch: `factory/${jobKey}`, executionId: "thread-1" }),
     { ...ev(13, { kind: "stage", at: t0 + 62_000, stage: "ready", summary: "opened", prUrl: "https://github.com/x/y/pull/2", jobKey }), eventId: `inferred:${run}-13` },
   ]);
   const moved = await jobRow();
@@ -101,11 +101,11 @@ try {
   await db.update(jobs).set({ attempt: 2 }).where(eq(jobs.key, jobKey));
   await ingest(db, [
     ev(15, { kind: "stage", at: t0 + 63_000, stage: "failed", summary: "old thread", jobKey, branch: `factory/${jobKey}` }),
-    ev(16, { kind: "session_start", at: t0 + 63_500, cwd: "/tmp/x", branch: `factory/${jobKey}`, t3ThreadId: "old" }),
+    ev(16, { kind: "session_start", at: t0 + 63_500, cwd: "/tmp/x", branch: `factory/${jobKey}`, executionId: "old" }),
   ]);
   const kept = await jobRow();
   assert.equal(kept.stage, "ready", "an earlier attempt cannot move the retry");
-  assert.equal(kept.t3_thread_id, "thread-1", "nor does its session start");
+  assert.equal(kept.execution_id, "thread-1", "nor does its session start");
   await db.update(jobs).set({ attempt: 1, stage: "failed" }).where(eq(jobs.key, jobKey));
   const failed = await jobRow();
   const runBefore = await runRow();
@@ -137,7 +137,7 @@ try {
 
   const i = await jobRow();
   assert.equal(i.pr_url, "https://github.com/x/y/pull/2");
-  assert.equal(i.t3_thread_id, "thread-1", "session_start on the job branch links the T3 thread");
+  assert.equal(i.execution_id, "thread-1", "session_start on the job branch links the OMP thread");
   assert.equal(i.session_id, run);
 
   await db.update(jobs).set({ stage: "building", stop: null, attempt: 1, updated_at: new Date(t0), builder_handoff: null }).where(eq(jobs.key, jobKey));

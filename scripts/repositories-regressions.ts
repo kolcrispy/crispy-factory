@@ -41,10 +41,10 @@ const row = (repo: string, over: Partial<RepoRow> = {}): RepoRow => ({
 });
 const registry = [row(A, { is_default: true }), row(B, { display_name: "Shop app", provider: "codex" }), row(OFF, { enabled: false })];
 // Precedence: ticket label > repo default > Settings, field by field.
-const harness = (id: string, name: string, models: string[], enabled = true) => ({ id, driver: id, name, enabled, models: models.map((slug) => ({ slug, name: slug })) });
+const harness = (id: string, name: string, models: string[], enabled = true) => ({ id, driver: id, name, enabled, defaultModel: models[0], models: models.map((slug) => ({ slug, name: slug })) });
 const harnesses = [harness("claudeAgent", "Claude Code", ["claude-opus-5-5", "claude-second"]), harness("codex", "Codex", ["gpt-6-astra", "gpt-second"]), harness("cursor", "Cursor", ["composer-2"]), harness("off", "Off", ["x"], false)];
 const settings = { harness: { provider: "claudeAgent", model: "claude-opus-5-5", from: "settings" as const } };
-assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "codex" }), harnesses).defaults.harness.model, "gpt-6-astra", "a repo default harness starts on its first model");
+assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "codex" }), harnesses).defaults.harness.model, "gpt-6-astra", "a different adapter uses its reported native default");
 const skipped = repos.withRepoDefaults(settings, row(B, { provider: "off" }), harnesses);
 assert.deepEqual([skipped.defaults.harness.provider, skipped.problems.length], ["claudeAgent", 1], "a disabled default harness falls back to Settings, with a problem to log");
 assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "claudeAgent", model: "claude-second" }), harnesses).defaults.harness.model, "claude-second", "repo model overrides Settings even for the same harness");
@@ -52,7 +52,7 @@ assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "codex", model:
 assert.deepEqual(repos.withRepoDefaults(settings, row(B, { provider: "codex", model: "gone" }), harnesses).defaults.harness, settings.harness, "removed models fall back to Settings");
 const native = { ...harness("omp", "OMP", ["first", "native", "override"]), defaultModel: "native" };
 assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "omp" }), [native]).defaults.harness.model, "native", "OMP inherits its native selection rather than inventory order");
-assert.equal(repos.withRepoDefaults({ harness: { provider: "omp", model: "first", from: "settings" } }, row(B, { provider: "omp" }), [native]).defaults.harness.model, "native", "explicit repository harness default uses native OMP even when Settings uses OMP");
+assert.equal(repos.withRepoDefaults({ harness: { provider: "omp", model: "first", from: "settings" } }, row(B, { provider: "omp" }), [native]).defaults.harness.model, "first", "a null repository model inherits Settings for the same harness");
 assert.equal(repos.withRepoDefaults(settings, row(B, { provider: "omp", model: "override" }), [native]).defaults.harness.model, "override", "explicit repository model overrides native OMP");
 
 

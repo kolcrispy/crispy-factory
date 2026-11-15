@@ -1,7 +1,7 @@
 ---
 name: factory-jobs
 description: "File work into Crispy Factory as jobs that a local runner implements in an isolated worktree and returns as a pull request. Use when users delegate implementation, fixes, tests, or investigation to Factory; manually import a GitHub issue as a job; mention JOB- or the Factory dashboard; or ask what is queued. Read before any Factory CLI command so repository resolution, duplicate checks, harness/model selection, and owner actions follow the execution contract."
-compatibility: "Bun 1.4.4 and a Crispy Factory checkout with its .env.local database credentials. The runner must be online to execute jobs."
+compatibility: "Bun 1.4.4, an installed/authenticated OMP runtime, and a Crispy Factory checkout with its .env.local database credentials. The runner must be online to execute jobs."
 ---
 
 # Factory jobs
@@ -36,7 +36,7 @@ Run these read-only checks and actually read the output.
 ```sh
 bun run --cwd "$FACTORY_HOME" cli repositories list
 bun run --cwd "$FACTORY_HOME" cli jobs list
-bun run --cwd "$FACTORY_HOME" cli machines list   # only when picking a harness
+bun run --cwd "$FACTORY_HOME" cli machines list   # when checking OMP/model availability
 ```
 
 ### 1. Resolve the repository
@@ -64,19 +64,19 @@ Use only repositories with `registration_status: "ready"` and `enabled: true`.
 
 Compare requested work against every job whose phase is neither `done` nor `failed`: `queued`, `building`, `reviewing`, and `ready`, including Needs human holds. If one covers it, report that job and ask whether to add context instead of submitting overlapping work. Issue import additionally rejects concurrent active jobs for the same canonical issue URL atomically.
 
-### 3. Pick the harness only when it matters
+### 3. Resolve the OMP model
 
-`provider` is a harness instance id, not a model slug. Omit it to inherit the repository harness/model defaults, then Factory Settings/config. An explicitly selected different job harness uses its reported runtime default, otherwise its first inventory model. Selecting the same effective harness preserves the repository model.
+OMP is the only supported harness. `provider` identifies the harness, not the model; omit it to inherit defaults, or use `"provider":"omp"`. If the user requires another harness, report it unsupported rather than substituting OMP or filing the job.
 
-An explicit repository model wins. For a repository explicitly selecting OMP with a null model (Harness default), Factory reads the installed OMP runtime's native default model, not its first available model, even when Settings also uses OMP. Settings default instead inherits Factory Settings/config. Existing attempts keep their recorded model.
+An available explicit repository model overrides Factory Settings/config. A null repository model inherits Settings/config when both select OMP. An empty effective builder model resolves to the installed OMP runtime's reported `defaultModel`; never choose the first inventory model. The runner launches only when the resolved model is available. Existing attempts keep their recorded model; changed defaults apply to future claims/retries.
 
-Neither job submission command accepts a per-job `model`. If the user requires a model, inspect repository settings, Factory Settings and `machines list` inventory. Submit only when the effective selection satisfies that requirement. Otherwise explain the mismatch and ask before changing shared defaults; do not silently drop a required model or put it in `provider`. An explicitly required unavailable harness likewise blocks submission.
+Neither job submission command accepts a per-job builder `model`. If the user requires a model, inspect repository settings, Factory Settings/config and `machines list` inventory, including OMP's `defaultModel`. Submit only when the effective selection satisfies that requirement. Otherwise explain the mismatch and ask before changing shared defaults; do not silently drop the requirement or put a model slug in `provider`.
 
 ### 4. Preserve independent review policy
 
 Independent pre-PR review defaults to enabled for newly claimed attempts. Resolve `review.enabled`, `review.provider`, and `review.model` independently: job overrides repository, then global settings. Null/omitted fields inherit; globally absent harness/model follow the builder. The claim freezes the policy; configuration changes affect future attempts, including retries, not the current snapshot. Legacy running attempts keep their old contract.
 
-`jobs create` accepts a `review` object, for example `"review":{"enabled":true,"provider":"omp","model":"provider/model-id"}`. These fields select the reviewer, not the builder. Check `machines list` for availability when a reviewer is explicitly requested; invalid combinations hold rather than silently falling back. For issue import, use the edited `jobs create` path with `issueUrl` when per-job review overrides are needed.
+`jobs create` accepts a `review` object, for example `"review":{"enabled":true,"provider":"omp","model":"provider/model-id"}`. Reviewer provider is omitted/null to inherit or `"omp"`; an explicit reviewer model must be available in OMP inventory. These fields select the reviewer, not the builder. Check `machines list` when a reviewer model is explicitly requested; invalid combinations hold rather than silently falling back. For issue import, use the edited `jobs create` path with `issueUrl` when per-job review overrides are needed.
 
 The builder implements, tests, commits, runs `factory-verify --json`, and uses `report_work` handoff with the exact SHA and evidence event ID. A separate reviewer evaluates that revision when enabled; only matching PASS permits runner publication. FIX returns Building and clears the old handoff; two automatic repairs are allowed. BLOCKED, errors and exhausted repairs retain phase with Needs human. Review-disabled builders also hand off explicitly; the runner publishes without independent review. A hold never authorizes bypassing review.
 
@@ -139,7 +139,7 @@ jq -n --arg requestId "$REQUEST_ID" \
   bun run --cwd "$FACTORY_HOME" cli jobs create --stdin
 ```
 
-Add `"provider":"omp"` only when a specific harness is required. Successful output looks like:
+Omit `provider` normally; `"provider":"omp"` explicitly selects the sole supported harness without overriding the effective builder model. Successful output looks like:
 
 ```json
 { "ok": true, "identifier": "JOB-1", "url": "/list?job=JOB-1" }

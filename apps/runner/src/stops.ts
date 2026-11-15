@@ -15,7 +15,7 @@ import { ACTIVE_RUN_STATUSES, threads, type InterruptOutcome, type SubagentThrea
 //
 //   local thread    the stop message goes first (ops.deliverStops). Each tick then reads the
 //                   thread and its subagent threads; after interruptAfter, whatever still runs is
-//                   interrupted through T3; once nothing has run for settle, the stop is confirmed;
+//                   interrupted through OMP; once nothing has run for settle, the stop is confirmed;
 //                   still running, or unreadable, after giveUpAfter, it is unconfirmed
 //   no thread       nothing ran; confirmed at once
 
@@ -150,8 +150,8 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
     return (await advance(row.id, stop, { ...stop, checkedAt: iso, quietSince: null, step: `Asked the agent to stop; ${what}.` })) && "waiting";
   }
 
-  // The thread, then each subagent thread still running. A request id per run and retry makes T3
-  // ignore a repeat within one round, while the owner's Retry stop is a new request it acts on.
+  // Interrupt the parent and every observed running subagent. Repeated requests are safe
+  // only while the same owned execution is still observed as active.
   const targets = [
     ...(parent.state === "running" ? [{ threadId, runId: parent.activeRunId }] : []),
     ...running.map((s) => ({ threadId: s.threadId, runId: s.latestRunId })),
@@ -172,12 +172,12 @@ async function checkThread(row: JobRow, stop: StopRecord, threadId: string, timi
 async function step(row: JobRow, me: string, timings: StopTimings, now: number) {
   const stop = parseStop(row.stop);
   if (!stop) return undefined;
-  const binding = bindingOf(row.t3_thread_id);
+  const binding = bindingOf(row.execution_id);
   // A job no machine holds has no thread; any machine may settle it. Anything else is its machine's.
   if (row.machine_id !== me && !(row.machine_id === null && binding === "none")) return undefined;
   if (binding === "none") return (await settle(row, stop, "confirmed", "No thread was started, so nothing ran.", now)) && "confirmed";
   if (binding === "pending") return undefined; // the launch binds it, and bindThread delivers the stop
-  const threadId = row.t3_thread_id!;
+  const threadId = row.execution_id!;
   if (row.stop_sent_to !== threadId) return undefined; // still owed; deliverStops sends it
   if (stop.checkedAt && now - ms(stop.checkedAt) < timings.checkMs) return undefined;
   return checkThread(row, stop, threadId, timings, now);
@@ -185,7 +185,7 @@ async function step(row: JobRow, me: string, timings: StopTimings, now: number) 
 
 /**
  * The tick's pass over every stop not yet confirmed or unconfirmed. Each job on its own, so one
- * T3 or source failure does not hold back the rest; a failure leaves its stop as it was.
+ * OMP or source failure does not hold back the rest; a failure leaves its stop as it was.
  */
 export async function confirmStops({ only, now = Date.now(), timings = stopTimings() }: { only?: JobId[]; now?: number; timings?: StopTimings } = {}) {
   const me = (await thisMachine()).id;
