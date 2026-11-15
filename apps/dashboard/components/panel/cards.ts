@@ -1,5 +1,6 @@
 import type { JobRow, MachineRow, RunRow } from "@factory/storage/schema";
 import { splitArchived } from "@factory/core/archive";
+import { inboxKind } from "@factory/core/inbox";
 import type { Stage } from "@factory/core/events";
 import { evidenceLine, parseSummary, type EvidenceLine } from "@factory/core/evidence";
 import { attemptBranch, isMcpSession } from "@factory/core/factory";
@@ -23,6 +24,7 @@ export type BoardCard = {
   stage: Stage;
   summary: string | null;
   question: string | null;
+  needsHuman?: boolean;
   prUrl: string | null;
   sourceLink: { label: string; href: string } | null;
   machineId: string | null;
@@ -85,18 +87,18 @@ export function harnessLine(harness: CardHarness) {
 
 /** A tracked job in pr waits on a merge decision; a merged one shows the factory's watch on main. */
 export const showsDecision = (card: Pick<BoardCard, "stage" | "sourceLink" | "mergeDecision">) =>
-  (card.stage === "pr" && card.sourceLink !== null) || card.mergeDecision?.merged !== undefined;
+  (card.stage === "ready" && card.sourceLink !== null) || card.mergeDecision?.merged !== undefined;
 
 /** The decision a job shows: while in pr, and after a merge the factory made, for its watch on main. */
 export function shownDecision(job: Pick<JobRow, "stage" | "merge_decision">): MergeDecision | null {
   const decision = mergeDecisionSchema.safeParse(job.merge_decision).data ?? null;
-  return job.stage === "pr" || (job.stage === "merged" && decision?.merged) ? decision : null;
+  return job.stage === "ready" || (job.stage === "done" && decision?.merged) ? decision : null;
 }
 
 /** The current attempt's latest evidence, held against the PR head the runner last read. */
 export function jobEvidenceLine(job: Pick<JobRow, "evidence" | "attempt" | "stage" | "merge_decision">) {
   const summary = parseSummary(job.evidence);
-  return evidenceLine(summary?.attempt === job.attempt ? summary : null, shownDecision(job)?.headSha ?? null, { expected: job.stage === "pr" });
+  return evidenceLine(summary?.attempt === job.attempt ? summary : null, shownDecision(job)?.headSha ?? null, { expected: job.stage === "ready" });
 }
 
 const stagedAt = (run: RunRow) => run.stage_at?.getTime() ?? 0;
@@ -134,6 +136,7 @@ export function boardCards(jobs: readonly JobRow[], runs: readonly RunRow[], har
       stage: job.stage,
       summary: job.stage_summary,
       question: job.question,
+      needsHuman: inboxKind(job) !== null,
       prUrl: job.pr_url,
       sourceLink: sourceLink(job),
       machineId: job.machine_id,

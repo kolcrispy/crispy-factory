@@ -2,11 +2,11 @@ import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "@factory/storage/schema";
 import { agents, events, jobEvidence, jobs, jobScreenshots, runs } from "@factory/storage/schema";
-import type { FactoryEvent, Usage } from "./events";
+import { builderReportSchema, type FactoryEvent, type Usage } from "./events";
 import { summarize } from "./evidence";
 import { normalizeAssessment } from "./assessment";
 import { attemptBranchSql } from "./branch-sql";
-import { parseBranch } from "./factory";
+import { attemptBranch, parseBranch } from "./factory";
 import { branchSpend } from "./spend";
 import { causeOf, decideStage, type StageVerdict } from "./stages";
 
@@ -24,6 +24,7 @@ const RUN_STATUS: Record<FactoryEvent["kind"], RunStatus | null> = {
   turn_stop: "idle",
   usage: null,
   stage: null,
+  builder_report: null,
   session_end: "ended",
   evidence: null,
   screenshot: null,
@@ -342,12 +343,14 @@ async function moveJob(tx: Tx, event: Extract<FactoryEvent, { kind: "stage" }>):
   const [job] = await tx.select().from(jobs).where(eq(jobs.key, event.jobKey)).for("update");
   if (!job) return;
   const at = when(event.at);
+  const cause = causeOf(event.eventId);
+  if (job.stop && cause !== "merged" && cause !== "stop" && cause !== "closed") return { outcome: "refuse", cause, reason: "Stopped attempts cannot resume publication or builder work." };
   const review = job.attempt_review;
   if (review?.policy.enabled && review.attempt === job.attempt && causeOf(event.eventId) === "report") {
     if (review.state === "reviewing" || (review.builderSessionId && review.builderSessionId !== event.sessionId)) {
       return { outcome: "refuse", cause: "report", reason: "Only the active builder may report job stages outside independent review." };
     }
-    if (event.stage === "pr") return { outcome: "refuse", cause: "report", reason: "Independent review PASS is required; only the runner publishes the reviewed PR." };
+    if (event.stage === "ready") return { outcome: "refuse", cause: "report", reason: "Independent review PASS is required; only the runner publishes the reviewed PR." };
   }
   const verdict = decideStage(job, { stage: event.stage, at, eventId: event.eventId, branch: event.branch });
   if (verdict.outcome !== "apply") return verdict;
@@ -358,9 +361,11 @@ async function moveJob(tx: Tx, event: Extract<FactoryEvent, { kind: "stage" }>):
       stage_at: at,
       stage_summary: event.summary,
       question: event.question ?? null,
+      attention: null,
+      ...(["building", "failed", "done"].includes(event.stage) && { builder_handoff: null }),
       pr_url: sql`coalesce(${event.prUrl ?? null}, ${jobs.pr_url})`,
       // Each pr report replaces the assessment, so the latest report on this attempt wins.
-      ...(event.stage === "pr" && { merge_assessment: event.assessment ? normalizeAssessment(event.assessment) : null, assessment_event_id: event.eventId }),
+      ...(event.stage === "ready" && event.assessment && { merge_assessment: normalizeAssessment(event.assessment), assessment_event_id: event.eventId }),
       stage_event_id: event.eventId,
       updated_at: at,
     })
@@ -402,6 +407,34 @@ async function applyEvidence(tx: Tx, e: Extract<FactoryEvent, { kind: "evidence"
   if (latest) await tx.update(jobs).set({ evidence: summarize(latest, latest.recorded_at) }).where(eq(jobs.id, job.id));
 }
 
+async function applyBuilderReport(tx: Tx, event: Extract<FactoryEvent, { kind: "builder_report" }>): Promise<StageRefusal | undefined> {
+  const reject = async (reason: string) => {
+    await tx.update(events).set({ refusal: reason }).where(eq(events.event_id, event.eventId));
+    return { eventId: event.eventId, reason };
+  };
+  const parsed = builderReportSchema.safeParse(event);
+  if (!parsed.success) return reject(parsed.error.message);
+  const [job] = await tx.select().from(jobs).where(eq(jobs.key, event.jobKey)).for("update");
+  if (!job) return reject("Builder report names no job.");
+  if (event.branch !== attemptBranch(job.key, job.attempt) || job.session_id !== event.sessionId) return reject("Builder report does not belong to the current builder attempt.");
+  if (job.stop || ["done", "failed"].includes(job.stage) || ["pending", "reviewing", "held"].includes(job.attempt_review?.state ?? "")) return reject("This attempt is not accepting builder reports.");
+  if (event.at < Math.max(job.stage_at?.getTime() ?? 0, job.attention?.at ?? 0, job.builder_handoff?.at ?? 0)) return;
+  const report = parsed.data;
+  let handoff: typeof job.builder_handoff = null;
+  if (report.action === "handoff") {
+    const [evidence] = await tx.select().from(jobEvidence).where(and(eq(jobEvidence.job_key, job.key), eq(jobEvidence.sha, report.sha!)));
+    if (!evidence || evidence.attempt !== job.attempt || evidence.event_id !== report.evidenceEventId || !evidence.clean || evidence.recorded_at.getTime() > event.at || evidence.checks.some(check => !check.passed || check.exitCode !== 0)) return reject("Handoff requires clean successful verification evidence for this attempt and exact revision.");
+    handoff = { eventId: event.eventId, at: event.at, attempt: job.attempt, sha: report.sha!, evidenceEventId: report.evidenceEventId!, summary: report.summary };
+  }
+  await tx.update(jobs).set({
+    stage_summary: report.summary,
+    ...(report.action === "needs_human" ? { attention: { eventId: event.eventId, at: event.at, reason: report.summary, action: report.question! }, question: report.question } : {}),
+    ...(handoff ? { builder_handoff: handoff, attention: null, question: null, merge_assessment: report.assessment ? normalizeAssessment(report.assessment) : null, assessment_event_id: event.eventId } : {}),
+    updated_at: sql`greatest(${jobs.updated_at}, ${when(event.at)})`,
+  }).where(eq(jobs.id, job.id));
+  await upsertRun(tx, event);
+}
+
 /** Stores one attached image; a redelivered event changes nothing. Screenshots open no run. */
 async function applyScreenshot(tx: Tx, e: Extract<FactoryEvent, { kind: "screenshot" }>) {
   await tx
@@ -416,6 +449,7 @@ const logged = (e: FactoryEvent): FactoryEvent => (e.kind === "screenshot" ? { .
 export type StageRefusal = { eventId: string; reason: string };
 
 async function project(tx: Tx, event: FactoryEvent): Promise<StageRefusal | undefined> {
+  if (event.kind === "builder_report") return applyBuilderReport(tx, event);
   if (event.kind === "evidence") {
     await applyEvidence(tx, event);
     return;
@@ -462,10 +496,10 @@ export type IngestResult = {
   refused: StageRefusal[];
 };
 
-/**
- * Appends events and applies projections in one transaction. Events that were
- * already stored are skipped, so a retried batch changes nothing.
- */
+const eventJobKey = (event: FactoryEvent) => "jobKey" in event ? event.jobKey : undefined;
+
+/** Appends events and projections atomically; duplicate event IDs are skipped. */
+
 export async function ingest(
   db: Db,
   batch: FactoryEvent[],
@@ -485,7 +519,7 @@ export async function ingest(
           session_id: e.sessionId,
           kind: e.kind,
           at: when(e.at),
-          job_key: e.kind === "stage" || e.kind === "evidence" || e.kind === "screenshot" ? e.jobKey : undefined,
+          job_key: eventJobKey(e),
           payload: logged(e),
         })),
       )

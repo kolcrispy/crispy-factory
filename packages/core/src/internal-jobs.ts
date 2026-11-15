@@ -38,7 +38,7 @@ export async function fileInternalJob(database: Database, input: unknown, actor:
     const [repository] = await tx.select().from(repoSettings).where(and(eq(repoSettings.repo, draft.repo), eq(repoSettings.enabled, true)));
     if (!repository || repository.registration_status !== "ready") throw new Error(`${draft.repo} is not a ready, enabled repository.`);
     if (draft.issueUrl) {
-      const [active] = await tx.select({ key: jobs.key, url: jobs.url }).from(jobs).where(sql`${jobs.source_state}->>'issueUrl' = ${draft.issueUrl} and ${jobs.stage} not in ('merged', 'failed')`).limit(1);
+      const [active] = await tx.select({ key: jobs.key, url: jobs.url }).from(jobs).where(sql`${jobs.source_state}->>'issueUrl' = ${draft.issueUrl} and ${jobs.stage} not in ('done', 'failed')`).limit(1);
       if (active) throw new Error(`This issue already has active job ${active.key}: ${active.url}`);
     }
     const [sequence] = await tx.select({ next: sql<number>`coalesce(max(substring(${jobs.key} from '^JOB-([0-9]+)$')::bigint), 0) + 1` }).from(jobs);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { stageReportSchema, stageReportShape, type FactoryEvent, type StageReport } from "@factory/core/events";
+import { builderReportSchema, builderReportShape, type FactoryEvent, type BuilderReport } from "@factory/core/events";
 import { REPORT_SERVER, REPORT_TOOL } from "@factory/core/factory";
 import { reportEvents } from "@factory/core/outbox";
 import { mcpIdentity, mcpPosts, type McpIdentity } from "@factory/core/report-identity";
@@ -14,18 +14,17 @@ import { screenshotEvents, unreadable } from "@factory/core/screenshot-files";
 const FLUSH_BUDGET_MS = 3000;
 /** This checkout's factory-verify, which the playbook runs on the commit it pushes. */
 const VERIFY_COMMAND = `bun ${join(import.meta.dirname, "..", "hooks/verify.ts")}`;
-const VERIFY_HINT = `Prove the pushed commit with \`${VERIFY_COMMAND}\` (factory-verify) in the worktree; the factory merges only a head whose checks passed there.`;
-const VERIFY_STAGES = new Set<StageReport["stage"]>(["verifying", "pr"]);
+const VERIFY_HINT = `Verify the committed revision with \`${VERIFY_COMMAND} --json\` (factory-verify) in the worktree before handoff. The runner publishes it.`;
 const server = new McpServer({ name: REPORT_SERVER, version: "0.1.0" });
 let started = false;
 
-function eventsFor(identity: McpIdentity, report: StageReport, at: number, opening: boolean): FactoryEvent[] {
+function eventsFor(identity: McpIdentity, report: BuilderReport, at: number, opening: boolean): FactoryEvent[] {
   const { jobKey, branch, sessionId, repo } = identity;
   const stage: FactoryEvent = {
     eventId: createHash("sha256").update(`mcp\n${sessionId}\n${at}\n${JSON.stringify(report)}`).digest("hex"),
     sessionId,
     at,
-    kind: "stage",
+    kind: "builder_report",
     ...report,
     jobKey,
     branch,
@@ -37,31 +36,25 @@ function eventsFor(identity: McpIdentity, report: StageReport, at: number, openi
   return [{ eventId: `mcp-start:${sessionId}`, sessionId, at, kind: "session_start", cwd: process.cwd(), branch, repo }, ...images, stage];
 }
 
-async function post(report: StageReport) {
-  if (!mcpPosts(process.env)) return `Recorded stage ${report.stage}.`;
+async function post(report: BuilderReport) {
+  if (!mcpPosts(process.env)) return `Recorded ${report.action}.`;
   const identity = mcpIdentity(process.env, process.cwd());
-  if (!identity) return `Stage ${report.stage} is valid, but this session is on no factory branch, so nothing was reported.`;
+  if (!identity) return `Report ${report.action} is valid, but this session has no factory attempt identity, so nothing was reported.`;
   const flushed = await reportEvents(eventsFor(identity, report, Date.now(), !started), FLUSH_BUDGET_MS);
-  if (!flushed) return `Stage ${report.stage} is valid, but this machine has no factory ingest config, so nothing was reported.`;
+  if (!flushed) return `Report ${report.action} is valid, but this machine has no factory ingest config, so nothing was reported.`;
   started = true;
-  return flushed.error ? `Recorded stage ${report.stage}; ingest did not answer, so it is queued and will be delivered later.` : `Recorded stage ${report.stage}.`;
+  return flushed.error ? `Recorded ${report.action}; ingest did not answer, so it is queued for later delivery.` : `Recorded ${report.action}.`;
 }
 
 server.registerTool(
   REPORT_TOOL,
   {
-    title: "Report factory stage",
-    description:
-      "Report that this factory run entered a stage. Call it at every stage transition. " +
-      "Stage pr needs prUrl and should carry your merge assessment: recommend merge when you are confident you built what the issue asked for and that it works, " +
-      "and handover only when you are not, with confidence.reason saying why. " +
-      "When the change shows on a page, attach assessment.screenshots: the files the playwright server saved, each with a caption. " +
-      "Stage waiting needs a concrete question; " +
-      "stage failed puts the reason in summary.",
-    inputSchema: stageReportShape,
+    title: "Report factory work",
+    description: "Report progress, needs_human with a concrete actionable question, or handoff with exact sha and evidenceEventId from factory-verify --json. Attach assessment only to handoff. The runner owns phases, review and PR publication. Never merge yourself.",
+    inputSchema: builderReportShape,
   },
   async (input) => {
-    const parsed = stageReportSchema.safeParse(input);
+    const parsed = builderReportSchema.safeParse(input);
     if (!parsed.success) {
       return {
         isError: true,
@@ -72,8 +65,8 @@ server.registerTool(
     const missing = unreadable(parsed.data.assessment?.screenshots ?? []);
     if (missing.length > 0) return { isError: true, content: [{ type: "text", text: `Can't attach the screenshots: ${missing.join("; ")}.` }] };
     // A reporting failure must never fail the call; the outbox keeps whatever was queued.
-    const text = await post(parsed.data).catch((error: unknown) => `Stage ${parsed.data.stage} is valid, but reporting it failed: ${error instanceof Error ? error.message : String(error)}`);
-    return { content: [{ type: "text", text: VERIFY_STAGES.has(parsed.data.stage) ? `${text} ${VERIFY_HINT}` : text }] };
+    const text = await post(parsed.data).catch((error: unknown) => `Report ${parsed.data.action} is valid, but delivery failed: ${error instanceof Error ? error.message : String(error)}`);
+    return { content: [{ type: "text", text: parsed.data.action === "progress" ? `${text} ${VERIFY_HINT} Pass its sha and eventId in handoff.` : text }] };
   },
 );
 

@@ -11,6 +11,15 @@ type Pending = {
   timer: NodeJS.Timeout;
 };
 
+export class OmpRpcTimeout extends Error {
+  constructor(readonly command: string) {
+    super(command === "get_state"
+      ? "OMP get_state timed out; execution status is temporarily unavailable."
+      : `OMP ${command} timed out; delivery is uncertain.`);
+    this.name = "OmpRpcTimeout";
+  }
+}
+
 /** One native OMP RPC process. A command timeout never implies its action was cancelled. */
 export class OmpRpc {
   readonly process: ChildProcessWithoutNullStreams;
@@ -75,7 +84,7 @@ export class OmpRpc {
     const { promise, resolve, reject } = Promise.withResolvers<T>();
     const timer = setTimeout(() => {
       this.pending.delete(id);
-      reject(new Error(`OMP ${command.type} timed out; delivery is uncertain.`));
+      reject(new OmpRpcTimeout(command.type));
     }, timeoutMs);
     this.pending.set(id, { resolve: data => resolve(data as T), reject, timer });
     this.process.stdin.write(`${JSON.stringify({ ...command, id })}\n`, error => {

@@ -20,7 +20,7 @@ try {
   assert.deepEqual(first.changed.sort(), [claude, codex].sort(), "the first pass writes both files");
   const settings = JSON.parse(readFileSync(claude, "utf8"));
   assert.equal(settings.model, "sonnet", "unrelated Claude settings survive");
-  assert.deepEqual(settings.permissions.allow, ["Bash(git status)", "mcp__factory-report__report_stage"], "the report tool is allowed");
+  assert.deepEqual(settings.permissions.allow, ["Bash(git status)", "mcp__factory-report__report_work"], "report tool is allowed");
   const command = settings.hooks.PostToolUse[0].hooks[0].command;
   assert.match(command, /packages[\\/]reporting[\\/]src[\\/]hooks[\\/]report\.ts/, "the hook points at the reporting package");
   const config = readFileSync(codex, "utf8");

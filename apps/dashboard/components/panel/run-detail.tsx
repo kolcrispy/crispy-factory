@@ -210,7 +210,7 @@ export function RunDetail({
             {run.status}
           </span>
           <span className="ms-auto flex items-center gap-1.5">
-            {job?.stage === "pr" && job.pr_url && <MergeButton key={job.pr_url} jobId={job.id} jobKey={job.key} />}
+            {job?.stage === "ready" && job.pr_url && <MergeButton key={job.pr_url} jobId={job.id} jobKey={job.key} />}
             {run.pr_url && (
               <Button render={<a href={run.pr_url} target="_blank" rel="noreferrer" />} variant="outline" size="sm">
                 Pull request
@@ -244,7 +244,7 @@ export function RunDetail({
           {STAGE_META[job.stage].label}. It fails if nothing moves.
         </div>
       )}
-      {job?.answered_at && job.answer && job.stage !== "waiting" && (
+      {job?.answered_at && job.answer && !job.attention && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-success/40 bg-success/10 px-3 py-2.5">
           <div className="text-xs font-semibold text-success">
             Answer received <Time date={job.answered_at} />
@@ -252,15 +252,15 @@ export function RunDetail({
           <p className="mt-1 whitespace-pre-wrap">{job.answer}</p>
         </div>
       )}
-      {job?.stage === "waiting" && job.question ? (
+      {job?.attention ? (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
           <div className="text-xs font-semibold text-warning">
-            Question for you
+            Needs human
           </div>
-          <p className="mt-1 whitespace-pre-wrap">{job.question}</p>
+          <p className="mt-1 whitespace-pre-wrap">{job.attention.reason}: {job.attention.action}</p>
         </div>
       ) : null}
-      {!job && run.stage === "waiting" && run.question && (
+      {!job && run.question && (
         <div className="mx-4.5 mb-3.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
           <div className="text-xs font-semibold text-warning">
             Question for you

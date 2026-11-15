@@ -48,7 +48,7 @@ export const readRepoStats = (database: Db): Promise<RepoStats[]> =>
   database
     .select({
       repo: jobs.repo,
-      open: sql<number>`(count(*) filter (where ${jobs.stage} not in ('merged', 'failed')))::int`,
+      open: sql<number>`(count(*) filter (where ${jobs.stage} not in ('done', 'failed')))::int`,
       lastAt: sql<Date | null>`max(${jobs.claimed_at})`.mapWith(jobs.claimed_at),
     })
     .from(jobs)

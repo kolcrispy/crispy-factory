@@ -5,9 +5,9 @@ import { subscribe } from "./realtime.js";
 
 const text = (value) => value == null ? "" : String(value);
 const when = (value) => value ? new Date(value).toLocaleString() : "Not available";
-const activeStage = stage => ["investigating", "implementing", "verifying"].includes(stage);
-const stageColor = (stage, t) => ["failed", "waiting"].includes(stage) ? t.blocked : stage === "merged" ? t.done : ["queued", "triage"].includes(stage) ? t.dim : activeStage(stage) ? t.working : t.accent;
-const needsAttention = job => ["waiting", "failed"].includes(job.stage) || job.attempt_review?.state === "held";
+const activeStage = stage => ["building", "reviewing"].includes(stage);
+const stageColor = (stage, t) => stage === "failed" ? t.blocked : stage === "done" ? t.done : stage === "queued" ? t.dim : activeStage(stage) ? t.working : t.accent;
+const needsAttention = job => job.needs_human === true;
 
 export default class Factory extends View {
   init(_props, cx) {
@@ -171,10 +171,11 @@ export default class Factory extends View {
     const selected = this.jobs.find(j => j.id === this.selected);
     const repos = this.repositoryOptions();
     const stages = ["All stages", ...new Set(this.jobs.map(j => j.stage))];
-    const groups = [...new Set(rows.map(j => j.stage))];
+    const groupOf = job => needsAttention(job) ? "Needs human" : job.stage;
+    const groups = [...new Set(rows.map(groupOf))].sort((a, b) => a === "Needs human" ? -1 : b === "Needs human" ? 1 : 0);
     const list = v_flex().id("factory-list").flex_1().min_w(0).min_h(0).justify_start().overflow_y_scroll().gap(8).p(12)
       .children(groups.map(stage => {
-        const jobs = rows.filter(j => j.stage === stage);
+        const jobs = rows.filter(j => groupOf(j) === stage);
         const collapsed = this.collapsed.has(stage);
         return v_flex().gap(4)
           .child(h_flex().id(`status-${stage}`).gap(6).py(5).items_center().cursor_pointer()
@@ -185,7 +186,7 @@ export default class Factory extends View {
             .child(badge(String(jobs.length), stageColor(stage, t))))
           .when(!collapsed, el => el.children(jobs.map(j => v_flex().id(`job-${j.id}`).px(10).py(10).gap(6).rounded(8).bg(t.raised).border_1().border_color(stageColor(j.stage, t) + "60").cursor_pointer().hover(el => el.bg(t.hover))
             .on_click((_e, cx) => { this.selected = j.id; this.dropdown = null; cx.notify(); })
-            .child(h_flex().gap(8).items_center().child(badge(j.key, stageColor(j.stage, t))).child(div().flex_1().text_size(13).font_semibold().child(j.title)).when(needsAttention(j), el => el.child(badge("Needs you", t.blocked))))
+            .child(h_flex().gap(8).items_center().child(badge(j.key, stageColor(j.stage, t))).child(div().flex_1().text_size(13).font_semibold().child(j.title)).when(needsAttention(j), el => el.child(badge(j.stage, stageColor(j.stage, t)))))
             .child(div().text_size(11).text_color(t.dim).child(`${j.repo} · ${j.model ?? "Model pending"} · ${when(j.updated_at)}`)))));
       }))
       .when(rows.length === 0, el => el.child(muted(this.loading ? "Loading jobs…" : this.error && !this.updated ? "Jobs unavailable" : "No matching jobs")));
@@ -200,6 +201,7 @@ export default class Factory extends View {
       const cost = this.spend[branch];
       detail.child(muted(`Independent review: ${selected.attempt_review?.state ?? "Not enabled"}\nSpend: ${cost?.known ? `$${cost.usd.toFixed(4)}` : "Unknown"}`));
       detail.child(div().text_size(13).child(selected.stage_summary || "No progress summary yet."));
+      if (selected.attention) detail.child(div().text_size(13).text_color(t.blocked).child(`Needs human: ${selected.attention.reason}\n${selected.attention.action}`));
       detail.child(div().text_size(13).child(selected.description || "No description."));
     }
     return v_flex().id("factory-root").size_full().min_h(0).bg(t.background).text_color(t.foreground)
@@ -212,7 +214,7 @@ export default class Factory extends View {
       .when(!selected, el => el.child(h_flex().px(14).pb(12).gap(6)
         .child(badge(`${rows.filter(j => activeStage(j.stage) && !needsAttention(j)).length} active`, t.working))
         .child(badge(`${rows.filter(needsAttention).length} attention`, t.blocked))
-        .child(badge(`${rows.filter(j => j.stage === "merged").length} merged`, t.done))))
+        .child(badge(`${rows.filter(j => j.stage === "done").length} done`, t.done))))
       .when(!this.live, el => el.child(h_flex().px(14).pb(8).gap(6)
         .child(Input.new(this.runnerUrl).h(30).flex_1().border_1().border_color(t.border).px(8))
         .child(Input.new(this.pairCode).h(30).flex_1().border_1().border_color(t.border).px(8))

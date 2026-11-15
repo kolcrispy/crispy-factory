@@ -39,9 +39,9 @@ try {
   const inserted = await snapshot;
   assert.ok((inserted.jobs as { key: string }[]).some(job => job.key === key), "committed job arrives over a real SSE connection without polling");
   snapshot = next();
-  await db.update(jobs).set({ stage: "verifying" }).where(eq(jobs.key, key));
+  await db.update(jobs).set({ stage: "building" }).where(eq(jobs.key, key));
   const changed = await snapshot;
-  assert.equal((changed.jobs as { key: string; stage: string }[]).find(job => job.key === key)?.stage, "verifying");
+  assert.equal((changed.jobs as { key: string; stage: string }[]).find(job => job.key === key)?.stage, "building");
   controller.abort(); await stream;
   const reconnect = new AbortController();
   snapshot = next();

@@ -27,7 +27,7 @@ export const INBOX_LABELS: Record<InboxKind, string> = {
 /** Questions, failed reverts and agents that may still run block work or main, so they come first; failures last. */
 const RANK: Record<InboxKind, number> = { question: 0, revert_failed: 0, stop_unconfirmed: 0, review: 0, handover: 1, failed: 2 };
 
-export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop"> & Partial<Pick<JobRow, "attempt_review">>;
+export type InboxJob = Pick<JobRow, "key" | "stage" | "stage_at" | "updated_at" | "pr_url" | "merge_decision" | "dismissed_at" | "stop"> & Partial<Pick<JobRow, "attempt_review" | "attention">>;
 
 export type InboxItem<J extends InboxJob = InboxJob> = { kind: InboxKind; job: J; decision: MergeDecision | null; at: Date };
 
@@ -58,21 +58,20 @@ function handedOver(decision: MergeDecision | null) {
 
 export function inboxKind(job: InboxJob, decision = parseDecision(job.merge_decision)): InboxKind | null {
   if (stopNeedsOwner(job.stop, job.dismissed_at)) return "stop_unconfirmed";
-  if (job.attempt_review?.state === "held" && !["failed", "merged"].includes(job.stage)) return "review";
+  const stop = parseStop(job.stop);
+  if (stop && stop.state !== "confirmed") return null;
+  if (job.attempt_review?.state === "held" && !["failed", "done"].includes(job.stage)) return "review";
+  if (job.attention) return "question";
   switch (job.stage) {
-    case "waiting":
-      return "question";
-    case "pr":
+    case "ready":
       return job.pr_url && handedOver(decision) ? "handover" : null;
-    case "merged":
+    case "done":
       return decision?.merged && decision.watch?.state === "revert_failed" && !isDismissed(job) ? "revert_failed" : null;
     case "failed":
       return isDismissed(job) ? null : "failed";
     case "queued":
-    case "triage":
-    case "investigating":
-    case "implementing":
-    case "verifying":
+    case "building":
+    case "reviewing":
       return null;
     default: {
       const never: never = job.stage;
@@ -88,7 +87,7 @@ export function inboxItems<J extends InboxJob>(jobs: readonly J[]): InboxItem<J>
     const decision = parseDecision(job.merge_decision);
     const kind = inboxKind(job, decision);
     const settled = kind === "stop_unconfirmed" ? parseStop(job.stop)?.settledAt : null;
-    if (kind) items.push({ kind, job, decision, at: settled ? new Date(settled) : (job.stage_at ?? job.updated_at) });
+    if (kind) items.push({ kind, job, decision, at: settled ? new Date(settled) : job.attention ? new Date(job.attention.at) : (job.stage_at ?? job.updated_at) });
   }
   return items.sort((a, b) => RANK[a.kind] - RANK[b.kind] || b.at.getTime() - a.at.getTime() || a.job.key.localeCompare(b.job.key));
 }
@@ -100,7 +99,7 @@ export function inboxReason(item: InboxItem<InboxJob & Pick<JobRow, "question" |
     case "review":
       return job.stage_summary ?? "Independent review needs owner action. Open the job to recover.";
     case "question":
-      return job.question ?? job.stage_summary ?? "The agent is waiting on an answer.";
+      return job.attention ? `${job.attention.reason}: ${job.attention.action}` : job.question ?? job.stage_summary ?? "The agent needs an answer.";
     case "revert_failed":
       return `Main went red after the merge and the revert failed${decision?.watch?.reason ? `: ${decision.watch.reason}` : "."}`;
     case "handover":
@@ -197,7 +196,7 @@ export function changesMessage({ prUrl, feedback, comments = [] }: { prUrl: stri
     ...(comments.length > 0
       ? ["Comments on the code:", "", ...comments.flatMap((c) => [`- ${c.path}${c.line ? `:${c.line}` : ""}`, quote(c.body).replace(/^/gm, "  "), ""])]
       : []),
-    "Update the same branch and PR, then report the PR again with a fresh assessment.",
+    "Update and commit the same attempt branch, run factory-verify --json, then report_work handoff with its sha and eventId as evidenceEventId and a fresh assessment. The runner reviews and publishes; do not push or publish the PR yourself.",
   ].join("\n");
 }
 

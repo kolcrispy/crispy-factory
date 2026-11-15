@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -28,7 +28,13 @@ async function run(command: string[]) {
 let started = false;
 try {
   await run(["initdb", "-D", data, "-U", "factory_test", "-A", "trust", "--no-locale", "--encoding=UTF8"]);
-  await run(["pg_ctl", "-D", data, "-l", join(directory, "server.log"), "-o", `-h 127.0.0.1 -p ${port}`, "-w", "start"]);
+  try {
+    await run(["pg_ctl", "-D", data, "-l", join(directory, "server.log"), "-o", `-h 127.0.0.1 -p ${port}${process.platform === "win32" ? "" : ` -k ${directory}`}`, "-w", "start"]);
+  } catch (error) {
+    const log = join(directory, "server.log");
+    if (existsSync(log)) console.error(readFileSync(log, "utf8"));
+    throw error;
+  }
   started = true;
   const admin = new Client({ connectionString: `postgresql://factory_test@127.0.0.1:${port}/postgres` });
   try {

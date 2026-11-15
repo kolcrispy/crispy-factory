@@ -71,7 +71,7 @@ async function outcomeOf(repo: RepoName, branch: string, job: ClaimedJob | undef
     return { outcome: "failed" as const, outcomeAt: job.claimed_at, mergedAtHead };
   }
   if (job) {
-    const outcome = job.stage === "merged" ? "merged" : job.stage === "failed" ? "failed" : "open";
+    const outcome = job.stage === "done" ? "merged" : job.stage === "failed" ? "failed" : "open";
     return { outcome: outcome as "merged" | "failed" | "open", outcomeAt: job.stage_at, mergedAtHead };
   }
   if (merged) return { outcome: "merged" as const, outcomeAt: merged.mergedAt, mergedAtHead };
@@ -107,14 +107,19 @@ export async function cleanupRepo(
   { now = new Date(), dryRun = false, host = localHost, directBranches = new Map<string, boolean>() } = {},
 ): Promise<CleanupReport> {
   const report: CleanupReport = { removed: [], held: [], archive: [] };
-  const [remote, trees, threads, branchList] = await Promise.all([
+  const [remote, trees, threads, branchList, remoteList] = await Promise.all([
     checkoutRepo(repo, host),
     linkedWorktrees(repo, host),
     directBranches.size ? Promise.resolve([] as Thread[]) : projectThreads(repo, host),
     sh(host, "git", ["branch", "--list", "factory/*", "--format=%(refname:short)"], repo),
+    sh(host, "git", ["ls-remote", "--heads", "origin", "refs/heads/factory/*"], repo),
   ]);
   const localBranches = new Set(branchList ? branchList.split("\n") : []);
-  const branches = new Set([...localBranches, ...trees.keys(), ...threads.flatMap((t) => (t.branch ? [t.branch] : []))]);
+  const remoteBranches = new Map(remoteList.split("\n").filter(Boolean).map(line => {
+    const [sha, ref] = line.split(/\s+/);
+    return [ref.replace("refs/heads/", ""), sha] as const;
+  }));
+  const branches = new Set([...localBranches, ...remoteBranches.keys(), ...trees.keys(), ...threads.flatMap((t) => (t.branch ? [t.branch] : []))]);
 
   const checkedOut = await sh(host, "git", ["branch", "--show-current"], repo);
   for (const branch of branches) {
@@ -136,7 +141,7 @@ export async function cleanupRepo(
         (t) => t.branch === branch || (worktreePath !== null && t.worktreePath === worktreePath),
       );
       const local = localBranches.has(branch);
-      const head = local ? await sh(host, "git", ["rev-parse", branch], repo) : null;
+      const head = local ? await sh(host, "git", ["rev-parse", branch], repo) : remoteBranches.get(branch) ?? null;
       const state: BranchState = {
         key,
         branch,
@@ -148,6 +153,12 @@ export async function cleanupRepo(
         threadRunning: directBranches.get(branch) ?? branchThreads.some((t) => t.running),
       };
       const plan = planCleanup(state, now, graceDays);
+      const remoteHead = remoteBranches.get(branch);
+      const removeRemote = Boolean(remoteHead && state.outcome === "merged" && state.mergedAtHead && remoteHead === head && !state.threadRunning && state.dirtyFiles === 0);
+      if (removeRemote && !dryRun) {
+        await sh(host, "git", ["push", `--force-with-lease=refs/heads/${branch}:${remoteHead}`, "origin", `:refs/heads/${branch}`], repo);
+      }
+      if (removeRemote && plan.kind === "skip" && plan.reason === "already clean") report.removed.push({ key, worktree: null, freedKb: 0 });
       if (plan.kind === "hold") report.held.push({ key, reason: plan.reason });
       if (plan.kind === "remove" && dryRun) {
         report.removed.push({ key, worktree: worktreePath, freedKb: worktreePath && (await host.exists(worktreePath)) ? await sizeKb(host, worktreePath) : 0 });
@@ -181,6 +192,42 @@ export async function cleanupRepo(
       }
     } catch (error) {
       report.held.push({ key, reason: `cleanup failed: ${(error as Error).message.split("\n")[0]}` });
+    }
+  }
+  return report;
+}
+
+/** Remove only registered, unchanged review checkouts of finished jobs. */
+export async function cleanupReviewerWorktrees(
+  repo: string,
+  jobs: readonly JobRow[],
+  graceDays: number,
+  isRunning: (threadId: string) => Promise<boolean>,
+  { now = new Date(), dryRun = false, host = localHost } = {},
+): Promise<CleanupReport> {
+  const report: CleanupReport = { removed: [], held: [], archive: [] };
+  const linked = new Set((await allLinkedWorktrees(repo, host)).map(tree => tree.path.replaceAll("\\", "/")));
+  for (const job of jobs) {
+    if (job.stage !== "done" && job.stage !== "failed") continue;
+    if (job.stage === "failed" && now.getTime() - (job.stage_at?.getTime() ?? now.getTime()) < graceDays * 86_400_000) continue;
+    for (const round of [...job.review_history, ...(job.attempt_review ? [job.attempt_review] : [])].flatMap(review => review.rounds)) {
+      if (!round.checkout || !linked.has(round.checkout.replaceAll("\\", "/"))) continue;
+      try {
+        if (!round.threadId || await isRunning(round.threadId)) {
+          report.held.push({ key: job.key, reason: "reviewer is running or ownership is unavailable" });
+          continue;
+        }
+        const dirty = await sh(host, "git", ["status", "--porcelain"], round.checkout);
+        const head = await sh(host, "git", ["rev-parse", "HEAD"], round.checkout);
+        if (dirty || head !== round.sha) {
+          report.held.push({ key: job.key, reason: "reviewer checkout has changes or a different HEAD" });
+          continue;
+        }
+        if (!dryRun) await sh(host, "git", ["worktree", "remove", "--force", round.checkout], repo);
+        report.removed.push({ key: job.key, worktree: round.checkout, freedKb: 0 });
+      } catch (error) {
+        report.held.push({ key: job.key, reason: `reviewer cleanup failed: ${(error as Error).message.split("\n")[0]}` });
+      }
     }
   }
   return report;

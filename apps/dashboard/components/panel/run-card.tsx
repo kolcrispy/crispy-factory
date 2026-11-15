@@ -15,6 +15,7 @@ import { jobsHref } from "./job-view";
 import { decisionLine } from "./merge-decision";
 import { ModelChip } from "./model-chip";
 import { Time } from "./time";
+import { STAGE_META } from "./stages";
 
 const cardClass = (selected: boolean) =>
   cn(
@@ -130,6 +131,7 @@ export function StageCard({
         />
       )}
       <div className="line-clamp-2 font-medium leading-snug text-pretty">{card.title}</div>
+      {card.needsHuman && <span className="text-xs text-muted-foreground">{STAGE_META[card.stage].label}</span>}
       {showsDecision(card) && <MergeLine decision={card.mergeDecision} />}
       {card.evidence && <EvidenceLine line={card.evidence} />}
       {card.stop && <StopLine view={card.stop.view} t3Href={t3Href} />}
@@ -138,7 +140,7 @@ export function StageCard({
           Stuck · nudged <Time date={card.nudgedAt} />
         </p>
       )}
-      {card.stage === "waiting" && card.question && <p className="line-clamp-2 text-xs text-warning">{card.question}</p>}
+      {card.question && <p className="line-clamp-2 text-xs text-warning">Needs human: {card.question}</p>}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {latest?.status === "active" && <Spinner className="size-2.5 shrink-0" aria-label="Working" />}
         <span className="shrink-0 font-mono">{card.jobKey ?? card.id.slice(0, 8)}</span>

@@ -223,7 +223,7 @@ const SECRET_TOKEN = "ghp_cliSecretToken0123456789abcdef";
 
 try {
   // Ingest: latest per commit, a dirty run never replaces a clean one, the job keeps a summary.
-  const INGEST = await insert("INGEST", { stage: "verifying" });
+  const INGEST = await insert("INGEST", { stage: "building" });
   await ingest(db, [evidence(INGEST, SHA_A, 1000, { checks: [check("test", false)] })]);
   await ingest(db, [evidence(INGEST, SHA_A, 3000)]);
   await ingest(db, [evidence(INGEST, SHA_A, 2000, { checks: [check("test", false)] })]);
@@ -238,8 +238,8 @@ try {
   const job = await row(INGEST);
   assert.deepEqual(
     [job.evidence?.sha, job.evidence?.clean, job.evidence?.checks.length, job.stage],
-    [SHA_B, false, 2, "verifying"],
-    "the job's summary follows its newest evidence; the stage is the agent's and stays",
+    [SHA_B, false, 2, "building"],
+    "new evidence updates its summary without changing the runner-owned phase",
   );
   assert.equal((await db.select().from(runs).where(eq(runs.session_id, `evidence:factory/${INGEST}`))).length, 0, "evidence opens no run");
   const [event] = await db.select().from(events).where(eq(events.event_id, `evidence-regress-${INGEST}-${SHA_A}-1000`));
@@ -250,7 +250,7 @@ try {
   assert.ok(!eventSchema.safeParse({ ...evidence(INGEST, SHA_A, 1), checks: [check("test", true, { outputTail: "x".repeat(4001) })] }).success, "an output tail over the cap is refused");
 
   // The CLI: passing, failing and dirty runs, each at the exact HEAD, posted through the outbox.
-  const CLI = await insert("CLI", { stage: "verifying" });
+  const CLI = await insert("CLI", { stage: "building" });
   const passing = repoWith(`factory/${CLI}`, { test: "echo all good", lint: "true" });
   const passed = await runVerify(passing, ["--json"]);
   assert.equal(passed.code, 0, passed.stderr);
@@ -341,7 +341,7 @@ try {
   const pr = (k: string, over: Partial<typeof jobs.$inferInsert>) => {
     const url = over.pr_url ?? `https://github.com/${REPO}/pull/${keys.indexOf(k) + 1}`;
     byUrl.set(url, k);
-    return db.update(jobs).set({ stage: "pr", stage_event_id: `evidence-regress-pr-${k}`, merge_assessment: assessment, ...over, pr_url: url }).where(eq(jobs.key, k));
+    return db.update(jobs).set({ stage: "ready", stage_event_id: `evidence-regress-pr-${k}`, merge_assessment: assessment, ...over, pr_url: url }).where(eq(jobs.key, k));
   };
   for (const k of [RUNNER, ASLEEP, BROKEN, GONE, LOCAL]) await pr(k, {});
   await pr(TRIAL, { pr_url: `https://github.com/${TRIAL_REPO}/pull/1` });

@@ -62,7 +62,7 @@ export async function storeDecision(job: Job, previous: MergeDecision | null, ne
     const updated = await tx
       .update(jobs)
       .set({ merge_decision: next })
-      .where(and(eq(jobs.id, job.id), eq(jobs.stage, "pr"), sql`${jobs.stage_event_id} is not distinct from ${job.stage_event_id}`))
+      .where(and(eq(jobs.id, job.id), eq(jobs.stage, "ready"), sql`${jobs.stage_event_id} is not distinct from ${job.stage_event_id}`))
       .returning({ id: jobs.id });
     if (updated.length === 0) return "gone";
     if (sameDecision(previous, next)) return "same";
@@ -138,7 +138,7 @@ async function markMerging(job: Job, decision: MergeDecision, method: MergeMetho
   const updated = await db
     .update(jobs)
     .set({ merge_decision: next })
-    .where(and(eq(jobs.id, job.id), eq(jobs.stage, "pr"), sql`${jobs.stage_event_id} is not distinct from ${job.stage_event_id}`, notMerged))
+    .where(and(eq(jobs.id, job.id), eq(jobs.stage, "ready"), sql`${jobs.stage_event_id} is not distinct from ${job.stage_event_id}`, notMerged))
     .returning({ id: jobs.id });
   return updated.length === 0 ? null : next;
 }
@@ -196,7 +196,7 @@ export async function recoverMerges(machineId: string, only: string[] | undefine
       .where(
         and(
           eq(jobs.machine_id, machineId),
-          inArray(jobs.stage, ["pr", "merged"]),
+          inArray(jobs.stage, ["ready", "done"]),
           isNotNull(jobs.pr_url),
           sql`${jobs.merge_decision} ? 'merging'`,
           notMerged,

@@ -44,7 +44,7 @@ const stopOf = async (k: string) => parseStop((await row(k)).stop)!;
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   ids.push(`stop-regress-${k}`);
-  await db.insert(jobs).values(internalJob(`stop-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "implementing", stage_event_id: `e-${k}`, ...over }));
+  await db.insert(jobs).values(internalJob(`stop-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "building", stage_event_id: `e-${k}`, ...over }));
   return k;
 }
 const idOf = async (k: string) => (await row(k)).id;
@@ -107,7 +107,7 @@ try {
   assert.equal(await stopJob(await idOf(A), "the factory label was removed"), "stopped");
   let t0 = Date.now();
   let a = await row(A);
-  assert.equal(a.stage, "failed");
+  assert.equal(a.stage, "building", "a delivered stop preserves phase until execution is confirmed stopped");
   assert.deepEqual([parseStop(a.stop)!.state, parseStop(a.stop)!.how, a.stop_sent_to], ["delivered", "message", "thread-A"], "the message went out and is recorded");
   assert.ok(stopping(a), "a stop on its way keeps the job stopping");
   assert.equal(await machineInFlight(TEST_MACHINE_ID), inFlightBefore, "it keeps its capacity until confirmed");
@@ -120,6 +120,7 @@ try {
   await confirmStops({ only: [a.id], now: t0 + 55 * S });
   a = await row(A);
   assert.equal(parseStop(a.stop)!.state, "confirmed");
+  assert.equal(a.stage, "failed", "confirmed stop ends the attempt");
   assert.match(parseStop(a.stop)!.evidence!, /no active run for 35 s, and it has no subagent threads/);
   assert.equal(await machineInFlight(TEST_MACHINE_ID), inFlightBefore - 1, "a confirmed stop frees the capacity");
   assert.equal(canReclaim(a), true);
@@ -176,6 +177,7 @@ try {
   await confirmStops({ only: [d], now: t0 + 301 * S });
   let dRow = await row(D);
   assert.equal(parseStop(dRow.stop)!.state, "unconfirmed");
+  assert.equal(dRow.stage, "building", "uncertain stop is not a terminal failure");
   assert.equal(inboxKind(dRow), "stop_unconfirmed", "the owner gets an inbox item");
   assert.match(inboxReason({ kind: "stop_unconfirmed", job: dRow, decision: null, at: new Date() }), /still runs 5 min/);
   assert.equal(stopping(dRow), false, "and the capacity is free");
@@ -208,7 +210,7 @@ try {
   assert.equal((await stopOf(U)).state, "unconfirmed", "a thread that can't be read is never taken as stopped");
   await db.update(jobs).set({ dismissed_at: new Date(t0 + 400 * S) }).where(eq(jobs.key, U));
   const uRow = await row(U);
-  assert.deepEqual([inboxKind(uRow), canReclaim(uRow), await reclaimSql(U)], [null, true, true], "dismissed: out of the inbox, and a retry may start");
+  assert.deepEqual([canReclaim(uRow), await reclaimSql(U)], [false, false], "dismissal cannot turn an unconfirmed execution into a terminal attempt");
 
   // --- a stop recorded while the launch is pending reaches the thread once it is bound
   const P = await insert("P", { t3_thread_id: "pending:launch-P" });

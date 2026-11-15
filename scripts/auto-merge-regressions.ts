@@ -218,7 +218,7 @@ async function job(name: string, repo: string, n: number, pull: Partial<Pull> = 
       machine_id: TEST_MACHINE_ID,
       repo,
       provider: "claudeAgent",
-      stage: "pr",
+      stage: "ready",
       pr_url: prUrl(repo, n),
       stage_summary: "Sorted the list.",
       stage_event_id: `auto-merge-regress-pr-${k}`,
@@ -281,7 +281,7 @@ try {
     { merge_method: "squash", sha: "h1", commit_title: "Title 1 (#1)", commit_message: "Sorted the list.\n\nMerged by the factory" },
   ]);
   assert.equal(putsTo(MERGE_ONLY, 5)[0]!.body.merge_method, "merge", "the first method the repo allows");
-  assert.equal((await row(GOOD)).stage, "merged", "the merged flow runs");
+  assert.equal((await row(GOOD)).stage, "done", "confirmed merge ends delivery");
   const good = await decision(GOOD);
   assert.deepEqual(good.merged, { sha: "m1", method: "squash", at: new Date(at(0)).toISOString(), base: "main", title: "Title 1", commits: 1, via: "auto" });
   assert.equal(good.watch!.state, "watching");
@@ -297,11 +297,11 @@ try {
 
   // A push between the decision and the merge aborts it; the next pass merges the new head.
   assert.equal(putsTo(AUTO, 2).length, 0, "stale head: no merge");
-  assert.equal((await row(STALE)).stage, "pr");
+  assert.equal((await row(STALE)).stage, "ready");
   assert.equal(prCommentBody(await decision(STALE), assessment), null, "and no comment while it merges");
 
   // Already merged at that head counts as the factory's merge.
-  assert.equal((await row(ALREADY)).stage, "merged");
+  assert.equal((await row(ALREADY)).stage, "done");
   assert.equal((await decision(ALREADY)).merged!.sha, "m3");
 
   // No permission: one handover with a clear reason, one audit, no retry loop.
@@ -412,7 +412,7 @@ try {
   assert.ok(!Array.isArray(crashed) && crashed.errors.length === 2, JSON.stringify(crashed));
   assert.deepEqual((await decision(CRASH)).merging, { headSha: "h8", method: "squash", at: new Date(at(40)).toISOString(), via: "auto" }, "the intent is stored before the call");
   for (const r of [await row(CRASH), await row(HUMAN)]) await postMerged(r.key, r.pr_url!, r.session_id ?? runnerEventId("merged", r.external_id));
-  assert.equal((await row(CRASH)).stage, "merged");
+  assert.equal((await row(CRASH)).stage, "done");
   assert.deepEqual(await decideMerges({ only: [CRASH, HUMAN], now: at(41) }), [`${CRASH}:merged`], "the lost merge is recorded");
   const recovered = await decision(CRASH);
   assert.deepEqual([recovered.merged?.sha, recovered.merged?.via, recovered.watch?.state, recovered.merging], ["m8", "auto", "watching", undefined], "recovered with the entry point its intent stored");

@@ -43,13 +43,13 @@ try {
   await signal;
   const before = signals;
   await assert.rejects(db.transaction(async tx => {
-    await tx.update(jobs).set({ stage: "verifying" }).where(eq(jobs.key, key));
+    await tx.update(jobs).set({ stage: "building" }).where(eq(jobs.key, key));
     throw new Error("rollback fixture");
   }), /rollback fixture/);
   await db.update(jobs).set({ updated_at: new Date() }).where(eq(jobs.key, key));
   // A committed notification acts as a barrier after the rollback and bookkeeping update.
   signal = nextSignal();
-  await db.update(jobs).set({ stage: "verifying" }).where(eq(jobs.key, key));
+  await db.update(jobs).set({ stage: "building" }).where(eq(jobs.key, key));
   await signal;
   assert.equal(signals, before + 1, "only committed readiness changes wake the runner");
   console.log("Immediate committed wake, coalescing, in-flight signals and shutdown regressions passed");

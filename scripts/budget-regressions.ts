@@ -31,7 +31,7 @@ function runHook(toolName: string) {
 }
 
 try {
-  for (const tool of ["Bash", "Edit", "Agent", "mcp__factory-report__report_stage"]) {
+  for (const tool of ["Bash", "Edit", "Agent", "mcp__factory-report__report_work"]) {
     const result = runHook(tool);
     assert.equal(result.code, 0, `${tool} is allowed however much the attempt spent`);
     assert.equal(result.stderr, "", `${tool} gets no message`);

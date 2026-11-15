@@ -139,7 +139,7 @@ export async function decideMerges({ now = Date.now(), only }: { now?: number; o
     await db
       .select()
       .from(jobs)
-      .where(and(eq(jobs.machine_id, machine.id), eq(jobs.stage, "pr"), isNotNull(jobs.pr_url), only ? inArray(jobs.key, only) : undefined)),
+      .where(and(eq(jobs.machine_id, machine.id), eq(jobs.stage, "ready"), isNotNull(jobs.pr_url), only ? inArray(jobs.key, only) : undefined)),
   );
   if (rows.length === 0) return errors.length > 0 ? { changed, errors } : changed;
   const policies = await readRepoSettings(db);
@@ -213,7 +213,7 @@ export async function approveMerge(id: JobId, { actor, headSha, via }: ApproveDe
 
   const previous = storedDecision(job);
   if (previous?.merged) return { merged: previous.merged.sha };
-  if (job.stage !== "pr" || !job.pr_url) return stop("refused", headSha ?? "", { refused: `The job is in ${job.stage}, not waiting on a pull request.` });
+  if (job.stage !== "ready" || !job.pr_url) return stop("refused", headSha ?? "", { refused: `The job is in ${job.stage}, not waiting on a pull request.` });
   const detail = await github.pullDetail(job.pr_url);
   if (detail.state !== "open") return stop("refused", detail.headSha, { refused: `The pull request is already ${detail.state}.` });
   if (headSha && detail.headSha !== headSha) {

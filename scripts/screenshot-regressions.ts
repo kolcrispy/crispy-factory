@@ -10,11 +10,11 @@ import type { DecisionInput } from "@factory/core/merge-decision";
 
 
 const { db } = await import("@factory/storage/client");
-const { events, jobs, jobScreenshots, runs } = await import("@factory/storage/schema");
+const { events, jobs, jobEvidence, jobScreenshots, runs } = await import("@factory/storage/schema");
 const { internalJob } = await import("./fixtures");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
 const { attemptBranch } = await import("@factory/core/factory");
-const { eventSchema, stageReportSchema } = await import("@factory/core/events");
+const { eventSchema, builderReportSchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
 const { parseAssessment } = await import("@factory/core/assessment");
 const { appendEvent, flushOutbox, localFs } = await import("@factory/core/outbox");
@@ -71,11 +71,11 @@ try {
   assert.match(refusal("escape.png")!, /not inside/, "a symlink out of the dir");
   assert.deepEqual(unreadable([...shots, { file: "notes.txt", caption: "x" }], browser), ["notes.txt is not a PNG, JPEG or WebP image"], "only the bad file is named");
 
-  // --- the report_stage shape
-  const pr = { stage: "pr", summary: "Opened", prUrl: "https://github.com/o/r/pull/1" };
-  assert.ok(stageReportSchema.safeParse({ ...pr, assessment: assessment({ screenshots: shots }) }).success, "an assessment takes screenshots");
-  assert.ok(!stageReportSchema.safeParse({ ...pr, assessment: assessment({ screenshots: Array.from({ length: 7 }, () => shots[0]!) }) }).success, "at most six");
-  assert.ok(!stageReportSchema.safeParse({ ...pr, assessment: assessment({ screenshots: [{ file: "list.png", caption: "" }] }) }).success, "each needs a caption");
+  // Builder handoff assessments can attach screenshots.
+  const handoff = { action: "handoff" as const, summary: "Built", sha: "a".repeat(40), evidenceEventId: "verification" };
+  assert.ok(builderReportSchema.safeParse({ ...handoff, assessment: assessment({ screenshots: shots }) }).success, "an assessment takes screenshots");
+  assert.ok(!builderReportSchema.safeParse({ ...handoff, assessment: assessment({ screenshots: Array.from({ length: 7 }, () => shots[0]!) }) }).success, "at most six");
+  assert.ok(!builderReportSchema.safeParse({ ...handoff, assessment: assessment({ screenshots: [{ file: "list.png", caption: "" }] }) }).success, "each needs a caption");
   assert.deepEqual(parseAssessment(assessment({ screenshots: shots }))?.screenshots, shots, "a stored assessment keeps its screenshots");
   assert.equal(parseAssessment({ ...assessment(), screenshots: [] })?.screenshots, undefined, "an empty list reads as none");
 
@@ -101,8 +101,9 @@ try {
   }
 
   // --- ingest stores the bytes once, and the panel serves the current report's images
-  await db.insert(jobs).values(internalJob(`screenshot-regress-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, stage: "verifying", attempt: 1 }));
-  const stage: FactoryEvent = { eventId: stageEventId, sessionId, at: Date.now(), kind: "stage", ...pr, stage: "pr", assessment: assessment({ screenshots: shots }), jobKey: KEY, branch: attemptBranch(KEY, 1) };
+  await db.insert(jobs).values(internalJob(`screenshot-regress-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, stage: "building", attempt: 1, session_id: sessionId }));
+  await db.insert(jobEvidence).values({ job_key: KEY, sha: handoff.sha, attempt: 1, repo: "ski043/factory-demo", clean: true, producer: "agent", source: "none", checks: [], event_id: handoff.evidenceEventId, recorded_at: new Date() });
+  const stage: FactoryEvent = { eventId: stageEventId, sessionId, at: Date.now(), kind: "builder_report", ...handoff, assessment: assessment({ screenshots: shots }), jobKey: KEY, branch: attemptBranch(KEY, 1) };
   const first = await ingest(db, [...images, stage]);
   assert.equal(first.inserted, 3);
   assert.deepEqual(first.refused, [], "the pr report applies");
@@ -112,10 +113,10 @@ try {
   assert.deepEqual(stored.map((s) => [s.file, s.content_type, s.stage_event_id]).sort(), [["empty.jpeg", "image/jpeg", stageEventId], ["list.png", "image/png", stageEventId]]);
   assert.ok(Buffer.from(stored.find((s) => s.file === "list.png")!.bytes).equals(PNG), "the bytes round-trip");
   const logged = await db.select({ payload: events.payload }).from(events).where(inArray(events.event_id, images.map((e) => e.eventId)));
-  assert.ok(logged.every((l) => (l.payload as { data: string }).data === ""), "the event log keeps no image bytes");
+  assert.ok(logged.every(l => { const event = eventSchema.parse(l.payload); return event.kind === "screenshot" && event.data === ""; }), "the event log keeps no image bytes");
   const [job] = await db.select().from(jobs).where(eq(jobs.key, KEY));
-  assert.equal(job!.stage, "pr");
-  assert.equal(job!.stage_event_id, stageEventId);
+  assert.equal(job!.stage, "building");
+  assert.equal(job!.builder_handoff?.eventId, stageEventId);
   assert.equal(job!.assessment_event_id, stageEventId, "the job remembers which report its assessment came from");
 
   const get = (index: number, v: string | null = stageEventId) => GET(new Request(`http://panel${screenshotUrl(KEY, index, v)}`), { params: Promise.resolve({ key: KEY, index: String(index) }) } as never);
@@ -128,13 +129,13 @@ try {
   assert.equal((await get(0, "older-report")).status, 404, "a URL from an earlier report never shows this report's image");
 
   // A later stage moves stage_event_id; the assessment and its images belong to the pr report still.
-  const after: FactoryEvent = { eventId: `${stageEventId}-failed`, sessionId, at: Date.now() + 1, kind: "stage", stage: "failed", summary: "CI kept failing.", jobKey: KEY, branch: attemptBranch(KEY, 1) };
+  const after: FactoryEvent = { eventId: `inferred:${stageEventId}-review`, sessionId, at: Date.now() + 1, kind: "stage", stage: "reviewing", summary: "Independent review started.", jobKey: KEY, branch: attemptBranch(KEY, 1) };
   assert.deepEqual((await ingest(db, [after])).refused, [], "the later stage applies");
   const [moved] = await db.select().from(jobs).where(eq(jobs.key, KEY));
   assert.equal(moved!.stage_event_id, after.eventId);
   assert.equal(screenshotUrl(KEY, 0, moved!.assessment_event_id), screenshotUrl(KEY, 0, stageEventId), "the panel's URL stays the pr report's");
   assert.equal((await get(0)).status, 200, "the images still serve after a later stage");
-  await db.update(jobs).set({ stage: "pr" }).where(eq(jobs.key, KEY));
+  await db.update(jobs).set({ stage: "building" }).where(eq(jobs.key, KEY));
 
   // A report naming a file whose image never arrived: the panel says so instead of showing another.
   const later: FactoryEvent = { ...stage, eventId: `${stageEventId}-2`, at: Date.now() + 2, assessment: assessment({ screenshots: [{ file: "late.png", caption: "Late." }] }) };
@@ -168,6 +169,7 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
+  await db.delete(jobEvidence).where(eq(jobEvidence.job_key, KEY));
   await db.delete(jobScreenshots).where(eq(jobScreenshots.job_key, KEY));
   await db.delete(events).where(eq(events.job_key, KEY));
   await db.delete(runs).where(eq(runs.job_key, KEY));

@@ -4,10 +4,11 @@ import { agents, jobs, machines, repoSettings, runs } from "@factory/storage/sch
 import type { AgentRow, JobRow, MachineRow, RepoSettingsRow, RunRow } from "@factory/storage/schema";
 import { branchCosts, type BranchCost } from "./spend";
 import { attemptBranch } from "./factory";
+import { inboxKind } from "./inbox";
 
 export interface RealtimeSnapshot {
   version: 1;
-  jobs: JobRow[];
+  jobs: (JobRow & { needs_human: boolean })[];
   runs: Omit<RunRow, "cwd" | "transcript_path">[];
   agents: AgentRow[];
   machines: MachineRow[];
@@ -32,6 +33,6 @@ export async function realtimeSnapshot(): Promise<RealtimeSnapshot> {
     const machineRows = await tx.select().from(machines).orderBy(asc(machines.name), asc(machines.id));
     const repositories = await tx.select({ repo: repoSettings.repo, display_name: repoSettings.display_name, enabled: repoSettings.enabled, is_default: repoSettings.is_default }).from(repoSettings).orderBy(asc(repoSettings.repo));
     const spend = await branchCosts(tx, jobRows.map(job => attemptBranch(job.key, job.attempt)));
-    return { version: 1 as const, jobs: jobRows, runs: runRows, agents: agentRows, machines: machineRows, repositories, spend };
+    return { version: 1 as const, jobs: jobRows.map(job => ({ ...job, needs_human: inboxKind(job) !== null })), runs: runRows, agents: agentRows, machines: machineRows, repositories, spend };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }

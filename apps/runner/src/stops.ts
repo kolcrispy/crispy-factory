@@ -33,7 +33,20 @@ const message = (error: unknown) => (error instanceof Error ? error.message.spli
 async function advance(id: JobId, from: StopRecord, next: StopRecord) {
   const moved = await db
     .update(jobs)
-    .set({ stop: stopSchema.parse(next) })
+    .set({
+      stop: stopSchema.parse(next),
+      ...(next.state === "confirmed" && {
+        stage: sql`case when ${jobs.stage} = 'done' then ${jobs.stage} else 'failed'::run_stage end`,
+        stage_at: new Date(next.settledAt!),
+        stage_event_id: jobs.stop_event_id,
+        stage_summary: next.reason,
+        attention: null,
+        builder_handoff: null,
+      }),
+      ...(next.state === "unconfirmed" && {
+        attention: { eventId: `stop-unconfirmed:${next.requestedAt}`, at: Date.parse(next.settledAt!), reason: next.evidence ?? next.reason, action: "Inspect the existing execution and retry its stop after confirming ownership." },
+      }),
+    })
     .where(
       and(
         eq(jobs.id, id),

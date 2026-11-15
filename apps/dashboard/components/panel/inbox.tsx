@@ -316,7 +316,7 @@ function Detail({ item, card, fullView }: { item: Item; card: BoardCard | undefi
           <Section title="Why it's here">
             <Why item={item} />
           </Section>
-          {kind === "handover" && job.stage === "pr" && (
+          {kind === "handover" && job.stage === "ready" && (
             <Section title="Evidence">
               <EvidenceSummaryList job={job} />
             </Section>

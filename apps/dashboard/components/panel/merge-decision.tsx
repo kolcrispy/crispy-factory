@@ -127,14 +127,14 @@ function Watch({ merged, watch }: { merged: FactoryMerge; watch: MergeWatch | un
 export function MergeDecisionSection({ job }: { job: JobRow }) {
   const decision = shownDecision(job);
   const assessment = parseAssessment(job.merge_assessment);
-  if (!decision && job.stage !== "pr" && !assessment) return null;
+  if (!decision && job.stage !== "ready" && !assessment) return null;
   const line = decisionLine(decision);
   return (
     <>
       <Separator />
       <section className="flex flex-col gap-2.5 px-4.5 py-3.5 text-sm">
         <h3 className="text-sm font-medium text-muted-foreground">Merge decision</h3>
-        {(job.stage === "pr" || decision) && (
+        {(job.stage === "ready" || decision) && (
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className={cn("font-medium", line.tone)}>{decision?.outcome === "handover" && !decision.merged ? READY : line.text}</span>

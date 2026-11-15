@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
-import { stageReportSchema, type StageReport, type FactoryEvent } from "@factory/core/events";
+import { builderReportSchema, type BuilderReport, type FactoryEvent } from "@factory/core/events";
 import { reportEvents } from "@factory/core/outbox";
 import { mcpIdentity } from "@factory/core/report-identity";
 import { screenshotEvents, unreadable } from "@factory/core/screenshot-files";
@@ -13,9 +13,9 @@ type ReportingExtension = {
     label: string;
     description: string;
     parameters: Record<string, unknown>;
-    execute: (toolCallId: string, input: StageReport) => Promise<{
+    execute: (toolCallId: string, input: BuilderReport) => Promise<{
       content: { type: "text"; text: string }[];
-      details: { stage: string };
+      details: { action: string };
       isError?: boolean;
     }>;
   }) => void;
@@ -23,19 +23,19 @@ type ReportingExtension = {
 
 export default function factoryReporting(omp: ReportingExtension) {
   omp.registerTool({
-    name: "report_stage",
-    label: "Report factory stage",
-    description: "Report each factory stage transition. waiting requires a concrete question; pr requires the pull request URL and merge assessment. Never merge yourself.",
-    parameters: z.toJSONSchema(stageReportSchema),
+    name: "report_work",
+    label: "Report factory work",
+    description: "Report progress, needs_human with an actionable question, or handoff with exact sha and evidenceEventId returned by factory-verify. The runner owns phases and PR publication. Never merge yourself.",
+    parameters: z.toJSONSchema(builderReportSchema),
     async execute(toolCallId, input) {
-      const report = stageReportSchema.parse(input);
+      const report = builderReportSchema.parse(input);
       const identity = mcpIdentity(process.env, process.cwd());
       if (!identity) throw new Error("OMP reporting has no factory attempt identity.");
       const missing = unreadable(report.assessment?.screenshots ?? []);
       if (missing.length) throw new Error(`Can't attach screenshots: ${missing.join("; ")}`);
       const at = Date.now();
       const stage: FactoryEvent = {
-        kind: "stage",
+        kind: "builder_report",
         ...report,
         sessionId: identity.sessionId,
         jobKey: identity.jobKey,
@@ -53,10 +53,10 @@ export default function factoryReporting(omp: ReportingExtension) {
       } catch (error) {
         delivery = `Reporting failed: ${error instanceof Error ? error.message : String(error)}`;
       }
-      const verify = ["verifying", "pr"].includes(report.stage)
-        ? ` Run factory-verify on the pushed commit: bun "${join(import.meta.dirname, "hooks/verify.ts")}".`
+      const verify = report.action === "progress"
+        ? ` Before handoff, run factory-verify: bun "${join(import.meta.dirname, "hooks/verify.ts")}" --json. Use its sha and eventId in handoff.`
         : "";
-      return { content: [{ type: "text", text: `Stage ${report.stage}. ${delivery}${verify}` }], details: { stage: report.stage } };
+      return { content: [{ type: "text", text: `Reported ${report.action}. ${delivery}${verify}` }], details: { action: report.action } };
     },
   });
 }

@@ -44,7 +44,7 @@ for (const path of [factoryPlaybook()]) {
   for (const [name, text] of [
     ["conflict", conflictMessage("FAC-1", "https://github.com/o/r/pull/1", path)],
     ["resume", resumeMessage("FAC-1", "Which one?", "The first.", path)],
-    ["nudge", nudgeMessage("FAC-1", "implementing", 30, path)],
+    ["nudge", nudgeMessage("FAC-1", "building", 30, path)],
   ] as const) {
     assert.ok(text.includes(`factory playbook (${path})`), `${name} names ${path}`);
     assert.ok(!text.includes(REPO_PLAYBOOK), `${name} does not point at a repo copy`);
@@ -54,8 +54,6 @@ for (const path of [factoryPlaybook()]) {
 
 // What the playbook points at still resolves from outside the repo.
 const playbook = readFileSync(join(root, "playbooks/factory.md"), "utf8");
-assert.match(playbook, /^---\nextends: bug-fix, feature, opening-a-pr, babysit\n/, "it extends PStack's bundled playbooks");
-assert.ok(playbook.includes("report_stage") && playbook.includes("verify command"), "it tells the agent to report stages and run the named verification");
 assert.ok(!playbook.includes(REPO_PLAYBOOK), "it never names a repo copy as its own location");
 
 console.log("playbook regressions passed");

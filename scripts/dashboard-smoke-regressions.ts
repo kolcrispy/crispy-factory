@@ -25,7 +25,7 @@ const email = "smoke@example.invalid";
 const password = crypto.randomUUID();
 await manageOwner("create", email, password);
 await db.insert(repoSettings).values({ repo: "smoke/isolated", updated_by: email, updated_at: new Date() });
-await db.insert(jobs).values(internalJob("dashboard-smoke", "JOB-9001", { repo: "smoke/isolated", stage: "verifying", title: "Isolated browser smoke", attempt: 1,
+await db.insert(jobs).values(internalJob("dashboard-smoke", "JOB-9001", { repo: "smoke/isolated", stage: "building", title: "Isolated browser smoke", attempt: 1,
   attempt_review: { attempt: 1, policy: { enabled: true, provider: "omp", model: "smoke-model" }, state: "held", builderThreadId: "isolated-builder", builderSessionId: null, automaticRepairs: 2, rounds: [] },
 }));
 await db.insert(machines).values({ id: "dashboard-smoke", name: "Isolated smoke", last_seen_at: new Date(), heartbeat: {}, inventory: { runnerSha: "smoke", t3: "unknown", connect: "unknown", projects: { source: "unknown" }, repos: [], harnesses: [{ id: "omp", driver: "omp", name: "OMP", enabled: true, models: [{ slug: "smoke-model", name: "Smoke model" }] }] } });
@@ -69,6 +69,8 @@ try {
   const login = await page.evaluate(async ({ email, password }) => (await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) })).status, { email, password });
   assert.equal(login, 200, "isolated owner can authenticate");
   await page.goto(origin);
+  await page.getByRole("region", { name: "Needs human", exact: true }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "Needs human", exact: true }).getByText("Building", { exact: true }).count(), 1, "human grouping retains the actual phase");
   await page.getByText("Connect runner", { exact: true }).click();
   const pairing = await createRealtimePairing("Dashboard smoke");
   await page.getByLabel("Runner URL", { exact: true }).fill(`http://127.0.0.1:${realtime.server.port}`);
@@ -81,7 +83,7 @@ try {
   const { intents } = await import("@factory/storage/schema");
   const sha = "a".repeat(40);
   const prUrl = "https://github.com/smoke/isolated/pull/1";
-  await db.update(jobs).set({ stage: "pr", pr_url: prUrl, github_snapshot: { prUrl, attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Isolated merge", headSha: sha, mergeable: "mergeable", review: { headSha: sha, files: [], fileCount: 0 } } }).where(eq(jobs.key, "JOB-9001"));
+  await db.update(jobs).set({ stage: "ready", pr_url: prUrl, github_snapshot: { prUrl, attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Isolated merge", headSha: sha, mergeable: "mergeable", review: { headSha: sha, files: [], fileCount: 0 } } }).where(eq(jobs.key, "JOB-9001"));
   await page.goto(origin + "/merge-smoke");
   await page.getByRole("button", { name: "Merge", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
