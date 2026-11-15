@@ -92,7 +92,7 @@ export async function requestStop(deps: InboxDeps, jobId: JobId, requestId: stri
   const user = await deps.user();
   if (!isOwner(user)) return { ok: false, message: OWNER_ONLY };
   const [job] = await deps.db.select().from(jobs).where(eq(jobs.id, jobId));
-  if (!job || job.stage === "merged" || job.stage === "failed") return { ok: false, message: "Only an active job can be stopped." };
+  if (!job || job.stage === "done" || job.stage === "failed") return { ok: false, message: "Only an active job can be stopped." };
   return record(deps, job, "stop", requestId, { actor: user!.email, attempt: job.attempt, reason: reason.trim() });
 }
 
@@ -108,7 +108,7 @@ export async function approveMerge(deps: InboxDeps, jobId: JobId, requestId: str
 
 /** Why run detail's Merge is not offered on this job, or null when it is. */
 function notMergeable(job: JobRow): string | null {
-  if (job.stage !== "pr" || !job.pr_url) return "The job is no longer waiting on a pull request.";
+  if (job.stage !== "ready" || !job.pr_url) return "The job is no longer waiting on a pull request.";
   const decision = mergeDecisionSchema.safeParse(job.merge_decision).data;
   if (decision?.merged) return "The factory already merged this pull request.";
   if (decision?.merging) return "The factory is already merging this pull request.";
@@ -212,7 +212,7 @@ export async function answerQuestion(deps: InboxDeps, jobId: JobId, requestId: s
   if (previous) return previous;
   const found = await ownerJob(deps, jobId, "answer");
   if (!found.ok) return found;
-  return record(deps, found.job, "answer", requestId, { actor: found.actor, body: text.data, attempt: found.job.attempt, questionEventId: found.job.stage_event_id });
+  return record(deps, found.job, "answer", requestId, { actor: found.actor, body: text.data, attempt: found.job.attempt, questionEventId: found.job.attention?.eventId ?? null });
 }
 
 /** Closes the job's PR and fails the job with the owner's reason. */

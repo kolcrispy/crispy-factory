@@ -7,7 +7,7 @@ const limits = factorySchema.parse({ stuckAfterMinutes: 30, stoppedGraceMinutes:
 const now = new Date("2026-10-23T12:00:00Z");
 const ago = (min: number) => new Date(now.getTime() - min * 60_000);
 const base: WatchInput = {
-  stage: "implementing",
+  stage: "building",
   lastEventAt: ago(1),
   nudgedAt: null,
   nudgedStage: null,
@@ -22,7 +22,7 @@ assert.deepEqual(watch({ ...base, thread: "stopped" }, limits), { kind: "ok" }, 
 assert.deepEqual(watch({ ...base, lastEventAt: ago(31) }, limits), { kind: "nudge", idleMinutes: 31 }, "quiet past the threshold");
 assert.deepEqual(watch({ ...base, thread: "stopped", lastEventAt: ago(3) }, limits), { kind: "nudge", idleMinutes: 3 }, "an interrupted thread");
 
-const nudged = { ...base, thread: "stopped" as const, nudgedAt: ago(10), nudgedStage: "implementing" as const, lastEventAt: ago(10) };
+const nudged = { ...base, thread: "stopped" as const, nudgedAt: ago(10), nudgedStage: "building" as const, lastEventAt: ago(10) };
 assert.deepEqual(watch(nudged, limits), { kind: "ok" }, "never nudged twice in the same stage");
 assert.equal(watch({ ...nudged, nudgedAt: ago(31), lastEventAt: ago(31) }, limits).kind, "fail", "still stuck after the second threshold");
 assert.deepEqual(
@@ -31,7 +31,7 @@ assert.deepEqual(
   "activity after the nudge restarts the fail clock",
 );
 assert.deepEqual(
-  watch({ ...base, nudgedAt: ago(40), nudgedStage: "investigating" }, limits),
+  watch({ ...base, nudgedAt: ago(40), nudgedStage: "reviewing" }, limits),
   { kind: "reset" },
   "moving to another stage clears the nudge",
 );
@@ -41,7 +41,7 @@ const untracked = { ...base, tracked: false };
 assert.deepEqual(watch({ ...untracked, lastEventAt: ago(240) }, limits), { kind: "ok" }, "an untracked run reports nothing, so quiet is not stuck");
 assert.deepEqual(watch({ ...untracked, thread: "stopped", lastEventAt: ago(240) }, limits), { kind: "ok" }, "nor is a stopped thread");
 assert.deepEqual(
-  watch({ ...untracked, nudgedAt: ago(90), nudgedStage: "implementing", lastEventAt: ago(240) }, limits),
+  watch({ ...untracked, nudgedAt: ago(90), nudgedStage: "building", lastEventAt: ago(240) }, limits),
   { kind: "reset" },
   "a nudge left from before is cleared instead of failing the run",
 );

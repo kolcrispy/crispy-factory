@@ -29,24 +29,23 @@ export function Board({
 }) {
   const agentsOf = (runs: readonly RunRow[]) =>
     runs.flatMap((r) => agentsBySession.get(r.session_id) ?? []);
-  const columns = STAGES.filter(
-    (stage) => stage !== "failed" || cards.some((c) => c.stage === "failed"),
-  );
+  const columns = ["needs_human", ...STAGES] as const;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 divide-x overflow-x-auto overflow-y-hidden">
       {columns.map((stage) => {
-        const items = cards.filter((c) => c.stage === stage);
+        const meta = stage === "needs_human" ? { label: "Needs human", dot: "bg-warning" } : STAGE_META[stage];
+        const items = cards.filter((c) => stage === "needs_human" ? c.needsHuman : !c.needsHuman && c.stage === stage);
         return (
           <section
             key={stage}
             data-stage={stage}
-            aria-label={STAGE_META[stage].label}
+            aria-label={meta.label}
             className="flex h-full w-80 shrink-0 flex-col last:border-e"
           >
             <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-muted/72 px-3 font-medium">
-              <span className={cn("size-2 rounded-full", STAGE_META[stage].dot)} />
-              {STAGE_META[stage].label}
+              <span className={cn("size-2 rounded-full", meta.dot)} />
+              {meta.label}
               <span className="text-xs text-muted-foreground tabular-nums">{items.length}</span>
             </div>
             <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-y-contain p-2">

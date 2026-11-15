@@ -39,7 +39,7 @@ try {
   // twin, what deliverStops does, and whether a retry claim may start a new attempt.
   const stop = { stage: "failed" as const, stage_event_id: `stop:${id}:1:x`, stop_event_id: `stop:${id}:1:x`, stage_summary: "Stopped: test." };
   const watchdogFail = { stage: "failed" as const, stage_event_id: `watchdog:${id}:1:x`, stop_event_id: null, stage_summary: "Watchdog." };
-  const mergedAfterStop = { stage: "merged" as const, stage_event_id: `merged:${id}:x`, stop_event_id: `stop:${id}:1:x`, stage_summary: "Merged." };
+  const mergedAfterStop = { stage: "done" as const, stage_event_id: `merged:${id}:x`, stop_event_id: `stop:${id}:1:x`, stage_summary: "Merged." };
   const cells = [
     { name: "none, not stopped", row: { ...watchdogFail, t3_thread_id: null, stop_sent_to: null }, delivers: false, reclaim: true },
     { name: "none, stopped", row: { ...stop, t3_thread_id: null, stop_sent_to: null }, delivers: false, reclaim: true },
@@ -49,7 +49,7 @@ try {
     { name: "bound, stopped, not sent", row: { ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
     { name: "bound, stopped, sent", row: { ...stop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: true },
     { name: "bound, stopped, sent to an older thread", row: { ...stop, t3_thread_id: "mcp:regress-b", stop_sent_to: "mcp:regress-a" }, delivers: true, reclaim: false },
-    { name: "bound, still working", row: { stage: "implementing" as const, stage_event_id: "e", stop_event_id: null, stage_summary: "s", t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: false },
+    { name: "bound, still working", row: { stage: "building" as const, stage_event_id: "e", stop_event_id: null, stage_summary: "s", t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: false, reclaim: false },
     { name: "bound, stopped, merged before the stop was sent", row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: null }, delivers: true, reclaim: false },
     { name: "pending, stopped, merged before the thread was known", row: { ...mergedAfterStop, t3_thread_id: "pending:6", stop_sent_to: null }, delivers: false, reclaim: false },
     { name: "bound, stopped, merged, sent", row: { ...mergedAfterStop, t3_thread_id: "mcp:regress-a", stop_sent_to: "mcp:regress-a" }, delivers: false, reclaim: false },
@@ -92,7 +92,7 @@ try {
   assert.deepEqual(sent.map((m) => m.threadId), ["mcp:regress-late"], "to the thread it just bound");
   assert.equal(canReclaim((await db.select().from(jobs).where(eq(jobs.id, jid)))[0]!), true, "and then a retry may claim");
   await db.update(jobs).set({ ...stop, t3_thread_id: "pending:9", stop_sent_to: null }).where(eq(jobs.id, jid));
-  await db.update(jobs).set({ stage: "merged", stage_event_id: `merged:${id}:late`, stage_summary: "Merged." }).where(eq(jobs.id, jid));
+  await db.update(jobs).set({ stage: "done", stage_event_id: `merged:${id}:late`, stage_summary: "Merged." }).where(eq(jobs.id, jid));
   sent.length = 0;
   assert.equal((await bindThread(id, "mcp:regress-merged")).stopped, true, "a PR that merged before the stop reached its thread still gets the stop");
   assert.deepEqual(sent.map((m) => m.threadId), ["mcp:regress-merged"]);

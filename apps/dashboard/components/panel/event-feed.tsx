@@ -23,6 +23,8 @@ function summarize(payload: unknown, kind: string) {
       return { who: "usage", text: e.usage.model };
     case "stage":
       return { who: e.stage, text: e.question ?? e.summary };
+    case "builder_report":
+      return { who: e.action, text: e.question ?? e.summary };
     case "session_end":
       return { who: "session", text: `ended${e.reason ? ` (${e.reason})` : ""}` };
     case "evidence":

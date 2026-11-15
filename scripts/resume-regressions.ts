@@ -15,7 +15,7 @@ const id = jobId("internal", externalId);
 const now = new Date();
 const expected = { attempt: 1, questionEventId: "question-1" };
 try {
-  await db.insert(jobs).values({ id, source: "internal", external_id: externalId, key: `RESUME-${externalId}`, title: "Answer isolation", url: "/list", repo: "test/repo", stage: "waiting", stage_event_id: expected.questionEventId, claimed_at: now, updated_at: now, source_state: { actor: "regression" }, writeback: {} });
+  await db.insert(jobs).values({ id, source: "internal", external_id: externalId, key: `RESUME-${externalId}`, title: "Answer isolation", url: "/list", repo: "test/repo", stage: "building", attention: { eventId: expected.questionEventId, at: now.getTime(), reason: "Question", action: "Choose layout" }, claimed_at: now, updated_at: now, source_state: { actor: "regression" }, writeback: {} });
   assert.equal(await claimReplies(db, id, { ...expected, attempt: 2 }, ["stale-attempt"], "Wrong attempt", now), false);
   const staleIntent = { id: "stale-answer", kind: "answer", job_id: id, detail: JSON.stringify({ body: "Old answer", attempt: 2, questionEventId: "question-1" }) } as IntentRow;
   const staleResult = await deliverAnswer(staleIntent);
@@ -24,7 +24,7 @@ try {
   assert.equal(await claimReplies(db, id, { ...expected, questionEventId: "question-0" }, ["stale-question"], "Wrong question", now), false);
   assert.equal(await claimReplies(db, id, expected, ["answer-1"], "Use layout B", now), true);
   assert.equal(await claimReplies(db, id, expected, ["answer-1"], "Use layout B", now), false, "replay must not redeliver");
-  await db.update(jobs).set({ stage_event_id: "question-2", t3_thread_id: "dead-thread", machine_id: "old-machine", session_id: "old-session" }).where(eq(jobs.id, id));
+  await db.update(jobs).set({ attention: { eventId: "question-2", at: now.getTime(), reason: "New question", action: "Proceed?" }, t3_thread_id: "dead-thread", machine_id: "old-machine", session_id: "old-session" }).where(eq(jobs.id, id));
   assert.equal(await claimReplies(db, id, expected, ["late-answer"], "Old question", now), false, "a new question must invalidate answers already selected by a runner");
   assert.equal(await claimReplies(db, id, { ...expected, questionEventId: "question-2" }, ["answer-2"], "Proceed", now, "## Q&A"), true);
   const [row] = await db.select().from(jobs).where(eq(jobs.id, id));

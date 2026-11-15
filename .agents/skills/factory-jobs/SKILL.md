@@ -62,7 +62,7 @@ Use only repositories with `registration_status: "ready"` and `enabled: true`.
 
 ### 2. Check for duplicate or overlapping work
 
-Compare requested work against every job whose stage is neither `merged` nor `failed`, including `triage`, `investigating`, `implementing`, `verifying`, `waiting`, and `pr`. If one already covers it, report that job and ask whether to add context instead of submitting overlapping work. Issue import additionally rejects concurrent active jobs for the same canonical issue URL atomically.
+Compare requested work against every job whose phase is neither `done` nor `failed`: `queued`, `building`, `reviewing`, and `ready`, including Needs human holds. If one covers it, report that job and ask whether to add context instead of submitting overlapping work. Issue import additionally rejects concurrent active jobs for the same canonical issue URL atomically.
 
 ### 3. Pick the harness only when it matters
 
@@ -78,7 +78,7 @@ Independent pre-PR review defaults to enabled for newly claimed attempts. Resolv
 
 `jobs create` accepts a `review` object, for example `"review":{"enabled":true,"provider":"omp","model":"provider/model-id"}`. These fields select the reviewer, not the builder. Check `machines list` for availability when a reviewer is explicitly requested; invalid combinations hold rather than silently falling back. For issue import, use the edited `jobs create` path with `issueUrl` when per-job review overrides are needed.
 
-The builder implements, tests, commits, runs verification, reports `verifying`, and stops without self-review or PR publication. A fresh report-only reviewer inspects the captured base-to-builder diff and related source in a separate checkout. Only PASS for that exact attempt and SHA lets the runner push and publish/update the PR. FIX resumes the builder for substantive blockers; two automatic repair cycles are allowed. BLOCKED, errors, uncertain delivery, or exhausted repairs hold for the owner in Inbox. A held review is not permission to disable review or publish manually.
+The builder implements, tests, commits, runs `factory-verify --json`, and uses `report_work` handoff with the exact SHA and evidence event ID. A separate reviewer evaluates that revision when enabled; only matching PASS permits runner publication. FIX returns Building and clears the old handoff; two automatic repairs are allowed. BLOCKED, errors and exhausted repairs retain phase with Needs human. Review-disabled builders also hand off explicitly; the runner publishes without independent review. A hold never authorizes bypassing review.
 
 ## Write the brief
 
@@ -166,7 +166,7 @@ This command immediately creates a job from the current title and description. I
 - Store a snapshot of title/body and the issue URL. Comments and linked external content are not imported. Later issue changes do not update or stop the job.
 - An active duplicate is refused with the existing job key/link. After merged/failed, a new requestId may explicitly import again; retry remains a separate owner action.
 - Retain requestId after an uncertain result. An accepted issue import replays to the original job even after issue closure or runner shutdown. Changing the issue, actor, or provider requires a new requestId.
-- The launch prompt directs the agent to put `Closes <issue URL>` in its PR body, so merge closes the issue. Import itself adds no GitHub comments or labels and does not close it. There is no automatic issue pickup.
+- The runner includes `Closes <issue URL>` in the published PR body, so merge closes the issue. Import itself adds no GitHub comments or labels and does not close it. There is no automatic issue pickup.
 
 
 ## Report back
@@ -180,7 +180,7 @@ bun run --cwd "$FACTORY_HOME" cli jobs show --input '{"jobId":"internal:<uuid fr
 bun run --cwd "$FACTORY_HOME" cli inbox list
 ```
 
-`JOB-n` is a display key allocated transactionally at submission, globally across repositories. Commands requiring `jobId` take the `id` from `jobs list`, such as `internal:<uuid>`, not the display key. Stages include `queued`, `triage`, `investigating`, `implementing`, `verifying`, `waiting`, `pr`, `merged`, and `failed`. Inbox contains jobs needing owner action, not unimported GitHub issues.
+`JOB-n` is a display key allocated transactionally across repositories. Commands requiring `jobId` take `id` from `jobs list`, such as `internal:<uuid>`. Phases are `queued`, `building`, `reviewing`, `ready`, `done`, `failed`. Needs human is a separate condition with reason/action, also covering owner merge approval. Ready means PR published, not CI passed. Done requires confirmed merge. Inbox contains owner actions, not unimported GitHub issues.
 
 ## Owner actions
 

@@ -2,6 +2,16 @@
 
 Runtime reference for the local factory. PostgreSQL is authoritative shared state.
 
+## Job lifecycle cutover
+
+Migration `0058_loving_sunspot` replaces phases with Queued, Building, Reviewing, Ready, Done and Failed. Needs human preserves phase and records actionable intervention; CI and slot waits alone do not count. Only confirmed merge means Done. Recovery ambiguity holds work rather than declaring terminal failure.
+
+Stop old runners and dashboards, reconcile owned sessions, then migrate before starting this revision. Do not mix old reporters with the new contract. Restart installs updated hooks/MCP; OMP sessions must load the updated explicit extension. Reinstall Herdr and synchronize Factory skills. Preserve pairing credentials and unrelated settings.
+
+Builders use `report_work` actions progress, needs_human and handoff. Handoff names the exact SHA and evidence event ID from `factory-verify --json`; only clean successful current-attempt evidence is accepted. Builders do not choose phases or publish PRs, including review-disabled attempts. The runner publishes after a valid handoff and independent PASS when enabled. Ready may still await checks or owner approval. Review FIX clears the old handoff and returns Building; BLOCKED retains Reviewing with Needs human.
+
+The migration removes only old stage events, retaining jobs, attempts, sessions, independent review history, evidence, screenshots, spend, PR references and owner audits. Current projections map from review/execution facts; unresolved attempts require inspection. Historical assessment IDs remain usable for retained screenshot evidence.
+
 ## Branding cutover
 
 This release changes persistent runner and job-creation advisory-lock identities. Stop every old runner and dashboard before starting the renamed revision; mixed revisions do not share these locks. Wait for graceful runner shutdown and in-flight requests to settle. Do not reset the database for this branding-only change.
@@ -60,7 +70,7 @@ Factory creates a separate worktree and durable OMP session for every attempt un
 
 A started session with a missing transcript cannot resume. Status observation reports it gone only after the recorded process is dead and any known OMP session lease is confirmed free; live or unknown ownership remains an error. For a held reviewer, `jobs review` can then request a new review round without discarding builder evidence or reusing the broken session.
 
-Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_stage` delivers questions, stage transitions, and PR assessments through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership. OMP sessions have no Open in T3 link.
+Only the explicitly trusted Factory reporting extension is loaded. OMP retains repository instructions and skills and uses its existing local credentials. Its unattended tools run with the runner user's permissions, not inside a security sandbox. `report_work` delivers progress, human needs and verified handoff through the durable outbox; factory-verify uses the same attempt identity. Shutdown aborts parent and subagents and waits for settlement before releasing ownership. OMP sessions have no Open in T3 link.
 
 The existing `t3_thread_id` database column and `t3ThreadId` session-start field store the runner execution binding for both adapters. An `omp:<job>:<attempt>` binding is never a T3 thread id and is dispatched only to the direct adapter; this preserves existing stored T3 bindings without rewriting history. OMP subagent transcript identities are persisted before terminal snapshots disappear from the runtime registry, allowing cumulative usage reconciliation after restart.
 
@@ -68,7 +78,7 @@ The existing `t3_thread_id` database column and `t3ThreadId` session-start field
 
 Newly claimed attempts default to independent review. Enabled, harness, and model resolve independently from job, repository, then global settings; absent harness/model follow the builder. The claim snapshots policy. Running legacy attempts keep their old contract, and retries use current settings. Job detail and `jobs review-settings` edit future-attempt overrides only.
 
-Builders implement, test, commit, report `verifying` with evidence, and stop. They do not self-review or publish PRs. A fresh reviewer evaluates the exact commit in an isolated checkout, without modifying source. PASS authorizes only that attempt and SHA. The runner pushes the approved SHA and creates the PR; merge also rechecks the approved SHA. Code changes require fresh review.
+Builders implement, test, commit, run factory-verify and report handoff with its exact SHA and evidence event ID, then stop. They do not self-review or publish PRs. A fresh reviewer evaluates that commit in an isolated checkout without modifying source. PASS authorizes only that attempt and SHA. The runner pushes the approved SHA and creates the PR; merge also rechecks the approved SHA. Code changes require fresh handoff and review.
 
 For review-enabled attempts, an exact-attempt, exact-head independent PASS replaces the legacy builder merge assessment in automatic merge eligibility. Legacy and review-disabled attempts still require their builder assessment. PASS does not bypass CI, trusted-check, verification, or conflict gates.
 
@@ -100,7 +110,7 @@ bun run cli jobs from-issue --input '{"url":"https://github.com/owner/repo/issue
 
 The runner must be running on the same host as the dashboard/CLI: authenticated loopback lookup uses its `gh` credentials, including private repository access. Restart the runner after upgrading to this revision. Offline lookups fail without creating a job; there is no queued import, webhook, or automatic pickup. Replaying an accepted requestId returns the original job even after issue closure or runner shutdown. Use a new requestId for a new import.
 
-Jobs store the original issue URL and a snapshot brief. Subsequent issue edits/closure do not update or stop the job. Concurrent imports of the same issue are rejected while any prior job is nonterminal; the error names that job. Merged/failed jobs allow an explicit new import. The launch brief directs the agent to include `Closes <issue URL>` in the PR body so merge closes the issue. Import itself does not comment, label, or close the GitHub issue.
+Jobs store the original issue URL and a snapshot brief. Subsequent issue edits/closure do not update or stop the job. Concurrent imports of the same issue are rejected while any prior job is nonterminal; the error names that job. Done/failed jobs allow an explicit new import. The runner includes `Closes <issue URL>` in the published PR body so merge closes the issue. Import itself does not comment, label, or close the GitHub issue.
 
 
 ## Repositories

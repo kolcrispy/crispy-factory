@@ -63,7 +63,7 @@ function Row({
   const content = (
     <>
       <span className={cn("size-2 shrink-0 rounded-full", STAGE_META[card.stage].dot)} title={STAGE_META[card.stage].label} />
-      <span className="sr-only">{STAGE_META[card.stage].label}</span>
+      <span className={card.needsHuman ? "text-xs text-muted-foreground" : "sr-only"}>{STAGE_META[card.stage].label}</span>
       <span className="hidden w-24 shrink-0 truncate font-mono text-xs text-muted-foreground @lg:block">{card.jobKey ?? card.id.slice(0, 8)}</span>
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate">{card.title}</span>
@@ -119,7 +119,7 @@ export function JobList({
   archived?: boolean;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const [closed, setClosed] = useState<readonly Stage[]>([]);
+  const [closed, setClosed] = useState<readonly (Stage | "needs_human")[]>([]);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [pending, startTransition] = useTransition();
   const isOpen = (card: BoardCard) => card.runs.some((r) => r.session_id === selected);
@@ -183,19 +183,20 @@ export function JobList({
   return (
     <div ref={listRef} className="@container flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
       <div className="flex-1">
-        {STAGES.map((stage) => {
-          const rows = cards.filter((c) => c.stage === stage);
+        {(["needs_human", ...STAGES] as const).map((stage) => {
+          const meta = stage === "needs_human" ? { label: "Needs human", dot: "bg-warning" } : STAGE_META[stage];
+          const rows = cards.filter((c) => stage === "needs_human" ? c.needsHuman : !c.needsHuman && c.stage === stage);
           if (rows.length === 0) return null;
           const open = !closed.includes(stage);
           const pickableIds = rows.filter(pickable).map((c) => c.id);
           const pickedHere = pickableIds.filter((id) => picked.has(id)).length;
           return (
-            <section key={stage} aria-label={STAGE_META[stage].label}>
+            <section key={stage} aria-label={meta.label}>
               <div className="sticky top-0 z-10 flex h-9 items-center border-b bg-muted/72 backdrop-blur-sm">
                 <PickCell>
                   {pickableIds.length > 0 && (
                     <Checkbox
-                      aria-label={`Select all ${STAGE_META[stage].label.toLowerCase()} jobs`}
+                      aria-label={`Select all ${meta.label.toLowerCase()} jobs`}
                       checked={pickedHere === pickableIds.length}
                       indeterminate={pickedHere > 0 && pickedHere < pickableIds.length}
                       onCheckedChange={(on) => pick(pickableIds, on)}
@@ -209,8 +210,8 @@ export function JobList({
                   className="flex h-full min-w-0 flex-1 items-center gap-2 ps-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                 >
                   <ChevronRightIcon className={cn("size-3.5 text-muted-foreground transition-transform duration-200 ease-out", open && "rotate-90")} />
-                  <span className={cn("size-2 rounded-full", STAGE_META[stage].dot)} />
-                  <span className="font-medium">{STAGE_META[stage].label}</span>
+                  <span className={cn("size-2 rounded-full", meta.dot)} />
+                  <span className="font-medium">{meta.label}</span>
                   <span className="text-xs text-muted-foreground tabular-nums">{rows.length}</span>
                 </button>
               </div>

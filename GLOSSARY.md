@@ -59,3 +59,23 @@ _Avoid_: builder, GitHub reviewer
 **Review round**:
 One independent evaluation of a particular revision within an attempt, ending in PASS, FIX, or BLOCKED. PASS permits publication of that revision; FIX requires changes, and BLOCKED requires an owner decision.
 _Avoid_: retry, attempt
+
+**Job phase**:
+The job's position in its delivery lifecycle: Queued, Building, Reviewing, Ready, Done, or Failed. Phase describes the work remaining, not whether an agent is currently active.
+_Avoid_: agent activity, progress step
+
+**Needs human**:
+A condition requiring an owner decision, answer, or recovery action before the affected work can continue. It preserves the job's phase; ordinary automatic waits do not require human attention.
+_Avoid_: waiting phase, failed job
+
+**Builder handoff**:
+The builder's explicit declaration that its revision and verification evidence are ready for independent review or publication under the attempt's review policy.
+_Avoid_: stopped agent, progress update
+
+**Ready**:
+A job with a published pull request awaiting merge requirements or owner approval. Ready does not mean every merge requirement has passed.
+_Avoid_: approved, done
+
+**Done**:
+A job whose pull request has been confirmed merged.
+_Avoid_: pull request published, builder finished

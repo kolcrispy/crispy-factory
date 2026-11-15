@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { eq, inArray } from "drizzle-orm";
 
 const { db } = await import("@factory/storage/client");
-const { agents, events, jobs, runs } = await import("@factory/storage/schema");
+const { agents, events, jobEvidence, jobs, runs } = await import("@factory/storage/schema");
 const { ingest } = await import("@factory/core/ingest");
 const { eventSchema } = await import("@factory/core/events");
 const { internalJob } = await import("./fixtures");
@@ -46,19 +46,19 @@ try {
   assert.equal(a.status, "completed", "a late agent_start keeps the agent completed");
 
   await ingest(db, [
-    ev(7, { kind: "stage", at: t0 + 30_000, stage: "implementing", summary: "red test in", jobKey: key }),
-    ev(8, { kind: "stage", at: t0 + 40_000, stage: "pr", summary: "opened", prUrl: "https://github.com/x/y/pull/1" }),
+    ev(7, { kind: "stage", at: t0 + 30_000, stage: "building", summary: "red test in", jobKey: key }),
+    ev(8, { kind: "stage", at: t0 + 40_000, stage: "ready", summary: "opened", prUrl: "https://github.com/x/y/pull/1" }),
     ev(9, { kind: "turn_stop", at: t0 + 41_000, usage }),
   ]);
   await ingest(db, [
-    ev(10, { kind: "stage", at: t0 + 35_000, stage: "verifying", summary: "late" }),
+    ev(10, { kind: "stage", at: t0 + 35_000, stage: "building", summary: "late" }),
   ]);
   const [s] = await db.select().from(runs).where(eq(runs.session_id, run));
-  assert.equal(s.stage, "pr", "a late stage report does not move the stage back");
+  assert.equal(s.stage, "ready", "a late stage report does not move the phase back");
   assert.equal(s.stage_summary, "opened", "a late stage report keeps the newer summary");
   assert.equal(s.pr_url, "https://github.com/x/y/pull/1");
   assert.equal(s.job_key, key, "the stage report's job key fills a run that had none");
-  await ingest(db, [ev(17, { kind: "stage", at: t0 + 30_500, stage: "triage", summary: "s", jobKey: otherKey, branch: `factory/${otherKey}-a2`, sessionId: `${run}-b` })]);
+  await ingest(db, [ev(17, { kind: "stage", at: t0 + 30_500, stage: "building", summary: "s", jobKey: otherKey, branch: `factory/${otherKey}-a2`, sessionId: `${run}-b` })]);
   const [b] = await db.select().from(runs).where(eq(runs.session_id, `${run}-b`));
   assert.equal(b.branch, `factory/${otherKey}-a2`, "a run first seen through a stage report keeps its branch");
   assert.equal(s.status, "idle", "stage reports leave the status alone");
@@ -84,25 +84,19 @@ try {
   ]);
   assert.equal(stopped.spend[`factory/${key}`], running.spend[`factory/${key}`], "its SubagentStop does not count it twice");
 
-  await ingest(db, [
-    ev(11, { kind: "stage", at: t0 + 50_000, stage: "waiting", summary: "blocked", question: "Which breakpoint?" }),
-  ]);
-  const [w] = await db.select().from(runs).where(eq(runs.session_id, run));
-  assert.equal(w.question, "Which breakpoint?");
-  assert.equal(w.pr_url, "https://github.com/x/y/pull/1", "a later stage without a PR keeps the PR link");
 
   const allowed = await ingest(db, [
     ev(12, { kind: "session_start", at: t0 + 60_000, cwd: "/tmp/x", branch: `factory/${jobKey}`, t3ThreadId: "thread-1" }),
-    ev(13, { kind: "stage", at: t0 + 62_000, stage: "pr", summary: "opened", prUrl: "https://github.com/x/y/pull/2", jobKey }),
+    { ...ev(13, { kind: "stage", at: t0 + 62_000, stage: "ready", summary: "opened", prUrl: "https://github.com/x/y/pull/2", jobKey }), eventId: `inferred:${run}-13` },
   ]);
   const moved = await jobRow();
-  assert.equal(moved.stage, "pr", "a stage event with jobKey moves the jobs row");
+  assert.equal(moved.stage, "ready", "runner publication moves the jobs row");
   assert.deepEqual(allowed.refused, [], "an allowed stage event is not reported as refused");
-  assert.equal((await eventRow(13)).refusal, null, "and its stored event carries no refusal");
-  assert.equal((await runRow()).stage, "pr", "and the run takes the stage too");
-  assert.equal(moved.stage_event_id, `${run}-13`, "the job remembers the event its stage came from");
+  assert.equal((await eventRow(`inferred:${run}-13`)).refusal, null);
+  assert.equal((await runRow()).stage, "ready");
+  assert.equal(moved.stage_event_id, `inferred:${run}-13`);
   await ingest(db, [
-    ev(14, { kind: "stage", at: t0 + 61_000, stage: "implementing", summary: "late", jobKey }),
+    ev(14, { kind: "stage", at: t0 + 61_000, stage: "building", summary: "late", jobKey }),
   ]);
   await db.update(jobs).set({ attempt: 2 }).where(eq(jobs.key, jobKey));
   await ingest(db, [
@@ -110,33 +104,33 @@ try {
     ev(16, { kind: "session_start", at: t0 + 63_500, cwd: "/tmp/x", branch: `factory/${jobKey}`, t3ThreadId: "old" }),
   ]);
   const kept = await jobRow();
-  assert.equal(kept.stage, "pr", "a report from an earlier attempt's branch does not move the retry");
+  assert.equal(kept.stage, "ready", "an earlier attempt cannot move the retry");
   assert.equal(kept.t3_thread_id, "thread-1", "nor does its session start");
   await db.update(jobs).set({ attempt: 1, stage: "failed" }).where(eq(jobs.key, jobKey));
   const failed = await jobRow();
   const runBefore = await runRow();
   const refused = await ingest(db, [
-    ev(18, { kind: "stage", at: t0 + 64_000, stage: "pr", summary: "late", jobKey, branch: `factory/${jobKey}` }),
+    ev(18, { kind: "stage", at: t0 + 64_000, stage: "ready", summary: "late", jobKey, branch: `factory/${jobKey}` }),
     { ...ev(19, { kind: "stage", at: t0 + 65_000, stage: "queued", summary: "resumed", jobKey }), eventId: `resume:${run}:c-1` },
-    { ...ev(23, { kind: "stage", at: t0 + 66_000, stage: "implementing", summary: "conflict", jobKey }), eventId: `conflict:${run}:h1` },
+    { ...ev(23, { kind: "stage", at: t0 + 66_000, stage: "building", summary: "conflict", jobKey }), eventId: `conflict:${run}:h1` },
   ]);
   assert.deepEqual(await jobRow(), failed, "a stage after failed, without a reclaim, leaves the row unchanged");
   assert.deepEqual(await runRow(), runBefore, "a refused stage event leaves the run's stage unchanged too");
   assert.deepEqual(
     refused.refused,
     [
-      { eventId: `${run}-18`, reason: "failed -> pr (report) is not in STAGE_TRANSITIONS" },
+      { eventId: `${run}-18`, reason: "failed -> ready (report) is not in STAGE_TRANSITIONS" },
       { eventId: `resume:${run}:c-1`, reason: "failed -> queued (resume) is not in STAGE_TRANSITIONS" },
-      { eventId: `conflict:${run}:h1`, reason: "failed -> implementing (conflict) is not in STAGE_TRANSITIONS" },
+      { eventId: `conflict:${run}:h1`, reason: "failed -> building (conflict) is not in STAGE_TRANSITIONS" },
     ],
     "the ingest response lists each refused event with its reason",
   );
-  assert.equal((await eventRow(18)).refusal, "failed -> pr (report) is not in STAGE_TRANSITIONS", "the stored event is marked refused");
+  assert.equal((await eventRow(18)).refusal, "failed -> ready (report) is not in STAGE_TRANSITIONS");
   assert.equal((await eventRow(`resume:${run}:c-1`)).refusal, "failed -> queued (resume) is not in STAGE_TRANSITIONS");
   await ingest(db, [
-    { ...ev(24, { kind: "stage", at: t0 + 67_000, stage: "merged", summary: "Merged", prUrl: "https://github.com/x/y/pull/2", jobKey }), eventId: `merged:https://github.com/x/y/pull/2:${run}` },
+    { ...ev(24, { kind: "stage", at: t0 + 67_000, stage: "done", summary: "Merged", prUrl: "https://github.com/x/y/pull/2", jobKey }), eventId: `merged:https://github.com/x/y/pull/2:${run}` },
   ]);
-  assert.equal((await jobRow()).stage, "merged", "a PR a human merged after the attempt failed still marks the job merged");
+  assert.equal((await jobRow()).stage, "done", "confirmed human merge ends a failed attempt");
   const merged = await jobRow();
   await ingest(db, [{ ...ev(25, { kind: "stage", at: t0 + 68_000, stage: "failed", summary: "late", jobKey }), eventId: `watchdog:${run}:1:x` }]);
   assert.deepEqual(await jobRow(), merged, "merged is final");
@@ -146,7 +140,23 @@ try {
   assert.equal(i.t3_thread_id, "thread-1", "session_start on the job branch links the T3 thread");
   assert.equal(i.session_id, run);
 
-  const old = eventSchema.safeParse({ sessionId: run, eventId: `${run}-old`, kind: "stage", at: t0, stage: "triage", summary: "s", issueKey: jobKey });
+  await db.update(jobs).set({ stage: "building", stop: null, attempt: 1, updated_at: new Date(t0), builder_handoff: null }).where(eq(jobs.key, jobKey));
+  const report = (n: number, body: Record<string, unknown>) => ev(n, { kind: "builder_report", at: t0 + 70_000 + n, jobKey, branch: `factory/${jobKey}`, action: "progress", summary: "Working", ...body });
+  await ingest(db, [report(30, { action: "needs_human", question: "Which API?" }), report(31, { summary: "Investigated options" })]);
+  assert.equal((await jobRow()).stage, "building", "builder progress never chooses phase");
+  assert.equal((await jobRow()).attention?.action, "Which API?", "progress preserves owner intervention");
+  const sha = "a".repeat(40);
+  const invalid = await ingest(db, [report(32, { action: "handoff", sha, evidenceEventId: "missing" })]);
+  assert.equal(invalid.refused.length, 1, "handoff requires persisted exact evidence");
+  await ingest(db, [ev(33, { kind: "evidence", at: t0 + 70_033, jobKey, attempt: 1, repo: "ski043/factory-demo", sha, clean: true, producer: "agent", source: "none", checks: [] })]);
+  const wrong = await ingest(db, [report(34, { sessionId: "wrong-builder", action: "handoff", sha, evidenceEventId: `${run}-33` })]);
+  assert.equal(wrong.refused.length, 1, "another session cannot hand off builder work");
+  await ingest(db, [report(35, { action: "handoff", sha, evidenceEventId: `${run}-33` })]);
+  const handed = await jobRow();
+  assert.equal(handed.builder_handoff?.sha, sha);
+  assert.equal(handed.attention, null, "verified handoff resolves builder attention");
+  assert.equal(handed.stage, "building", "runner decides when review starts");
+  const old = eventSchema.safeParse({ sessionId: run, eventId: `${run}-old`, kind: "stage", at: t0, stage: "building", summary: "s", issueKey: jobKey });
   assert.equal(old.success, false, "a stage event with the old issueKey field is refused");
   assert.match(JSON.stringify(old.error?.issues), /issueKey was renamed to jobKey/, "and the error names jobKey");
 
@@ -155,6 +165,7 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
+  await db.delete(jobEvidence).where(eq(jobEvidence.job_key, jobKey));
   await db.delete(jobs).where(eq(jobs.external_id, run));
   await db.delete(agents).where(eq(agents.session_id, run));
   await db.delete(runs).where(inArray(runs.session_id, [run, `${run}-b`]));

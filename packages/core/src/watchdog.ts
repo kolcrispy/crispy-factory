@@ -56,6 +56,6 @@ export function nudgeMessage(key: string, stage: Stage, idleMinutes: number, pla
   return [
     `Watchdog: factory run ${key} has made no progress for ${idleMinutes} minutes in stage ${stage}.`,
     "",
-    `Continue the factory playbook (${playbook}) where you left off. Call report_stage with your current stage now. If you are blocked, report waiting with a concrete question. If you cannot continue, report failed with the reason.`,
+    `Continue the factory playbook (${playbook}) where you left off. Use report_work progress now, needs_human with an actionable question if blocked, or handoff with verified sha and evidenceEventId when complete.`,
   ].join("\n");
 }

@@ -3,7 +3,7 @@ import { z } from "zod";
 // A stop ends in a verified state, not just a delivered message. Pure, so the runner, the panel,
 // the inbox and the regressions share the rules; runner/stops.ts drives it.
 //
-//   requested    recorded with the job's failure; nothing has reached the thread yet
+//   requested    recorded without changing phase; nothing has reached the thread yet
 //   delivered    the stop message reached the bound thread, or the job's sandbox is being ended
 //   escalated    the thread or one of its subagent threads still ran after the grace, so the runner
 //                asked T3 to interrupt them

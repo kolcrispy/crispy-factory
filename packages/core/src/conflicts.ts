@@ -12,7 +12,7 @@ export async function claimConflict(db: NodePgDatabase<typeof schema>, id: JobId
     .where(
       and(
         eq(jobs.id, id),
-        eq(jobs.stage, "pr"),
+        eq(jobs.stage, "ready"),
         or(isNull(jobs.conflict_head), ne(jobs.conflict_head, head)),
       ),
     )
@@ -29,7 +29,7 @@ export function unclaimedRunsWithPr(db: NodePgDatabase<typeof schema>) {
       and(
         isNotNull(runs.pr_url),
         isNotNull(runs.job_key),
-        or(isNull(runs.stage), ne(runs.stage, "merged")),
+        or(isNull(runs.stage), ne(runs.stage, "done")),
         notInArray(runs.job_key, db.select({ key: jobs.key }).from(jobs)),
       ),
     );
@@ -42,7 +42,7 @@ export function conflictMessage(key: string, prUrl: string, playbook: string) {
     `Bring the branch up to date and get the PR green again. Follow the merge-conflict section of the factory playbook (${playbook}):`,
     "1. `git fetch origin` and `git merge origin/main` into this branch. Do not rebase and do not force-push.",
     "2. Resolve every conflict so that both main's change and yours keep working. Then run lint, typecheck, tests and build.",
-    "3. Commit the merge, push, wait for CI and review bots, and call report_stage with stage pr and the PR URL again.",
-    "If you cannot tell how the two changes should combine, report waiting with a concrete question instead of guessing.",
+    "3. Commit the merge, run factory-verify --json, and call report_work handoff with its exact sha and eventId as evidenceEventId. The runner reviews and republishes.",
+    "If you cannot tell how the changes should combine, report_work needs_human with a concrete question instead of guessing.",
   ].join("\n");
 }

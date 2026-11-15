@@ -32,6 +32,7 @@ export function startReportServer(url: string, secret: string) {
       }
       const parsed = ingestBodySchema.safeParse(await request.json().catch(() => undefined));
       if (!parsed.success) return Response.json({ error: "invalid body" }, { status: 400 });
+      if (parsed.data.some(event => event.kind === "stage")) return Response.json({ error: "Job phases are runner-owned; use builder_report." }, { status: 400 });
       try {
         return Response.json(await ingest(db, parsed.data));
       } catch {

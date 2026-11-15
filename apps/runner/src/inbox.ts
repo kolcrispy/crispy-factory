@@ -32,14 +32,15 @@ const readJob = async (id: JobId) => {
 
 /** Where the feedback goes: a PR goes back to implementing, a thread already at work only hears it. */
 function changesMode(job: Job): "move" | "send" | null {
-  if (job.stage === "pr") return "move";
+  if (job.attention) return null;
+  if (job.stage === "ready") return "move";
   if (IN_FLIGHT.includes(job.stage)) return "send";
   return null;
 }
 
 async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResult | Waiting> {
   if (job.delivered_feedback_ids.includes(feedback.id)) return { skipped: "already sent" };
-  if (job.stage === "merged" || job.stage === "failed") return { refused: `The job is ${job.stage}, so there is no work to change.` };
+  if (job.stage === "done" || job.stage === "failed") return { refused: `The job is ${job.stage}, so there is no work to change.` };
   if (!job.pr_url) return { waiting: "the job has no pull request yet" };
   const mode = changesMode(job);
   if (!mode) return { waiting: `the job is ${job.stage}` };
@@ -53,13 +54,14 @@ async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResul
   const claimed = await db
     .update(jobs)
     .set({ delivered_feedback_ids: sql`${jobs.delivered_feedback_ids} || ${JSON.stringify([feedback.id])}::jsonb`, updated_at: new Date(),
+      builder_handoff: null,
       ...(job.attempt_review?.policy.enabled ? { attempt_review: { ...job.attempt_review, state: "repairing" as const, automaticRepairs: 2, delivery: undefined } } : {}),
     })
     .where(and(eq(jobs.id, job.id), eq(jobs.stage, job.stage), sql`not (${jobs.delivered_feedback_ids} ? ${feedback.id})`))
     .returning({ key: jobs.key });
   if (claimed.length === 0) return { skipped: "already sent, or the job moved on" };
   try {
-    await threads.send(job.t3_thread_id!, `${changesMessage({ prUrl: job.pr_url, feedback, comments })}${job.attempt_review?.policy.enabled ? "\nIndependent review remains required: implement, test, commit, report verifying, and stop. Do not self-review, push, or publish; runner updates the reviewed PR after fresh PASS." : ""}`, host);
+    await threads.send(job.t3_thread_id!, changesMessage({ prUrl: job.pr_url, feedback, comments }), host);
   } catch (error) {
     await db
       .update(jobs)
@@ -75,7 +77,7 @@ async function deliver(job: Job, feedback: FeedbackDetail): Promise<ChangesResul
     sessionId: job.session_id ?? runnerEventId("changes", job.external_id),
     at: Date.now(),
     kind: "stage",
-    stage: "implementing",
+    stage: "building",
     summary: `${who} requested changes on ${job.pr_url}; the thread is updating it.`,
     jobKey: job.key,
   });
@@ -171,11 +173,8 @@ export async function closeJob(id: JobId, { actor, reason }: CloseDetail, now = 
     const [stopped] = await db
       .update(jobs)
       .set({
-        stage: "failed",
-        stage_at: now,
         stage_summary: summary,
         question: null,
-        stage_event_id: eventId,
         stop_event_id: eventId,
         stop: requestedStop({ at: now, by: actor, reason: summary, reopen: false }),
         dismissed_at: now,
@@ -202,6 +201,7 @@ export async function retryJob(id: JobId, { actor, attempt, note }: RetryDetail)
   const [started] = await db.update(jobs).set({
     attempt: next, previous_failure: job.stage_summary, stage: "queued", stage_at: null,
     stage_summary: null, question: null, pr_url: null, stage_event_id: null, synced_event_id: null,
+    attention: null, builder_handoff: null,
     t3_thread_id: null, machine_id: null, provider: null, model: null,
     attempt_review: null,
     review_history: job.attempt_review ? [...job.review_history, job.attempt_review] : job.review_history,

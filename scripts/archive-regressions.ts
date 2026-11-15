@@ -18,7 +18,7 @@ const { panelCards } = await import("../apps/dashboard/components/panel/cards");
 
 // --- the rules, pure
 const T = (minutes: number) => new Date(1_800_000_000_000 + minutes * 60_000);
-const fake = (over: Partial<JobRow>) => ({ stage: "merged", stage_at: T(0), updated_at: T(0), archived_at: null, stop: null, dismissed_at: null, ...over }) as JobRow;
+const fake = (over: Partial<JobRow>) => ({ stage: "done", stage_at: T(0), updated_at: T(0), archived_at: null, stop: null, dismissed_at: null, ...over }) as JobRow;
 assert.equal(isArchived(fake({ archived_at: T(1) })), true);
 assert.equal(isArchived(fake({ stage: "failed", archived_at: T(0) })), true, "an archive at the stage's own time counts");
 assert.equal(isArchived(fake({ archived_at: null })), false);
@@ -38,7 +38,7 @@ const revertFailed: MergeDecision = {
 assert.equal(isArchived(fake({ archived_at: T(1), merge_decision: revertFailed })), false, "a revert that failed after the archive shows again");
 assert.match(archiveRefusal(fake({ merge_decision: revertFailed })) ?? "", /revert failed/, "a failed revert is resolved in the inbox, not archived");
 assert.equal(isArchived(fake({ archived_at: T(1), merge_decision: { ...revertFailed, watch: { state: "green", until: T(60).toISOString(), failed: [], revertPr: null, reason: null } } })), true, "a merge whose watch passed stays archived");
-for (const stage of ["queued", "triage", "investigating", "implementing", "verifying", "pr", "waiting"] as const) {
+for (const stage of ["queued", "building", "reviewing", "ready"] as const) {
   assert.equal(archiveRefusal(fake({ stage })), "Only merged or failed jobs can be archived.", `a job in ${stage} is not archived`);
 }
 assert.equal(archiveRefusal(fake({ stage: "failed" })), null);
@@ -51,11 +51,11 @@ await db.delete(runs).where(like(runs.session_id, "archive-regress-%"));
 await db.delete(jobs).where(like(jobs.key, "ARCH-%"));
 const past = new Date(Date.now() - 60_000);
 await db.insert(jobs).values([
-  internalJob("archive-regress-merged", KEYS.merged, { stage: "merged", stage_at: past, pr_url: "https://github.com/o/r/pull/1" }),
+  internalJob("archive-regress-merged", KEYS.merged, { stage: "done", stage_at: past, pr_url: "https://github.com/o/r/pull/1" }),
   internalJob("archive-regress-failed", KEYS.failed, { stage: "failed", stage_at: past }),
-  internalJob("archive-regress-working", KEYS.working, { stage: "implementing", stage_at: past }),
-  internalJob("archive-regress-pr", KEYS.pr, { stage: "pr", stage_at: past, pr_url: "https://github.com/o/r/pull/2" }),
-  internalJob("archive-regress-waiting", KEYS.waiting, { stage: "waiting", stage_at: past, question: "Which one?" }),
+  internalJob("archive-regress-working", KEYS.working, { stage: "building", stage_at: past }),
+  internalJob("archive-regress-pr", KEYS.pr, { stage: "ready", stage_at: past, pr_url: "https://github.com/o/r/pull/2" }),
+  internalJob("archive-regress-waiting", KEYS.waiting, { stage: "building", stage_at: past, question: "Which one?", attention: { eventId: "archive-question", at: past.getTime(), reason: "Clarification", action: "Which one?" } }),
   internalJob("archive-regress-stopping", KEYS.stopping, { stage: "failed", stage_at: past, stop: requestedStop({ at: past, by: OWNER, reason: "r", reopen: false }) }),
 ]);
 // A staged run of the failed job, which must not come back as a run the factory never claimed.
@@ -102,7 +102,7 @@ assert.deepEqual(await audits(), []);
 
 assert.deepEqual(await archiveJobs(deps(), [ids.merged, ids.failed, ids.merged]), { ok: true, message: "Archived 2 jobs." });
 const archivedRows = (await rows()).filter((j) => j.archived_at);
-assert.deepEqual(archivedRows.map((j) => [j.key, j.archived_by, j.stage]).sort(), [[KEYS.failed, OWNER, "failed"], [KEYS.merged, OWNER, "merged"]], "only the archive columns change");
+assert.deepEqual(archivedRows.map((j) => [j.key, j.archived_by, j.stage]).sort(), [[KEYS.failed, OWNER, "failed"], [KEYS.merged, OWNER, "done"]], "only archive columns change");
 assert.deepEqual(
   (await audits()).map((a) => [a.action, a.actor, a.target, a.result]).sort(),
   [["job_archived", OWNER, `/jobs/${KEYS.failed}`, "ok"], ["job_archived", OWNER, "https://github.com/o/r/pull/1", "ok"]],

@@ -7,7 +7,7 @@ import { isStopPending, parseStop, stopNeedsOwner } from "./stop";
 // view only: the runner, ingest, the source and GitHub never read it. Pure, so the panel, the
 // actions and the regressions share the rules.
 
-export const FINISHED_STAGES = ["merged", "failed"] as const satisfies readonly Stage[];
+export const FINISHED_STAGES = ["done", "failed"] as const satisfies readonly Stage[];
 
 export const isFinished = (stage: Stage) => (FINISHED_STAGES as readonly Stage[]).includes(stage);
 

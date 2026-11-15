@@ -116,7 +116,7 @@ const runRow = async () => (await db.select().from(runs).where(eq(runs.session_i
 const agentRows = async () => db.select().from(agents).where(eq(agents.session_id, SESSION));
 
 try {
-  await db.insert(jobs).values(internalJob(`codex-usage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, provider: "codex", model: "gpt-6.1-sol", stage: "pr" }));
+  await db.insert(jobs).values(internalJob(`codex-usage-${KEY}`, KEY, { machine_id: TEST_MACHINE_ID, provider: "codex", model: "gpt-6.1-sol", stage: "ready" }));
   // The MCP server's session_start: the run, its worktree and branch, no usage.
   await ingest(db, [eventSchema.parse({ kind: "session_start", eventId: `mcp-start:${SESSION}`, sessionId: SESSION, at: RUN_START, cwd: WORKTREE, branch: `factory/${KEY}` })]);
   await db.update(runs).set({ last_event_at: new Date() }).where(eq(runs.session_id, SESSION));
@@ -167,12 +167,12 @@ try {
   // Late usage remains measurable after the local job finishes.
   const total = { input_tokens: 50_000, cached_input_tokens: 30_000, cache_write_input_tokens: 1000, output_tokens: 4000, reasoning_output_tokens: 2000, total_tokens: 54_000 };
   appendFileSync(rootFile, `${JSON.stringify({ timestamp: "2026-10-27T10:30:00.000Z", type: "event_msg", payload: { type: "token_count", info: { total_token_usage: total } } })}\n`);
-  await db.update(jobs).set({ stage: "merged" }).where(eq(jobs.key, KEY));
+  await db.update(jobs).set({ stage: "done" }).where(eq(jobs.key, KEY));
   await reconcileUsage({ only: [KEY] });
   const final = await runRow();
   assert.deepEqual([final.input_tokens, final.output_tokens, final.cache_read_tokens], [19_000, 4000, 30_000], "late usage is recorded after merge");
   // Spend is measured, never capped: an expensive attempt keeps working and its cost is recorded.
-  for (const k of [OVER, UNPRICED]) await db.insert(jobs).values(internalJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "implementing" }));
+  for (const k of [OVER, UNPRICED]) await db.insert(jobs).values(internalJob(`codex-usage-${k}`, k, { machine_id: TEST_MACHINE_ID, provider: "codex", stage: "building" }));
   await db.insert(runs).values({ ...usageRun(OVER, "gpt-6-astra", { output: 1_000_000 }), session_id: `mcp:factory/${OVER}` });
   await db.insert(runs).values({ ...usageRun(UNPRICED, "gpt-9-nova", { output: 1_000_000 }), session_id: `mcp:factory/${UNPRICED}` });
   assert.ok(!("enforceBudget" in ops), "the runner has no budget pass");
@@ -180,7 +180,7 @@ try {
   assert.equal(spent[`factory/${OVER}`]?.known, true);
   assert.equal(spent[`factory/${OVER}`]!.usd.toFixed(2), "50.15", "a $50 attempt's cost is recorded");
   assert.equal(spent[`factory/${UNPRICED}`]?.known, false, "an unpriced model's cost is unknown");
-  assert.equal((await jobRow(OVER)).stage, "implementing", "and nothing fails it for what it spent");
+  assert.equal((await jobRow(OVER)).stage, "building", "spend never fails work");
   config.factory.pricing = { "gpt-9-nova": { input: 1, output: 10, cacheRead: 0.1, cacheWrite: 1 } };
   assert.equal((await branchCosts(db, [`factory/${UNPRICED}`], config.factory.pricing))[`factory/${UNPRICED}`]?.known, true, "factory.pricing prices it");
   config.factory.pricing = {};

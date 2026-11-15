@@ -15,9 +15,9 @@ const { events, jobs, runs } = await import("@factory/storage/schema");
 const { internalJob } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
-const { ingestBodySchema } = await import("@factory/core/events");
+const { eventSchema, ingestBodySchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
-const { REPORT_STAGE_TOOL } = await import("@factory/core/factory");
+const { REPORT_WORK_TOOL } = await import("@factory/core/factory");
 const { appendEvent, flushOutbox, localFs, outboxDir, rejectedDir } = await import("@factory/core/outbox");
 const { mcpIdentity, mcpPosts } = await import("@factory/core/report-identity");
 const { boardCards, harnessLine } = await import("../apps/dashboard/components/panel/cards");
@@ -35,12 +35,12 @@ const pending = (state: string) => (existsSync(outboxDir(state)) ? readdirSync(o
 async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = key(name);
   keys.push(k);
-  await db.insert(jobs).values(internalJob(`outbox-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "queued", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
+  await db.insert(jobs).values(internalJob(`outbox-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "building", provider: "codex", t3_thread_id: `thread-${k}`, updated_at: hourAgo, ...over }));
   return k;
 }
 
 const stageEvent = (k: string, eventId: string, over: Record<string, unknown> = {}) =>
-  ({ eventId, sessionId: `mcp:factory/${k}`, at: Date.now(), kind: "stage", stage: "implementing", summary: "Building it.", jobKey: k, branch: `factory/${k}`, ...over }) as FactoryEvent;
+  ({ eventId, sessionId: `mcp:factory/${k}`, at: Date.now(), kind: "builder_report", action: "progress", summary: "Building it.", jobKey: k, branch: `factory/${k}`, ...over }) as FactoryEvent;
 
 // A local stand-in for the deployed ingest function: same auth, same body schema, same projection.
 const SECRET = "test-secret";
@@ -68,7 +68,7 @@ async function mcp(env: Record<string, string>, cwd = dir) {
   await client.connect(new StdioClientTransport({ command: "bun", args: [join(import.meta.dirname, "../packages/reporting/src/mcp/factory-report.ts")], env: childEnv(env), cwd, stderr: "ignore" }));
   return {
     report: async (args: Record<string, unknown>) => {
-      const result = (await client.callTool({ name: "report_stage", arguments: args })) as { content: { text: string }[] };
+      const result = (await client.callTool({ name: "report_work", arguments: args })) as { content: { text: string }[] };
       return result.content[0]!.text;
     },
     close: () => client.close(),
@@ -148,7 +148,7 @@ try {
     assert.ok(warnings.some((w) => /undelivered events/.test(w)), "past the high-water mark every append warns");
     assert.ok(warnings.some((w) => /dropped 1 undelivered/.test(w)), "and a drop is never silent");
     const droppedLog = readFileSync(join(capped, "outbox-dropped.log"), "utf8");
-    assert.ok(/stage c1/.test(droppedLog) && /stage c2/.test(droppedLog), "each dropped event is logged by id and kind");
+    assert.ok(/builder_report c1/.test(droppedLog) && /builder_report c2/.test(droppedLog), "each dropped event is logged by id and kind");
   }
 
   // Who the MCP server reports for.
@@ -167,38 +167,30 @@ try {
   const session = `mcp:factory/${CODEX}`;
   const first = await mcp(codexEnv);
   ingestDown = true;
-  assert.match(await first.report({ stage: "triage", summary: "Reading the issue." }), /queued and will be delivered later/);
+  assert.match(await first.report({ action: "progress", summary: "Reading the issue." }), /queued for later delivery/);
   assert.equal(pending(state).length, 2, "the run's opening and the stage wait in the outbox");
-  assert.equal((await row(CODEX)).stage, "queued", "nothing reached ingest");
+  assert.equal((await row(CODEX)).stage, "building", "nothing reached ingest");
   ingestDown = false;
   received.length = 0;
-  assert.equal(await first.report({ stage: "implementing", summary: "Adding the flag." }), "Recorded stage implementing.");
+  assert.match(await first.report({ action: "progress", summary: "Adding the flag." }), /^Recorded progress\./);
   assert.equal(pending(state).length, 0, "the next call delivered the backlog and its own event");
   assert.equal(received.length, 1, "in one batch");
   assert.deepEqual(received[0]!.slice(0, 1), [`mcp-start:${session}`], "oldest first: the opening, then triage, then implementing");
   let job = await row(CODEX);
-  assert.deepEqual([job.stage, job.stage_summary, job.session_id], ["implementing", "Adding the flag.", session], "the job moves and links the server's session");
-  const stagesOf = async (k: string) => (await db.select().from(events).where(eq(events.job_key, k))).filter((e) => e.kind === "stage").map((e) => (e.payload as { stage: string }).stage);
-  assert.deepEqual((await stagesOf(CODEX)).sort(), ["implementing", "triage"]);
+  assert.deepEqual([job.stage, job.stage_summary, job.session_id], ["building", "Adding the flag.", session], "progress preserves runner phase and links session");
+  const stagesOf = async (k: string) => (await db.select().from(events).where(eq(events.job_key, k))).map(e => eventSchema.parse(e.payload)).filter(e => e.kind === "builder_report").map(e => e.action);
+  assert.deepEqual(await stagesOf(CODEX), ["progress", "progress"]);
   const [run] = await db.select().from(runs).where(eq(runs.session_id, session));
-  assert.deepEqual([run!.job_key, run!.branch, run!.repo, run!.stage], [CODEX, `factory/${CODEX}`, "factory-demo", "implementing"], "a tracked run for the attempt");
+  assert.deepEqual([run!.job_key, run!.branch, run!.repo], [CODEX, `factory/${CODEX}`, "factory-demo"], "run retains attempt identity");
 
-  const prUrl = `https://github.com/ski043/factory-demo/pull/${stamp}`;
-  const prReply = await first.report({ stage: "pr", summary: "PR is up.", prUrl, assessment });
-  assert.match(prReply, /^Recorded stage pr\. Prove the pushed commit with `bun (?:[A-Za-z]:)?[\/\\]\S+[\/\\]hooks[\/\\]verify\.ts` \(factory-verify\)/, "pr and verifying name this checkout's factory-verify");
-  job = await row(CODEX);
-  assert.deepEqual([job.stage, job.pr_url, job.merge_assessment?.recommendation], ["pr", prUrl, "handover"], "the PR URL and the merge assessment land like Claude's");
-  assert.deepEqual(job.merge_assessment?.confidence, { confident: false, reason: "Proven: n" }, "stored in the current shape");
-  const runsOf = await db.select().from(runs).where(eq(runs.job_key, CODEX));
-  assert.equal(harnessLine(boardCards([job], runsOf)[0]!.harness!), "Codex · cost unknown", "the card shows stages, and no cost before the runner reads its usage");
   await first.close();
 
   // A restarted server opens the same run once and goes on.
   const second = await mcp(codexEnv);
-  assert.equal(await second.report({ stage: "waiting", summary: "Need a decision.", question: "Which API version?" }), "Recorded stage waiting.");
+  assert.equal(await second.report({ action: "needs_human", summary: "Need a decision.", question: "Which API version?" }), "Recorded needs_human.");
   await second.close();
   job = await row(CODEX);
-  assert.deepEqual([job.stage, job.question], ["waiting", "Which API version?"]);
+  assert.deepEqual([job.stage, job.question, job.attention?.reason], ["building", "Which API version?", "Need a decision."]);
   const opened = await db.select().from(events).where(eq(events.event_id, `mcp-start:${session}`));
   assert.equal(opened.length, 1, "one opening across server restarts");
 
@@ -209,33 +201,34 @@ try {
   const again = await flushOutbox(localFs, state, async (batch) => ({ kind: "delivered", spend: (await ingest(db, batch)).spend }), { budgetMs: 5_000 });
   assert.equal(again.delivered, 1);
   assert.equal((await db.select().from(events).where(eq(events.job_key, CODEX))).length, before, "ingest stores each eventId once");
-  assert.equal((await row(CODEX)).stage, "waiting");
+  assert.equal((await row(CODEX)).stage, "building");
 
   // Claude Code: its hooks report, the server only validates, so a stage lands once.
   const CLAUDE = await insert("CLAUDE", { provider: "claudeAgent" });
   const repo = gitRepo(`factory/${CLAUDE}`);
   for (const env of [{ CLAUDECODE: "1" }, { FACTORY_REPORTER: "hook" }] as Record<string, string>[]) {
     const quiet = await mcp(env, repo);
-    assert.equal(await quiet.report({ stage: "triage", summary: "Reading." }), "Recorded stage triage.");
+    assert.match(await quiet.report({ action: "progress", summary: "Reading." }), /^Recorded progress\./);
     await quiet.close();
   }
   assert.equal(pending(state).length, 0, "the server under Claude Code queues nothing");
   assert.deepEqual(await stagesOf(CLAUDE), [], "and posts nothing");
-  const post = { hook_event_name: "PostToolUse", session_id: `claude-${CLAUDE}`, cwd: repo, tool_name: REPORT_STAGE_TOOL, tool_use_id: "tu-1", tool_input: { stage: "triage", summary: "Reading." } };
+  const post = { hook_event_name: "PostToolUse", session_id: `claude-${CLAUDE}`, cwd: repo, tool_name: REPORT_WORK_TOOL, tool_use_id: "tu-1", tool_input: { action: "progress", summary: "Reading." } };
+  await runHook({ hook_event_name: "SessionStart", session_id: `claude-${CLAUDE}`, cwd: repo, source: "startup" });
   await runHook(post);
   await runHook(post);
-  assert.deepEqual(await stagesOf(CLAUDE), ["triage"], "the hook's report lands once, however often it fires");
+  assert.deepEqual(await stagesOf(CLAUDE), ["progress"], "the hook's report lands once, however often it fires");
   assert.deepEqual((await db.select().from(runs).where(eq(runs.job_key, CLAUDE))).map((r) => r.session_id), [`claude-${CLAUDE}`], "no second run from the MCP server");
 
   // The hook queues while ingest is down and the next hook call, even one with no event, delivers it.
   ingestDown = true;
-  await runHook({ ...post, tool_use_id: "tu-2", tool_input: { stage: "implementing", summary: "Building." } });
+  await runHook({ ...post, tool_use_id: "tu-2", tool_input: { action: "progress", summary: "Building." } });
   assert.equal(pending(state).length, 1, "a failed POST leaves the hook's event in the outbox");
-  assert.equal((await row(CLAUDE)).stage, "triage");
+  assert.equal((await row(CLAUDE)).stage_summary, "Reading.");
   ingestDown = false;
   await runHook({ hook_event_name: "PreToolUse", session_id: `claude-${CLAUDE}`, cwd: repo, tool_name: "Bash", tool_input: {} });
   assert.equal(pending(state).length, 0);
-  assert.equal((await row(CLAUDE)).stage, "implementing", "delivered by the next hook");
+  assert.equal((await row(CLAUDE)).stage_summary, "Building.", "delivered by the next hook");
 
   // Runner reconciliation delivers durable local reports without sandbox lifecycle dependencies.
   const runnerState = join(dir, "runner-state");
@@ -245,15 +238,16 @@ try {
   try {
     const LOCAL = await insert("LOCAL", {});
     const queued = stageEvent(LOCAL, `abc${stamp}runner`);
+    await db.update(jobs).set({ session_id: queued.sessionId }).where(eq(jobs.key, LOCAL));
     appendEvent(runnerState, queued);
     outboxClient.send = async () => ({ kind: "failed", reason: "loopback unavailable" });
     const offline = await flushLocalOutbox();
     assert.equal(offline?.left, 1, "an unavailable report endpoint preserves the durable event");
-    assert.equal((await row(LOCAL)).stage, "queued");
+    assert.equal((await row(LOCAL)).stage_summary, null);
     outboxClient.send = async (batch) => ({ kind: "delivered", spend: (await ingest(db, batch)).spend });
     const delivered = await flushLocalOutbox();
     assert.equal(delivered?.delivered, 1);
-    assert.equal((await row(LOCAL)).stage, "implementing", "the next reconciliation delivers the report");
+    assert.equal((await row(LOCAL)).stage_summary, "Building it.", "the next reconciliation delivers the report");
     assert.deepEqual(pending(runnerState), []);
     assert.equal((await flushLocalOutbox())?.delivered, 0, "acknowledged reports are never sent again");
   } finally {

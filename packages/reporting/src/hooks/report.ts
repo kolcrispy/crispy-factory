@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { stageReportSchema, type FactoryEvent, type Usage } from "@factory/core/events";
-import { parseBranch, REPORT_STAGE_TOOL } from "@factory/core/factory";
+import { builderReportSchema, type FactoryEvent, type Usage } from "@factory/core/events";
+import { parseBranch, REPORT_WORK_TOOL } from "@factory/core/factory";
 import { localHost } from "@factory/core/host";
 import { readIngestTarget, reportEvents } from "@factory/core/outbox";
 import { screenshotEvents, unreadable } from "@factory/core/screenshot-files";
@@ -185,13 +185,14 @@ async function toEvent(
       };
     }
     case "PostToolUse": {
-      if (input.tool_name === REPORT_STAGE_TOOL) {
-        const report = stageReportSchema.safeParse(input.tool_input);
+      if (input.tool_name === REPORT_WORK_TOOL) {
+        const report = builderReportSchema.safeParse(input.tool_input);
         // The MCP tool refused a report whose screenshots it couldn't read, so it reports nothing either.
         if (!report.success || unreadable(report.data.assessment?.screenshots ?? []).length > 0) return undefined;
         const git = await gitContext(str(input.cwd) ?? process.cwd());
         const jobKey = parseBranch(git.branch)?.key;
-        const stage: FactoryEvent = { ...base, kind: "stage", ...report.data, jobKey, branch: git.branch };
+        if (!jobKey || !git.branch) return undefined;
+        const stage: FactoryEvent = { ...base, kind: "builder_report", ...report.data, jobKey, branch: git.branch };
         const refs = report.data.assessment?.screenshots ?? [];
         // The images go first, so the panel never shows an assessment whose screenshots haven't arrived.
         return jobKey && refs.length > 0 ? [...screenshotEvents(refs, { jobKey, stageEventId: base.eventId, sessionId: base.sessionId, at: base.at }), stage] : stage;

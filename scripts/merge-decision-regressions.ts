@@ -13,7 +13,7 @@ const { auditLog, events, jobEvidence, jobs, repoSettings, runs } = await import
 const { internalJob, usageRun } = await import("./fixtures");
 const { jobId } = await import("@factory/core/sources/shapes");
 const { TEST_MACHINE_ID } = await import("@factory/core/config");
-const { eventSchema, stageReportSchema } = await import("@factory/core/events");
+const { builderReportSchema, eventSchema } = await import("@factory/core/events");
 const { ingest } = await import("@factory/core/ingest");
 const { github, checkStateOf, pullsClient } = await import("@factory/integrations/github/pulls");
 const { parseAssessment } = await import("@factory/core/assessment");
@@ -41,15 +41,15 @@ const legacy = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-// --- report_stage schema
-const prReport = { stage: "pr", summary: "Opened", prUrl: "https://github.com/o/r/pull/1" };
-const accept = (input: unknown, why: string) => assert.ok(stageReportSchema.safeParse(input).success, why);
-const reject = (input: unknown, why: string) => assert.ok(!stageReportSchema.safeParse(input).success, why);
+// Builder assessments belong to verified handoffs.
+const prReport = { action: "handoff", summary: "Verified", sha: "a".repeat(40), evidenceEventId: "proof" };
+const accept = (input: unknown, why: string) => assert.ok(builderReportSchema.safeParse(input).success, why);
+const reject = (input: unknown, why: string) => assert.ok(!builderReportSchema.safeParse(input).success, why);
 accept({ ...prReport, assessment: assessment() }, "pr takes an assessment");
 accept(prReport, "the assessment is optional");
 accept({ ...prReport, assessment: unsure("I guessed the empty state from the issue's screenshot.") }, "a handover that says why");
 accept({ ...prReport, assessment: assessment({ notes: "Adds the requested exports to index.ts." }) }, "free-text notes");
-reject({ stage: "verifying", summary: "x", assessment: assessment() }, "only pr takes an assessment");
+reject({ stage: "building", summary: "x", assessment: assessment() }, "only pr takes an assessment");
 reject({ ...prReport, assessment: { ...assessment(), recommendation: "ship" } }, "an unknown recommendation");
 reject({ ...prReport, assessment: assessment({ recommendation: "handover", confidence: { confident: false } }) }, "not confident needs a reason");
 reject({ ...prReport, assessment: assessment({ recommendation: "handover" }) }, "a handover while confident");
@@ -315,15 +315,19 @@ try {
   assert.deepEqual(resolvePolicy(await readRepoSettings(db), REPO), { ...DEFAULT_POLICY, autonomy: "trial" });
 
   // Ingest: the pr report's assessment lands on the job and stays in the event.
-  const INGEST = await insert("INGEST", { stage: "verifying", stage_at: new Date(Date.now() - 60_000) });
+  const INGEST = await insert("INGEST", { stage: "building", stage_at: new Date(Date.now() - 60_000) });
   const session = `merge-regress-session-${stamp}`;
+  await db.update(jobs).set({ session_id: session }).where(eq(jobs.key, INGEST));
+  await verified(INGEST, prReport.sha);
   const stage = (n: number, body: Record<string, unknown>) =>
-    eventSchema.parse({ kind: "stage", sessionId: session, eventId: `${session}-${n}`, at: Date.now() - 50_000 + n * 1000, jobKey: INGEST, branch: `factory/${INGEST}`, ...body });
+    eventSchema.parse({ kind: "builder_report", action: "progress", summary: "Progress", sessionId: session, eventId: `${session}-${n}`, at: Date.now() + n * 1000, jobKey: INGEST, branch: `factory/${INGEST}`, ...body, ...(body.action === "handoff" ? { evidenceEventId: `md-evidence-${INGEST}-${prReport.sha}` } : {}) });
   await ingest(db, [stage(1, { ...prReport, prUrl: prUrl(0), assessment: assessment() })]);
   assert.deepEqual((await row(INGEST)).merge_assessment, assessment(), "the job keeps the assessment");
   const [stored] = await db.select().from(events).where(eq(events.event_id, `${session}-1`));
-  assert.deepEqual((stored!.payload as { assessment: unknown }).assessment, assessment(), "and so does the event");
-  await ingest(db, [stage(2, { stage: "implementing", summary: "conflict" })]);
+  const storedReport = eventSchema.parse(stored!.payload);
+  assert.ok(storedReport.kind === "builder_report");
+  assert.deepEqual(storedReport.assessment, assessment(), "event preserves assessment");
+  await ingest(db, [stage(2, { stage: "building", summary: "conflict" })]);
   assert.deepEqual((await row(INGEST)).merge_assessment, assessment(), "another stage leaves it");
   const second = { ...unsure("The sort order is a guess."), notes: "Look at the sort order." };
   await ingest(db, [stage(3, { ...prReport, prUrl: prUrl(0), assessment: second })]);
@@ -332,9 +336,11 @@ try {
   await ingest(db, [stage(6, { ...prReport, prUrl: prUrl(0), assessment: old })]);
   assert.deepEqual((await row(INGEST)).merge_assessment, unsure("Proven: No test."), "a six-check report is stored in the current shape");
   const [storedOld] = await db.select().from(events).where(eq(events.event_id, `${session}-6`));
-  assert.deepEqual((storedOld!.payload as { assessment: unknown }).assessment, old, "while its event keeps what the agent sent");
+  const storedLegacy = eventSchema.parse(storedOld!.payload);
+  assert.ok(storedLegacy.kind === "builder_report");
+  assert.deepEqual(storedLegacy.assessment, old, "event preserves agent input");
   await ingest(db, [stage(7, { ...prReport, prUrl: prUrl(0), assessment: second })]);
-  await ingest(db, [stage(8, { stage: "implementing", summary: "again" }), stage(9, { ...prReport, prUrl: prUrl(0) })]);
+  await ingest(db, [stage(8, { stage: "building", summary: "again" }), stage(9, { ...prReport, prUrl: prUrl(0) })]);
   assert.equal((await row(INGEST)).merge_assessment, null, "a pr report without one clears it");
 
   // Runner decisions against isolated GitHub responses and internal jobs.
@@ -351,15 +357,15 @@ try {
 
   const at = (minutes: number) => NOW + minutes * 60_000;
   const prEvent = (k: string) => `merge-regress-pr-${k}`;
-  const GOOD = await insert("GOOD", { stage: "pr", pr_url: prUrl(1), stage_event_id: prEvent("GOOD"), merge_assessment: assessment() });
-  const ASLEEP = await insert("ASLEEP", { stage: "pr", pr_url: prUrl(2), merge_assessment: assessment() });
-  const LABELED = await insert("HANDOVER", { stage: "pr", pr_url: prUrl(3), merge_assessment: unsure("Owner review required.") });
-  const OFF = await insert("OFF", { stage: "pr", pr_url: prUrl(4), repo: OFF_REPO });
-  const CODEX = await insert("CODEX", { stage: "pr", pr_url: prUrl(5), provider: "codex", merge_assessment: assessment() });
-  const WORKING = await insert("WORKING", { stage: "implementing", pr_url: prUrl(6) });
-  const UNCOUNTED = await insert("UNCOUNTED", { stage: "pr", pr_url: prUrl(7), provider: "codex", merge_assessment: assessment() });
-  const UNPRICED = await insert("UNPRICED", { stage: "pr", pr_url: prUrl(8), provider: "codex", merge_assessment: assessment() });
-  const PRICEY = await insert("PRICEY", { stage: "pr", pr_url: prUrl(9), provider: "codex", merge_assessment: assessment() });
+  const GOOD = await insert("GOOD", { stage: "ready", pr_url: prUrl(1), stage_event_id: prEvent("GOOD"), merge_assessment: assessment() });
+  const ASLEEP = await insert("ASLEEP", { stage: "ready", pr_url: prUrl(2), merge_assessment: assessment() });
+  const LABELED = await insert("HANDOVER", { stage: "ready", pr_url: prUrl(3), merge_assessment: unsure("Owner review required.") });
+  const OFF = await insert("OFF", { stage: "ready", pr_url: prUrl(4), repo: OFF_REPO });
+  const CODEX = await insert("CODEX", { stage: "ready", pr_url: prUrl(5), provider: "codex", merge_assessment: assessment() });
+  const WORKING = await insert("WORKING", { stage: "building", pr_url: prUrl(6) });
+  const UNCOUNTED = await insert("UNCOUNTED", { stage: "ready", pr_url: prUrl(7), provider: "codex", merge_assessment: assessment() });
+  const UNPRICED = await insert("UNPRICED", { stage: "ready", pr_url: prUrl(8), provider: "codex", merge_assessment: assessment() });
+  const PRICEY = await insert("PRICEY", { stage: "ready", pr_url: prUrl(9), provider: "codex", merge_assessment: assessment() });
   for (const k of [GOOD, ASLEEP, LABELED, CODEX, UNCOUNTED, UNPRICED, PRICEY]) await verified(k, "h1");
   for (const k of [GOOD, ASLEEP, LABELED]) await db.insert(runs).values(usageRun(k));
   await db.insert(runs).values(usageRun(CODEX, "gpt-6.1-sol"));
@@ -441,7 +447,7 @@ try {
 
   // A job that left pr meanwhile keeps no decision written for the old report.
   github.pullDetail = async (url) => {
-    await db.update(jobs).set({ stage: "implementing", stage_event_id: "merge-regress-conflict" }).where(eq(jobs.pr_url, url));
+    await db.update(jobs).set({ stage: "building", stage_event_id: "merge-regress-conflict" }).where(eq(jobs.pr_url, url));
     return { state: "open", mergeable: "mergeable", headSha: "h3", baseRef: "main" };
   };
   const before = (await row(ASLEEP)).merge_decision;

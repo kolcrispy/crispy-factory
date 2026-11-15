@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { REPORT_SERVER, REPORT_STAGE_TOOL } from "./factory";
+import { REPORT_SERVER, REPORT_WORK_TOOL } from "./factory";
 
 // How a target repo reaches a factory checkout: Claude Code hooks, the factory-report MCP server.
 // Pure, so the installer and the sandbox launch wire the same way from different factory roots.
@@ -40,7 +40,7 @@ export function withHooks(settings: Json, root: string): Json {
     hooks[event] = [...(hooks[event] ?? []).filter((entry) => !isOurs(entry)), ...ours];
   }
   const permissions = (settings.permissions as Json) ?? {};
-  const allow = new Set([...((permissions.allow as string[]) ?? []), REPORT_STAGE_TOOL]);
+  const allow = new Set([...((permissions.allow as string[]) ?? []), REPORT_WORK_TOOL]);
   const enabled = new Set([...((settings.enabledMcpjsonServers as string[]) ?? []), REPORT_SERVER]);
   return {
     ...settings,

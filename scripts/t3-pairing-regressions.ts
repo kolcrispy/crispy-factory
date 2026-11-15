@@ -36,7 +36,7 @@ async function insert(name: string, over: Partial<typeof jobs.$inferInsert>) {
   const k = `PAIR${name}-${stamp}`;
   const id = jobId("internal", `pairing-regress-${k}`);
   ids.push(id);
-  await db.insert(jobs).values(internalJob(`pairing-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "implementing", ...over }));
+  await db.insert(jobs).values(internalJob(`pairing-regress-${k}`, k, { machine_id: TEST_MACHINE_ID, stage: "building", ...over }));
   return id;
 }
 

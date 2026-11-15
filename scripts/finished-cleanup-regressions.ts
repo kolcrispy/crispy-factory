@@ -41,7 +41,7 @@ try {
 
   const checkout = join(root, "review");
   git("worktree", "add", "--detach", checkout, sha);
-  const job = internalJob("finished-cleanup", "JOB-9002", { stage: "merged", attempt: 1, review_history: [], attempt_review: { attempt: 1, policy: { enabled: true, provider: "omp", model: "fixture" }, state: "passed", builderThreadId: null, builderSessionId: null, automaticRepairs: 0, rounds: [{ round: 1, sha, base: sha, state: "complete", checkout, threadId: "omp:review:JOB-9002:1:1", sessionId: null, startedAt: 1 }] } });
+  const job = internalJob("finished-cleanup", "JOB-9002", { stage: "done", attempt: 1, review_history: [], attempt_review: { attempt: 1, policy: { enabled: true, provider: "omp", model: "fixture" }, state: "passed", builderThreadId: null, builderSessionId: null, automaticRepairs: 0, rounds: [{ round: 1, sha, base: sha, state: "complete", checkout, threadId: "omp:review:JOB-9002:1:1", sessionId: null, startedAt: 1 }] } });
   const jobs = [job as Parameters<typeof cleanupReviewerWorktrees>[1][number]];
   await cleanupReviewerWorktrees(repo, jobs, 3, async () => true, { host });
   assert.ok(existsSync(checkout), "live reviewer is preserved");

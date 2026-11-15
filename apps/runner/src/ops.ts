@@ -45,8 +45,8 @@ export { config, threads };
 
 const mine = async () => eq(jobs.machine_id, (await thisMachine()).id);
 
-/** Stages where a thread is working; waiting, pr, merged and failed free the slot. */
-export const IN_FLIGHT: Stage[] = ["queued", "triage", "investigating", "implementing", "verifying"];
+/** Delivery phases that may own an execution slot. */
+export const IN_FLIGHT: Stage[] = ["queued", "building", "reviewing"];
 
 /**
  * Follows every factory PR: a merged one moves its job to merged, and one that conflicts with
@@ -61,7 +61,7 @@ export async function checkPullRequests({ only }: { only?: readonly string[] } =
     await db
       .select()
       .from(jobs)
-      .where(and(or(await mine(), isNull(jobs.machine_id)), isNotNull(jobs.pr_url), ne(jobs.stage, "merged"), only ? inArray(jobs.key, [...only]) : undefined))
+      .where(and(or(await mine(), isNull(jobs.machine_id)), isNotNull(jobs.pr_url), ne(jobs.stage, "done"), only ? inArray(jobs.key, [...only]) : undefined))
       .orderBy(asc(jobs.key)),
   );
   const conflicts: string[] = [];
@@ -72,11 +72,15 @@ export async function checkPullRequests({ only }: { only?: readonly string[] } =
   for (const job of open) {
     await each(job.key, job.pr_url!, async () => {
       const pr = await github.pullRequest(job.pr_url!);
-      if (pr.state === "open" && pr.mergeable === "conflicting" && job.stage === "pr" && job.machine_id !== null) {
+      if (pr.state === "open" && pr.mergeable === "conflicting" && job.stage === "ready" && job.machine_id !== null) {
         if (await sendBackForConflict(job, pr.headSha)) conflicts.push(job.key);
         return;
       }
       if (pr.state === "merged") await postMerged(job.key, job.pr_url!, job.session_id ?? runnerEventId("merged", job.external_id));
+      if (pr.state === "closed" && job.stage !== "failed") await postEvent({
+        eventId: runnerEventId("closed", job.key, job.attempt, job.pr_url!), sessionId: job.session_id ?? `closed:${job.key}`, at: Date.now(),
+        kind: "stage", stage: "failed", jobKey: job.key, summary: "Pull request closed without merge.", prUrl: job.pr_url!,
+      });
     });
   }
 
@@ -95,7 +99,7 @@ export async function postMerged(jobKey: string, prUrl: string, sessionId: strin
     sessionId,
     at: Date.now(),
     kind: "stage",
-    stage: "merged",
+    stage: "done",
     summary: `Merged ${prUrl}`,
     prUrl,
     jobKey,
@@ -116,19 +120,14 @@ async function sendBackForConflict(job: Job, head: string) {
   const sessionId = job.session_id ?? runnerEventId("conflict", job.external_id);
   try {
     if (thread === "gone") {
-      await postEvent({
-        eventId,
-        sessionId,
-        at: now,
-        kind: "stage",
-        stage: "failed",
-        summary: `${job.pr_url} conflicts with main and its T3 thread is gone.`,
-        jobKey: job.key,
-      });
+      await db.update(jobs).set({ attention: { eventId, at: now,
+        reason: `${job.pr_url} conflicts with main and its builder session is unavailable.`,
+        action: "Inspect execution ownership and restore the builder before resolving conflicts." }, updated_at: new Date(now) })
+        .where(and(eq(jobs.id, job.id), eq(jobs.attempt, job.attempt)));
       return true;
     }
     if (job.attempt_review?.policy.enabled) await db.update(jobs).set({ attempt_review: { ...job.attempt_review, state: "repairing", delivery: undefined } }).where(and(eq(jobs.id, job.id), eq(jobs.attempt, job.attempt)));
-    await threads.send(job.t3_thread_id!, `${conflictMessage(job.key, job.pr_url!, factoryPlaybook())}${job.attempt_review?.policy.enabled ? "\nIndependent review overrides publication steps: resolve, test, commit, report verifying, stop. Do not self-review or push; runner updates the PR after fresh PASS." : ""}`, host);
+    await threads.send(job.t3_thread_id!, `${conflictMessage(job.key, job.pr_url!, factoryPlaybook())}\nResolve, test and commit, run factory-verify --json, then report_work handoff with its sha and eventId as evidenceEventId. Do not self-review, push or publish; the runner updates the PR after required independent review.`, host);
   } catch (error) {
     await release();
     throw error;
@@ -139,7 +138,7 @@ async function sendBackForConflict(job: Job, head: string) {
     sessionId,
     at: now,
     kind: "stage",
-    stage: "implementing",
+    stage: "building",
     summary: `${job.pr_url} conflicts with main; the thread is merging main into the branch.`,
     jobKey: job.key,
   });
@@ -153,13 +152,13 @@ const threadAlive = async (threadId: string | null, host: JobHost) => (await thr
  * the database before anything is sent, so a replayed or concurrent pass never delivers twice.
  */
 export async function resumeAnswered() {
-  const waiting = parseJobs(await db.select().from(jobs).where(and(await mine(), eq(jobs.stage, "waiting"))));
+  const waiting = parseJobs(await db.select().from(jobs).where(and(await mine(), isNotNull(jobs.attention))));
   const resumed: string[] = [];
   for (const job of waiting) {
     const answers = await db.select().from(intents).where(and(eq(intents.kind, "answer"), eq(intents.job_id, job.id))).orderBy(asc(intents.created_at));
     const pending = answers.flatMap(intent => {
       const detail = JSON.parse(intent.detail ?? "null") as { body?: string; attempt?: number; questionEventId?: string | null } | null;
-      return detail?.attempt === job.attempt && detail.questionEventId === job.stage_event_id && typeof detail.body === "string" && !job.delivered_reply_ids.includes(intent.id) ? [{ id: intent.id, body: detail.body }] : [];
+      return detail?.attempt === job.attempt && detail.questionEventId === job.attention?.eventId && typeof detail.body === "string" && !job.delivered_reply_ids.includes(intent.id) ? [{ id: intent.id, body: detail.body }] : [];
     });
     if (!pending.length) continue;
     const plan = { question: job.question ?? "", answer: pending.map(reply => reply.body).join("\n\n"), replies: pending };
@@ -171,7 +170,7 @@ export async function resumeAnswered() {
     // A dead thread is unlinked in the same update that claims the replies, so the relaunch
     // cannot be lost to a later failure in this pass.
     const relaunch = alive ? undefined : qaBlock(plan.question, plan.answer);
-    if (!(await claimReplies(db, job.id, { attempt: job.attempt, questionEventId: job.stage_event_id }, replyIds, plan.answer, now, relaunch))) continue;
+    if (!(await claimReplies(db, job.id, { attempt: job.attempt, questionEventId: job.attention?.eventId ?? null }, replyIds, plan.answer, now, relaunch))) continue;
 
     if (alive) {
       try {
@@ -188,16 +187,8 @@ export async function resumeAnswered() {
     const summary = alive
       ? "Answer received; the thread resumes from triage."
       : "Answer received; a fresh thread will pick it up.";
-    await postEvent({
-      eventId: runnerEventId("resume", job.external_id, replyIds.join(",")),
-      sessionId: job.session_id ?? runnerEventId("resume", job.external_id),
-      at: now.getTime(),
-      kind: "stage",
-      stage: "queued",
-      summary,
-      answer: plan.answer.slice(0, 4000),
-      jobKey: job.key,
-    });
+    await db.update(jobs).set({ attention: null, question: null, stage_summary: summary, updated_at: now })
+      .where(and(eq(jobs.id, job.id), eq(jobs.attempt, job.attempt), sql`${jobs.attention}->>'eventId' = ${job.attention!.eventId}`));
     resumed.push(`${job.key}:${alive ? "sent" : "relaunch"}`);
   }
   return resumed;
@@ -218,6 +209,7 @@ export async function watchdog() {
   const actions: string[] = [];
   const drivers = harnessDrivers();
   for (const { job, lastEventAt } of working) {
+    if (job.attention || job.builder_handoff) continue;
     if (job.attempt_review?.policy.enabled && ["held", "reviewing", "pending"].includes(job.attempt_review.state)) continue;
     const now = new Date();
     const host = hosts.forJob(job);
@@ -284,10 +276,10 @@ export const jobTracked = (job: Pick<JobRow, "provider">, drivers: ReadonlyMap<s
 /** Fails the stage this pass looked at, so a report that landed since then wins; false when one did. */
 export async function watchdogFail(job: Pick<JobRow, "id" | "key" | "external_id" | "attempt" | "stage" | "stage_event_id" | "session_id">, reason: string, now = new Date()) {
   const eventId = runnerEventId("watchdog", job.external_id, job.attempt, job.stage_event_id ?? job.stage);
-  const summary = `Watchdog stopped this run: ${reason}.`;
+  const summary = `Execution needs inspection: ${reason}.`;
   const failed = await db
     .update(jobs)
-    .set({ stage: "failed", stage_at: now, stage_summary: summary, question: null, stage_event_id: eventId, updated_at: now })
+    .set({ attention: { eventId, at: now.getTime(), reason: summary, action: "Confirm session ownership and resume or explicitly stop this attempt." }, stage_summary: summary, updated_at: now })
     .where(
       and(
         eq(jobs.id, job.id),
@@ -297,15 +289,6 @@ export async function watchdogFail(job: Pick<JobRow, "id" | "key" | "external_id
     )
     .returning({ key: jobs.key });
   if (failed.length === 0) return false;
-  await postEvent({
-    eventId,
-    sessionId: job.session_id ?? runnerEventId("watchdog", job.external_id),
-    at: now.getTime(),
-    kind: "stage",
-    stage: "failed",
-    summary,
-    jobKey: job.key,
-  });
   return true;
 }
 
@@ -338,7 +321,7 @@ export async function reconcileUsage({ only }: { only?: string[] } = {}) {
       }
       const host = localHost;
       // A merged or failed job's thread is done, so its subagents are settled.
-      const final = stage === "merged" || stage === "failed";
+      const final = stage === "done" || stage === "failed";
       if (await (isMcpSession(run.session_id) ? recordCodexUsage(run, host, { final }) : reconcileRun(run, host))) fixed.push(run.job_key!);
     } catch (error) {
       if (!(error instanceof HostGoneError)) throw error;
@@ -422,7 +405,7 @@ export function launchMessage(job: Job) {
     `Work factory job ${job.key}: ${job.title}`,
     job.url,
     "",
-    "This is an unattended crispy-factory run. Follow the factory playbook named under Factory playbook at the end of this message. Report every stage with the report_stage tool, never ask in this thread, never merge yourself: end with a merge assessment and the factory decides. Before you report pr, run factory-verify on the commit you pushed (the report_stage reply for verifying names the command); the factory merges only a head whose checks passed there.",
+    "This is an unattended crispy-factory run. Follow the Factory playbook below. Use report_work with action progress, needs_human with an actionable question, or handoff with exact sha and evidenceEventId returned by factory-verify --json. Commit and verify your clean final revision, then hand off and end the turn. Do not open a PR or merge; the runner owns review, publication and phases.",
     "",
     "## Issue",
     "",
@@ -454,7 +437,7 @@ export async function toLaunch() {
     .where(
       and(
         // A waiting job whose thread died and whose question was answered relaunches too.
-        or(eq(jobs.stage, "queued"), and(eq(jobs.stage, "waiting"), isNotNull(jobs.resume_context))),
+        or(eq(jobs.stage, "queued"), and(eq(jobs.stage, "building"), isNotNull(jobs.resume_context))),
         isNull(jobs.t3_thread_id),
         isNull(jobs.session_id),
         isNull(jobs.machine_id),
@@ -536,7 +519,7 @@ export async function bindThread(key: string, threadId: string) {
 
 /** True when GitHub has finished computing mergeability for every open factory PR. */
 export async function pullRequestsSettled() {
-  const open = await db.select().from(jobs).where(and(await mine(), eq(jobs.stage, "pr"), isNotNull(jobs.pr_url)));
+  const open = await db.select().from(jobs).where(and(await mine(), eq(jobs.stage, "ready"), isNotNull(jobs.pr_url)));
   for (const job of open) {
     if ((await github.pullRequest(job.pr_url!)).mergeable === "unknown") return false;
   }
@@ -575,12 +558,8 @@ export async function stopJob(id: JobId, detail: string, operator?: { actor: str
     const [stopped] = await db
       .update(jobs)
       .set({
-        stage: "failed",
-        stage_at: now,
-        stage_summary: `Stopped: ${detail}.`,
+        stage_summary: `Stopping: ${detail}.`,
         question: null,
-        stage_event_id: eventId,
-        synced_event_id: eventId,
         stop_event_id: eventId,
         stop: requestedStop({ at: now, by: operator?.actor ?? SOURCE_SHAPES[job.source].label, reason: detail, reopen }),
         updated_at: now,
@@ -602,15 +581,6 @@ export async function stopJob(id: JobId, detail: string, operator?: { actor: str
  */
 export async function finishStop(job: Job) {
   await deliverStops(job.id);
-  await postEvent({
-    eventId: job.stage_event_id,
-    sessionId: job.session_id ?? runnerEventId("stop", job.external_id),
-    at: job.stage_at!.getTime(),
-    kind: "stage",
-    stage: "failed",
-    summary: job.stage_summary,
-    jobKey: job.key,
-  });
   await confirmStops({ only: [job.id] });
   return "stopped";
 }
@@ -653,6 +623,8 @@ export async function claimLaunch(
   const claimed = await db
     .update(jobs)
     .set({
+      stage: "building",
+      stage_at: new Date(),
       t3_thread_id: marker,
       machine_id: machine.id,
       ...(harness && { provider: harness.provider, model: harness.model }),
@@ -680,7 +652,7 @@ export async function claimLaunch(
 export async function releaseLaunch(key: string, marker: string) {
   await db
     .update(jobs)
-    .set({ t3_thread_id: null, machine_id: null, provider: null, model: null })
+    .set({ stage: sql`case when ${jobs.stop_event_id} is not null then ${jobs.stage} else 'queued'::run_stage end`, t3_thread_id: null, machine_id: null, provider: null, model: null })
     .where(and(eq(jobs.key, key), eq(jobs.t3_thread_id, marker)));
 }
 

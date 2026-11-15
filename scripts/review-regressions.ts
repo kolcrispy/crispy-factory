@@ -34,12 +34,12 @@ const { ingest } = await import("@factory/core/ingest");
 const { internalJob } = await import("./fixtures");
 const { eq } = await import("drizzle-orm");
 const key = "review-gate-regression";
-const row = internalJob(key, key, { stage: "verifying", attempt: 2, session_id: "builder-session", attempt_review: { ...review, state: "building", builderSessionId: "builder-session", rounds: [] } });
+const row = internalJob(key, key, { stage: "building", attempt: 2, session_id: "builder-session", attempt_review: { ...review, state: "building", builderSessionId: "builder-session", rounds: [] } });
 await db.insert(jobs).values(row);
 try {
-  const outcome = await ingest(db, [{ kind: "stage", eventId: "review-gate-early-pr", sessionId: "builder-session", at: Date.now(), jobKey: key, branch: `factory/${key}-a2`, stage: "pr", summary: "Premature publication", prUrl: "https://github.com/owner/repo/pull/1" }]);
+  const outcome = await ingest(db, [{ kind: "stage", eventId: "review-gate-early-pr", sessionId: "builder-session", at: Date.now(), jobKey: key, branch: `factory/${key}-a2`, stage: "ready", summary: "Premature publication", prUrl: "https://github.com/owner/repo/pull/1" }]);
   assert.ok(JSON.stringify(outcome).includes("Independent review PASS"));
-  assert.equal((await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.stage, "verifying");
+  assert.equal((await db.select().from(jobs).where(eq(jobs.key, key)))[0]!.stage, "building");
 } finally { await db.delete(jobs).where(eq(jobs.key, key)); }
 mock.module("../apps/runner/src/harnesses", () => ({ readHarnesses: async () => [{ id: "t3-review", driver: "codex", name: "Isolated reviewer", enabled: true, models: [{ slug: "review-model", name: "Review" }] }] }));
 const { reviewJobs, handleReviewAction } = await import("@factory/runner/review");
@@ -68,12 +68,13 @@ try {
     verdict = outcome;
     sends = 0;
     const active = { ...review, state: "reviewing" as const, automaticRepairs: repairs, rounds: [{ ...review.rounds[0]!, state: "running" as const, result: undefined }] };
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", t3_thread_id: "reviewer", attempt_review: active }));
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", t3_thread_id: "reviewer", attempt_review: active,
+      builder_handoff: { eventId: "builder-handoff", at: Date.now(), attempt: 2, sha, evidenceEventId: "builder-proof", summary: "Verified" } }));
     await reviewJobs();
     const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
     assert.equal(settled!.attempt_review!.state, expected, `${outcome} with ${repairs} repairs`);
     assert.equal(sends, deliveries, "only bounded FIX delivers a builder repair");
-    assert.equal(settled!.stage, outcome === "PASS" ? "pr" : outcome === "FIX" && repairs < 2 ? "implementing" : "verifying");
+    assert.equal(settled!.stage, outcome === "PASS" ? "ready" : outcome === "FIX" && repairs < 2 ? "building" : "reviewing");
     assert.equal(publications, 1, "only PASS publishes a PR; no repair or held verdict publishes");
     if (outcome === "BLOCKED") {
       const intent = { id: "review-action:owner-recovery", job_id: settled!.id, detail: JSON.stringify({ requestId: "a1234567-1234-4123-8123-123456789012", jobId: settled!.id, attempt: 2, action: "review", body: "" }) };
@@ -91,7 +92,9 @@ try {
     if (active.state !== "passed") active.rounds[0] = { ...active.rounds[0]!, state: "running", result: undefined };
     if (scenario === "uncertain-delivery") active.delivery = { id: "crashed-delivery", state: "uncertain", message: "Repair" };
     if (scenario === "passed-restart") active.rounds[0]!.round = 2;
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", t3_thread_id: scenario === "passed-restart" ? active.builderThreadId : "reviewer", session_id: scenario === "passed-restart" ? active.builderSessionId : null, attempt_review: active }));
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "reviewing", t3_thread_id: scenario === "passed-restart" ? active.builderThreadId : "reviewer", session_id: scenario === "passed-restart" ? active.builderSessionId : null, attempt_review: active,
+      builder_handoff: { eventId: "scenario-handoff", at: Date.now(), attempt: 2, sha, evidenceEventId: "scenario-proof", summary: "Verified" },
+    }));
     threads.read = async () => {
       if (scenario === "stop-during-read") await db.update(jobs).set({ stop: requestedStop({ at: new Date(), by: "regression", reason: "Owner stop", reopen: false }) }).where(eq(jobs.key, key));
       if (scenario === "attempt-during-read") await db.update(jobs).set({ attempt: 3 }).where(eq(jobs.key, key));
@@ -102,7 +105,7 @@ try {
     await reviewJobs(); // A later runner tick must not replay uncertain side effects.
     const [settled] = await db.select().from(jobs).where(eq(jobs.key, key));
     if (scenario === "passed-restart") {
-      assert.equal(settled!.stage, "pr", "durable PASS resumes publication after restart");
+      assert.equal(settled!.stage, "ready", "durable PASS resumes publication after restart");
       assert.equal(publications, before + 1);
     } else {
       assert.equal(publications, before, `${scenario} cannot publish`);
@@ -116,7 +119,7 @@ try {
     active.policy.provider = "t3-review";
     active.state = "held";
     active.rounds[0] = { ...active.rounds[0]!, state: "launching", threadId: null, result: undefined };
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", attempt_review: active }));
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", attempt_review: active }));
     const commands: string[][] = [];
     hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
       commands.push(args);
@@ -134,7 +137,7 @@ try {
     active.policy.provider = "t3-review";
     active.state = "reviewing";
     active.rounds[0] = { ...active.rounds[0]!, state: "launching", threadId: null, result: undefined };
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", attempt_review: active }));
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", attempt_review: active }));
     hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {
       if (args.includes("list")) {
         await db.update(jobs).set({ stop: requestedStop({ at: new Date(), by: "regression", reason: "Stop while recovering launch", reopen: false }) }).where(eq(jobs.key, key));
@@ -155,7 +158,7 @@ try {
     active.state = "reviewing";
     active.automaticRepairs = 0;
     active.rounds[0] = { ...active.rounds[0]!, state: "running", result: undefined };
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", attempt_review: active }));
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", attempt_review: active }));
     threads.read = async () => ({ state: "stopped", status: "completed", checkout: "review-checkout", lastMessage: JSON.stringify({ sha, verdict: "FIX", summary: "Fix blocker", findings: [finding] }) });
     hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => ({ stdout: args.includes("status") ? "" : sha, stderr: "" }) });
     let deliveries = 0;
@@ -173,7 +176,10 @@ try {
     active.policy = { enabled: true, provider: "t3-review", model: "review-model" };
     active.state = "building";
     active.rounds = [];
-    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "verifying", t3_thread_id: "builder", attempt_review: active }));
+    await db.insert(jobs).values(internalJob(key, key, { repo: repository, machine_id: machine.id, attempt: 2, stage: "building", t3_thread_id: "builder", attempt_review: active,
+      builder_handoff: { eventId: "builder-handoff", at: Date.now(), attempt: 2, sha, evidenceEventId: "builder-proof", summary: "Verified" },
+      evidence: { sha, attempt: 2, clean: true, producer: "agent", source: "package", at: new Date().toISOString(), checks: [{ name: "test", passed: true, exitCode: 0, durationMs: 1 }] },
+    }));
     threads.read = async () => ({ state: "stopped", status: "completed", checkout: "builder-checkout", lastMessage: "Ready" });
     let launches = 0;
     hosts.forJob = () => ({ ...originalHost({ key }), run: async (_command, args) => {

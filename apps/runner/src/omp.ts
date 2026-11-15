@@ -152,7 +152,7 @@ async function connect(record: AttemptRecord) {
       t3ThreadId: record.id, transcriptPath: record.sessionFile,
     }]);
     if (record.needsResume && record.delivery === "accepted" && state.isSettled) {
-      await rpc.request({ type: "prompt", message: "Factory runner recovered this same attempt after an interruption. Reconcile the existing worktree and transcript, then continue the outstanding task. Do not repeat completed actions or create another attempt. Report your current stage through report_stage." });
+      await rpc.request({ type: "prompt", message: "Factory runner recovered this same attempt after an interruption. Reconcile existing worktree and transcript, then continue outstanding work. Do not repeat completed actions or create another attempt. Report progress through report_work; completion requires an explicit verified handoff." });
     }
     return { rpc, state };
   } catch (error) {

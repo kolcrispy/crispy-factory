@@ -1,7 +1,7 @@
 export const REPORT_SERVER = "factory-report";
-export const REPORT_TOOL = "report_stage";
+export const REPORT_TOOL = "report_work";
 /** The name Claude Code gives the tool; hook payloads and PostToolUse matchers use it. */
-export const REPORT_STAGE_TOOL = `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
+export const REPORT_WORK_TOOL = `mcp__${REPORT_SERVER}__${REPORT_TOOL}`;
 
 // A job key is its branch identity: `<PREFIX>-<n>` or `<PREFIX>-<scope>-<n>`.
 // Internal jobs use JOB-n. The parser also accepts prior namespaces so existing

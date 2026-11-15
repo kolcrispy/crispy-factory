@@ -7,7 +7,7 @@ import { thisMachine } from "./heartbeat";
 
 /** Remote dashboard projections are pinned to both PR and attempt before publication. */
 export async function refreshGithubSnapshots() {
-  const rows = await db.select().from(jobs).where(and(eq(jobs.machine_id, (await thisMachine()).id), eq(jobs.stage, "pr"), isNotNull(jobs.pr_url)));
+  const rows = await db.select().from(jobs).where(and(eq(jobs.machine_id, (await thisMachine()).id), eq(jobs.stage, "ready"), isNotNull(jobs.pr_url)));
   const refreshed: string[] = [];
   for (const job of rows) {
     const pull = await github.pullRequest(job.pr_url!);

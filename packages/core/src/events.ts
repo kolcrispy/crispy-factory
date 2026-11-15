@@ -14,44 +14,39 @@ export type Usage = z.infer<typeof usageSchema>;
 
 export const STAGES = [
   "queued",
-  "triage",
-  "investigating",
-  "implementing",
-  "verifying",
-  "pr",
-  "waiting",
-  "merged",
+  "building",
+  "reviewing",
+  "ready",
+  "done",
   "failed",
 ] as const;
 export const stageSchema = z.enum(STAGES);
 export type Stage = z.infer<typeof stageSchema>;
 
-/** What a factory thread passes to `report_stage`; the hook re-parses the same shape from tool_input. */
+/** Internal runner phase changes are not a builder reporting tool. */
 export const stageReportShape = {
-  stage: stageSchema.describe("The stage the run just entered."),
-  summary: z
-    .string()
-    .min(1)
-    .max(500)
-    .describe("One or two sentences on what happened. For failed, the reason."),
-  prUrl: z.url().optional().describe("Required for stage pr: the pull request URL."),
-  question: z
-    .string()
-    .min(1)
-    .max(2000)
-    .optional()
-    .describe("Required for stage waiting: the concrete question the human must answer."),
-  assessment: assessmentInputSchema.optional().describe("Stage pr only: your merge assessment, as the factory playbook describes."),
+  stage: stageSchema,
+  summary: z.string().min(1).max(500),
+  prUrl: z.url().optional(),
+  question: z.string().min(1).max(2000).optional(),
+  assessment: assessmentInputSchema.optional(),
 };
-export const stageReportSchema = z
-  .object(stageReportShape)
-  .refine((r) => r.stage !== "pr" || r.prUrl, { message: "stage pr needs prUrl", path: ["prUrl"] })
-  .refine((r) => r.stage === "pr" || !r.assessment, { message: "only stage pr takes an assessment", path: ["assessment"] })
-  .refine((r) => r.stage !== "waiting" || r.question, {
-    message: "stage waiting needs question",
-    path: ["question"],
-  });
-export type StageReport = z.infer<typeof stageReportSchema>;
+
+/** Builders report facts; only the runner selects a delivery phase. */
+export const builderReportShape = {
+  action: z.enum(["progress", "needs_human", "handoff"]),
+  summary: z.string().min(1).max(500),
+  question: z.string().min(1).max(2000).optional(),
+  sha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  evidenceEventId: z.string().min(1).optional(),
+  assessment: assessmentInputSchema.optional(),
+};
+export const builderReportSchema = z.object(builderReportShape).superRefine((report, ctx) => {
+  if (report.action === "needs_human" && !report.question) ctx.addIssue({ code: "custom", path: ["question"], message: "needs_human requires an actionable question." });
+  if (report.action === "handoff" && (!report.sha || !report.evidenceEventId)) ctx.addIssue({ code: "custom", path: ["sha"], message: "handoff requires sha and evidenceEventId from factory-verify." });
+  if (report.action !== "handoff" && (report.sha || report.evidenceEventId || report.assessment)) ctx.addIssue({ code: "custom", message: "Only handoff accepts revision, evidence and assessment." });
+});
+export type BuilderReport = z.infer<typeof builderReportSchema>;
 
 const base = {
   eventId: z.string().min(1),
@@ -112,6 +107,13 @@ export const eventSchema = z.discriminatedUnion("kind", [
     branch: z.string().optional(),
     /** Set by the runner when a human answered a waiting question and the run resumes. */
     answer: z.string().max(4000).optional(),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal("builder_report"),
+    ...builderReportShape,
+    jobKey: z.string().min(1),
+    branch: z.string().min(1),
   }),
   z.object({
     ...base,

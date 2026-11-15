@@ -71,7 +71,7 @@ async function outcomeOf(repo: RepoName, branch: string, job: ClaimedJob | undef
     return { outcome: "failed" as const, outcomeAt: job.claimed_at, mergedAtHead };
   }
   if (job) {
-    const outcome = job.stage === "merged" ? "merged" : job.stage === "failed" ? "failed" : "open";
+    const outcome = job.stage === "done" ? "merged" : job.stage === "failed" ? "failed" : "open";
     return { outcome: outcome as "merged" | "failed" | "open", outcomeAt: job.stage_at, mergedAtHead };
   }
   if (merged) return { outcome: "merged" as const, outcomeAt: merged.mergedAt, mergedAtHead };
@@ -208,7 +208,7 @@ export async function cleanupReviewerWorktrees(
   const report: CleanupReport = { removed: [], held: [], archive: [] };
   const linked = new Set((await allLinkedWorktrees(repo, host)).map(tree => tree.path.replaceAll("\\", "/")));
   for (const job of jobs) {
-    if (job.stage !== "merged" && job.stage !== "failed") continue;
+    if (job.stage !== "done" && job.stage !== "failed") continue;
     if (job.stage === "failed" && now.getTime() - (job.stage_at?.getTime() ?? now.getTime()) < graceDays * 86_400_000) continue;
     for (const round of [...job.review_history, ...(job.attempt_review ? [job.attempt_review] : [])].flatMap(review => review.rounds)) {
       if (!round.checkout || !linked.has(round.checkout.replaceAll("\\", "/"))) continue;

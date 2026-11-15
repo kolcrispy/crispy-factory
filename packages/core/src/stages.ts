@@ -2,7 +2,7 @@ import type { JobRow } from "@factory/storage/schema";
 import type { Stage } from "./events";
 import { attemptBranch } from "./factory";
 
-// inferred: the runner reads a harness that never reports stages (its PR on GitHub, its settled thread).
+// inferred: runner-owned claim, review and verified publication transitions.
 // changes: the owner asked for changes on the PR, in the inbox or in a GitHub review.
 // budget: posted only by runners from before the budget cap was removed; kept so their events still read.
 export const RUNNER_CAUSES = ["resume", "conflict", "merged", "watchdog", "budget", "stop", "closed", "reclaim", "inferred", "changes"] as const;
@@ -16,19 +16,15 @@ export function causeOf(eventId: string): Cause {
   return (RUNNER_CAUSES as readonly string[]).includes(prefix) ? (prefix as RunnerCause) : "report";
 }
 
-const REPORTED = ["triage", "investigating", "implementing", "verifying", "pr", "waiting", "failed"] as const;
-const FROM_WORKING = { report: REPORTED, watchdog: ["failed"], budget: ["failed"], stop: ["failed"], merged: ["merged"], inferred: ["pr", "waiting"] } as const;
+const ACTIVE = { inferred: ["building", "reviewing", "ready"], resume: ["queued", "building", "reviewing"], stop: ["failed"], closed: ["failed"], merged: ["done"] } as const;
 
 export const STAGE_TRANSITIONS: { readonly [From in Stage]: { readonly [C in Cause]?: readonly Stage[] } } = {
-  queued: FROM_WORKING,
-  triage: FROM_WORKING,
-  investigating: FROM_WORKING,
-  implementing: FROM_WORKING,
-  verifying: FROM_WORKING,
-  pr: { report: REPORTED, conflict: ["implementing", "failed"], changes: ["implementing"], stop: ["failed"], merged: ["merged"] },
-  waiting: { report: REPORTED, resume: ["queued"], closed: ["failed"], stop: ["failed"], merged: ["merged"] },
-  merged: {},
-  failed: { reclaim: ["queued"], merged: ["merged"] },
+  queued: ACTIVE,
+  building: ACTIVE,
+  reviewing: { ...ACTIVE, changes: ["building"] },
+  ready: { conflict: ["building"], changes: ["building"], stop: ["failed"], closed: ["failed"], merged: ["done"] },
+  done: {},
+  failed: { reclaim: ["queued"], merged: ["done"] },
 };
 
 export const canTransition = (from: Stage, to: Stage, cause: Cause) =>

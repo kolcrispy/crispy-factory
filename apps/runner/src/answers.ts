@@ -12,7 +12,7 @@ export async function deliverAnswer(intent: IntentRow) {
   const [before] = await db.select().from(jobs).where(eq(jobs.id, intent.job_id!));
   if (!before) return { answer: { refused: "This job no longer exists." } };
   if (before.delivered_reply_ids.includes(intent.id)) return { answer: { delivered: before.key } };
-  if (before.attempt !== detail.attempt || before.stage_event_id !== detail.questionEventId || before.stage !== "waiting") return { answer: { refused: "The job is no longer waiting for the question you answered." } };
+  if (before.attempt !== detail.attempt || before.attention?.eventId !== detail.questionEventId) return { answer: { refused: "The job no longer needs the intervention you answered." } };
   await resumeAnswered();
   const [after] = await db.select().from(jobs).where(eq(jobs.id, intent.job_id!));
   if (after?.delivered_reply_ids.includes(intent.id)) return { answer: { delivered: after.key } };

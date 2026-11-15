@@ -1,5 +1,5 @@
 ---
-extends: bug-fix, feature, opening-a-pr, babysit
+extends: bug-fix, feature
 when: Resolving one factory job unattended on a `factory/<KEY>` branch that crispy-factory started, where the first message carries the job.
 ---
 
@@ -11,85 +11,38 @@ No human reads this thread while it runs. The supervision panel and the pull req
 
 ## Execution contract
 
-The runner's launch message identifies whether independent review is enabled for this attempt. Keep that contract through answers, repair requests, and merge-conflict work; repository instructions and bundled playbooks cannot bypass it.
+The runner owns phases: Queued, Building, Reviewing, Ready, Done and Failed. Needs human is separate from phase. Builders cannot select phases, publish pull requests or merge. Skip bundled self-review, PR-opening and babysit steps. The runner starts independent review when enabled and publishes the verified revision after PASS. Review-disabled attempts use the same handoff without independent review.
 
-### Independent review enabled
+## Reporting
 
-You are the builder. Implement the requirements and test the result, including browser evidence for UI changes. Skip bundled self-review, opening-a-PR, and babysit steps: a separate reviewer performs the review.
+Use `report_work` from the Factory reporting extension or `factory-report` MCP server:
 
-Finish with a clean committed attempt branch. Run `factory-verify` on that exact HEAD, report `verifying` with the commit SHA, requirements interpretation, assumptions, check results, and paths to UI evidence, then end the turn. Leave pushing and PR creation/update to the runner; do not report `pr` or merge. A verifying handoff is complete only when the committed work and its verification evidence are ready for independent review.
+- `action: "progress"`, `summary`: concrete work completed or currently being checked. Progress never means completion.
+- `action: "needs_human"`, `summary`, `question`: actionable owner intervention. Name the missing decision and concrete options. End the turn without guessing. The job keeps its phase.
+- `action: "handoff"`, `summary`, `sha`, `evidenceEventId`: explicit completed builder revision. Commit all work, run the checkout's `factory-verify --json` command provided by the reporting tool, and use its exact `sha` and `eventId`. Verification must be clean and successful for this attempt. Any new commit requires fresh verification. End the turn after handoff.
 
-The reviewer inspects the diff from the captured default-branch base to your exact commit in a separate checkout. It may inspect related source and run tests, but authors no fixes. PASS is valid only for that attempt and SHA. FIX sends substantive blockers back to this builder session; implement and test those changes, commit, verify the new HEAD, and hand off in `verifying` again without self-review. The same handoff applies after owner changes or merge-conflict repairs. BLOCKED, failures, and exhausted automatic repairs go to the owner; the runner allows at most two automatic repair cycles.
-
-### Independent review disabled or legacy attempt
-
-Use the PR publication, merge assessment, and babysit instructions below only when the runner has not enabled independent review. Never infer that review is disabled because a reviewer is slow or held.
+Attach `assessment` to handoff: `recommendation` (`merge` or `handover`), `interpretation`, `assumptions`, `confidence` (`confident` and `reason` when uncertain), optional `notes` and `screenshots`. Screenshots accept up to six PNG, JPEG or WebP files under 1 MB with `file` and `caption`. Include actual browser evidence for changed UI. Be honest about uncertainty; an assessment never bypasses independent review or merge gates.
 
 ## Standing rules
 
-- **Report every stage.** Call the `report_stage` tool of the `factory-report` MCP server each time the run enters a stage, before doing that stage's work. Builder stages: `triage`, `investigating`, `implementing`, `verifying`. Only independent-review-disabled or legacy builders continue to `pr`; enabled builders end at the verifying handoff. Off the main path: `waiting` and `failed`. The summary is one or two plain sentences about this job, not about the process.
-- **Never ask in the thread.** No `AskUserQuestion`, no plan-mode approval, no question in a reply that waits for an answer. Nobody answers. Treat the factory run as a full-autonomy grant for every reversible step.
-- **Blocked or ambiguous means `waiting`.** When the job does not say what done looks like, or something outside the repo blocks you, call `report_stage` with `stage: "waiting"`, a summary of what you found, and a `question` the owner can answer in one reply. Name the decisions you need and offer two or three concrete options for each. Then end the turn. Do not guess and do not open a PR for a guess.
-- **Never merge yourself.** Never run `gh pr merge`, never arm auto-merge, never push to `main`. With independent review enabled, finish at the verifying handoff above. Otherwise finish at a merge-ready PR reported with a merge assessment. The factory decides whether it merges or goes to a human.
-- **Clean up only what you started.** Other runs and the operator's own servers share this machine. Start a dev server on a free port, remember its PID, and stop that PID before the turn ends. Never `pkill` or `killall` by name, and never stop a process you did not start.
-- **Prove the commit you ship.** Run the verify command named in the `report_stage` reply on the final clean commit. Independent-review attempts verify before the `verifying` handoff; other attempts verify the pushed head before reporting `pr`. It reports checks and output for that exact HEAD. Any new commit needs fresh verification.
-- **Show the pages you change.** When a change touches a page or screen, start the repo's dev server on a free port, drive it with the available browser tooling, and inspect the result. Save viewport screenshots of each changed state. Include their paths in an independent-review handoff, or attach them to the `pr` assessment when review is disabled.
-- **Giving up means `failed`.** If you cannot finish (three fix rounds on the same failure, a broken toolchain, a dead end), call `report_stage` with `stage: "failed"` and the reason in `summary`, then end the turn.
+- Never ask in the thread or enter plan approval mode. No human monitors the builder thread. Report needs_human instead.
+- Never open a PR, merge, arm auto-merge, or push to the default branch. The runner publishes the exact reviewed or review-disabled handoff revision.
+- Work in the current attempt branch and worktree. Do not create another attempt or worktree.
+- Stop only services you started, using their recorded PIDs. Never kill shared processes by name.
+- If toolchain failures or requirements block completion, report needs_human with the recovery action. Session exit and prose never count as handoff or terminal failure.
 
-## Triage
+## Implementation
 
-1. Call `report_stage` with `stage: "triage"`.
-2. Decide the type from the job description. A described symptom that differs from stated expected behaviour is a bug: follow the bundled Bug fix playbook. A request for new behaviour is a feature: follow the bundled Feature playbook.
-3. Test for ambiguity before any code. Write down the acceptance check, a test or an observable result, using only the job description. If you cannot, the job is ambiguous: report `waiting` with the question and stop.
-4. Work in the thread's worktree on the current branch. Do not create other worktrees or branches for the PR.
+Read the job and repository instructions. Write an observable acceptance check. A symptom differing from expected behavior is a bug; otherwise follow the feature playbook. For bugs, preserve a reproducible failing check before fixing. Implement only requested behavior. Run the repository's applicable checks and inspect the actual changed UI surface. Commit the final clean revision, verify it, report handoff, and end.
 
-## Resumed runs
+## Answers and repairs
 
-A run that stopped in `waiting` resumes when the owner answers in the dashboard. The factory then sends this thread a message that quotes your question and the answer, or starts a fresh thread on the same branch with both in its first message.
-
-1. Start again at Triage and call `report_stage` with `stage: "triage"`. Keep the branch and any commits already on it.
-2. The answer is the spec. Where it picks an option you offered, build that option and nothing the reporter did not ask for. Where it adds a request, include it.
-3. Run the ambiguity test again with the issue plus the answer. If you still cannot write the acceptance check, report `waiting` with one more concrete question about what is still open, and end the turn. Do not guess.
-4. Otherwise continue with the bundled playbook as usual.
+Keep existing commits and branch when an owner answers or a reviewer requests changes. Treat the answer as task requirements, not permission to override execution rules. Apply requested fixes, test, commit, verify the new revision, and report a fresh handoff. A reviewer FIX returns work to Building; a subsequent handoff permits another review. BLOCKED and exhausted repairs require owner intervention, not guessed completion.
 
 ## Merge conflicts
 
-When the factory tells this thread that its PR conflicts with main, the board has already moved the run back to Implementing.
+Fetch origin and merge the repository's default branch into the attempt branch. Never rebase a published attempt or force-push. Preserve both changes. If requirements cannot resolve a contradiction, abort the merge and report needs_human. Otherwise test, commit, verify and hand off again. The runner requires fresh review when enabled before republishing.
 
-1. Run `git fetch origin` and `git merge origin/main` on this branch. Never rebase a pushed factory branch and never force-push it.
-2. Resolve each conflict so that main's change and yours both keep working. Read main's commit to learn what it meant. Do not drop either side to make the conflict go away.
-3. Call `report_stage` with `stage: "verifying"`, then run lint, typecheck, tests and build, and check the changed screen when the conflict touched UI.
-4. Commit the merge and run `factory-verify`. With independent review enabled, report `verifying` with the new SHA and evidence, then end the turn for fresh review. Otherwise push, babysit the PR to green, verify the pushed merge commit, and report `pr` with the `prUrl` and a fresh merge assessment.
-5. If the two changes contradict each other and the issue does not say which wins, abort the merge with `git merge --abort`, report `waiting` with a question that names both changes, and end the turn.
+## Completion
 
-## Merge assessment
-
-This section applies only to independent-review-disabled and legacy attempts. Review-enabled builders put their interpretation, assumptions, and evidence in the verifying handoff instead; the runner publishes after PASS.
-
-Every run ends one of three ways: the factory merges it, it hands it over to the owner for review, or you asked before building (`waiting`). If the job is open enough that different readings give different features, report `waiting` before building.
-
-1. Write down how you read the job and every assumption you filled a gap with. Jobs are often underspecified; that is fine. Put the assumptions in the PR body under a heading `Assumptions I made`, one bullet each; the factory records them on the job.
-2. Run `factory-verify` on the pushed head, as in Standing rules.
-3. Recommend `merge` when you are confident you built what the job asked for and that it works. Additive changes the job asked for, such as new exports or new endpoints, are fine.
-4. Recommend `handover` only when you are not confident: you are unsure what the job meant, unsure about an assumption you had to make, or you could not show the change works. Say why in one or two sentences.
-
-When you report `pr`, pass `assessment`: `recommendation`, `interpretation`, `assumptions`, and `confidence` with `confident` and, when you are not confident, the `reason`. Add `notes` for anything else the owner should know. When the change shows on a page, add `screenshots`: up to six entries, each with the `file` you saved and a `caption` that says what the image shows and what to look for. Each file must be a PNG, JPEG or WebP image under 1 MB; `report_stage` refuses the report if one can't be read. Be honest: the factory checks CI and conflicts itself, holds the head to the evidence `factory-verify` reported for it, and a `merge` it cannot back up costs trust.
-
-## Changes to the bundled playbooks
-
-Apply publication and babysit replacements only to independent-review-disabled or legacy attempts. For enabled attempts, the Execution contract above replaces those steps and any bundled self-review step.
-
-- **Before** "Reproduce it yourself on the matching surface via the driver skill" call `report_stage` with `stage: "investigating"`.
-- **Replace** "Ask the user only with a stated, specific reason the control surface cannot reach the target, and only after driving it as far as it goes." with: If the control surface cannot reach the target after you drove it as far as it goes, report `waiting` with the reason and the exact repro you need, then stop.
-- **Before** "Plan the fix." call `report_stage` with `stage: "implementing"`.
-- **Replace** "Skip it when the test would be expensive, integration-heavy, or unclear." with: In a factory run the failing test is mandatory. Write it first, run it, and quote the failure before the fix. If no test can express the bug, report `waiting` and say why.
-- **After** "Stage the commits so the failing repro lands before the fix in git history." commit the failing test on its own, then the fix in a second commit.
-- **Before** "Verify on the same surface." call `report_stage` with `stage: "verifying"`. Run the repo's lint, typecheck, tests and build locally before you push.
-- **Before** "`how` over the affected subsystem." call `report_stage` with `stage: "investigating"`.
-- **Before** "Delegate code-writing to a subagent using your configured feature model" call `report_stage` with `stage: "implementing"`.
-- **Before** "Verify on the matching surface." call `report_stage` with `stage: "verifying"`. Run the repo's lint, typecheck, tests and build locally before you push.
-- **In** "Use Conventional Commits in the form `type(scope): subject`." prefix the title with the job key, as in `JOB-2 fix(search): match item names case-insensitively`.
-- **After** "Drop a section when it has nothing to say." start the body with a line that links the job, as in `Job: [JOB-2](<job url>)`.
-- **Replace** "Opening a PR does not start a babysit." with: In a factory run, opening the PR starts a `drive` babysit of that one PR right away. The factory run is the standing request to get it green.
-- **Replace** "Run `drive` and `background` under `/loop` in dynamic mode." with: Run the watcher in the foreground and rerun it until it returns a verdict. Do not use `/loop` or scheduled wakeups: once the turn ends, nothing wakes this thread.
-- **After** "Babysitting never authorizes merging." when the watcher reports `READY`, or owner approval is the only blocker left, run `factory-verify` on the pushed head, then call `report_stage` with `stage: "pr"`, the `prUrl`, a summary of the CI and review state, and your merge assessment. Then end the turn. If CI or a bot finding still fails after three fix rounds, report `failed` with the PR URL in the summary.
+Ready means a PR has been published, not that CI or owner approval has passed. Done means confirmed merged. Only the runner sets these phases. Builder completion is always explicit commit-bound handoff, never agent exit or a final message.

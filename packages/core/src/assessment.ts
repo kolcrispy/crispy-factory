@@ -33,7 +33,7 @@ const legacyChecksSchema = z.object(Object.fromEntries(LEGACY_CHECKS.map((c) => 
 const legacyFieldsSchema = z.object({ checks: legacyChecksSchema, reviewFocus: z.string().min(1).max(1000).optional() });
 
 /**
- * What report_stage takes. Loose so a report in the older six-check shape (`checks`, `reviewFocus`)
+ * What a builder handoff takes. Loose so an older six-check assessment (`checks`, `reviewFocus`)
  * keeps those fields and still validates; parseAssessment maps it to the current shape.
  */
 export const assessmentInputSchema = z

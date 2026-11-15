@@ -36,7 +36,6 @@ function steps(reports: readonly Report[]): Step[] {
 }
 
 const DOT: Partial<Record<Stage, string>> = {
-  waiting: "bg-warning ring-warning/20",
   failed: "bg-destructive ring-destructive/20",
 };
 

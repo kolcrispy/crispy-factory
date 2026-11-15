@@ -31,7 +31,7 @@ export async function operator(resource: string, action: string, raw: unknown, a
   let result: Result;
   const key = `${resource} ${action}`;
   switch (key) {
-    case "jobs list": result = { jobs: await db.select().from(jobs).orderBy(desc(jobs.claimed_at)).limit(200) }; break;
+    case "jobs list": result = { jobs: (await db.select().from(jobs).orderBy(desc(jobs.claimed_at)).limit(200)).map(job => ({ ...job, needs_human: inboxKind(job) !== null })) }; break;
     case "jobs show": {
       const id = parseJobId(text(input, "jobId")).id;
       const [job] = await db.select().from(jobs).where(eq(jobs.id, id));

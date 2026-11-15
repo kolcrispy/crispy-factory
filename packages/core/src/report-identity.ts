@@ -2,7 +2,7 @@ import { attemptBranch, mcpSessionId, parseBranch } from "./factory";
 import { currentBranch } from "./git-head";
 
 // Who the factory-report MCP server reports for. Claude Code's hooks see the session id and turn a
-// report_stage call into the stage event, so under Claude the server only validates. Any other
+// report_work call into a builder_report event, so under Claude the server only validates. Any other
 // harness (Codex) has no hooks, so the server posts the event itself, under a session of its own
 // per attempt branch: `mcp:factory/FAC-5-a2`.
 

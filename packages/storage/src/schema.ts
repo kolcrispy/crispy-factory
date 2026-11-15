@@ -129,6 +129,10 @@ export const jobs = pgTable(
     stage_at: ts("stage_at"),
     stage_summary: text("stage_summary"),
     question: text("question"),
+    /** Actionable owner intervention, independent of the job phase. */
+    attention: jsonb("attention").$type<{ eventId: string; at: number; reason: string; action: string }>(),
+    /** Explicit builder completion bound to this attempt and its verified revision. */
+    builder_handoff: jsonb("builder_handoff").$type<{ eventId: string; at: number; attempt: number; sha: string; evidenceEventId: string; summary: string }>(),
     pr_url: text("pr_url"),
     /** The stage event the job's stage came from; write-back keys its source comment on it. */
     stage_event_id: text("stage_event_id"),

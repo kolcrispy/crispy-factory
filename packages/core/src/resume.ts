@@ -14,7 +14,7 @@ export function resumeMessage(subject: string, question: string, answer: string,
   return [
     `The reporter answered your question on ${subject}.`,
     "",
-    `Continue the factory playbook (${playbook}) from Triage, on this same branch, treating the answer as the spec. Report every stage with the report_stage tool. If the answer is still not enough to write an acceptance check, report waiting with one more concrete question instead of guessing.`,
+    `Continue the factory playbook (${playbook}) on this branch, treating the answer as the spec. Use report_work for progress, needs_human for another actionable question, and handoff with verified sha and evidenceEventId when complete.`,
     "",
     qaBlock(question, answer),
   ].join("\n");
@@ -45,9 +45,9 @@ export async function claimReplies(
     .where(
       and(
         eq(jobs.id, id),
-        eq(jobs.stage, "waiting"),
+        sql`${jobs.attention} is not null`,
         eq(jobs.attempt, expected.attempt),
-        expected.questionEventId === null ? sql`${jobs.stage_event_id} is null` : eq(jobs.stage_event_id, expected.questionEventId),
+        sql`${jobs.attention}->>'eventId' is not distinct from ${expected.questionEventId}`,
         sql`not (${jobs.delivered_reply_ids} ?| array[${sql.join(
           replyIds.map((r) => sql`${r}`),
           sql`, `,

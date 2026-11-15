@@ -21,7 +21,7 @@ export async function requestReviewAction(deps: Pick<InboxDeps, "db" | "user">, 
   const [prior] = await deps.db.select().from(intents).where(eq(intents.id, id));
   if (prior) return prior.detail === detail ? { ok: true as const, intentId: id } : { ok: false as const, message: "Request ID belongs to a different review action." };
   const [job] = await deps.db.select().from(jobs).where(and(eq(jobs.id, input.jobId as typeof jobs.$inferSelect.id), eq(jobs.attempt, input.attempt)));
-  if (!job?.attempt_review?.policy.enabled || job.attempt_review.state !== "held" || job.stop || ["failed", "merged"].includes(job.stage)) return { ok: false as const, message: "This attempt has no held review." };
+  if (!job?.attempt_review?.policy.enabled || job.attempt_review.state !== "held" || job.stop || ["failed", "done"].includes(job.stage)) return { ok: false as const, message: "This attempt has no held review." };
   await deps.db.insert(intents).values({ id, kind: "review_action", job_id: job.id, detail, created_at: new Date() }).onConflictDoNothing();
   const [existing] = await deps.db.select().from(intents).where(eq(intents.id, id));
   if (existing?.detail !== detail) return { ok: false as const, message: "Request ID belongs to a different review action." };
