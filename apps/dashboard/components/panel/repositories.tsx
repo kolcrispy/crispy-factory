@@ -36,7 +36,7 @@ const CLOCK_TICK_MS = 30_000;
 const AUTONOMY_HELP: Record<Autonomy, string> = {
   off: "Every pull request is ready for your review. The factory evaluates nothing.",
   trial: "The factory evaluates each pull request and shows whether it would merge or why it hands over, but never merges.",
-  auto: "The factory merges a pull request it is confident about and every hard limit holds: checks green, no conflicts, Bugbot clear, and verified at its head.",
+  auto: "The factory merges a pull request it is confident about and every hard limit holds: checks green, no conflicts, and verified at its head.",
 };
 
 const LIST_KEYS: readonly KeyHint[] = [
@@ -133,7 +133,6 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
   const [model, setModel] = useState(row.model ?? SETTINGS_DEFAULT);
   const [review, setReview] = useState<ReviewOverrides>(row.review ?? {});
   const [autonomy, setAutonomy] = useState<Autonomy>(row.autonomy);
-  const [requireBugbot, setRequireBugbot] = useState(row.require_bugbot);
   const [failure, setFailure] = useState<string | null>(null);
   const [savedNow, setSavedNow] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
@@ -178,7 +177,6 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
         model: provider === SETTINGS_DEFAULT || model === SETTINGS_DEFAULT ? null : model,
         review,
         autonomy,
-        requireBugbot,
       }),
     );
   };
@@ -312,15 +310,6 @@ function Detail({ entry, harnesses }: { entry: Entry; harnesses: readonly Harnes
               </SelectPopup>
             </Select>
             <FieldDescription>{AUTONOMY_HELP[autonomy]}</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel>
-              <Switch checked={requireBugbot} onCheckedChange={setRequireBugbot} />
-              Require Bugbot review
-            </FieldLabel>
-            <FieldDescription>
-              A pull request waits for Bugbot&apos;s review and doesn&apos;t merge on its own with an unresolved medium or high finding. Turn it off for a repo without Bugbot, so the factory neither waits for its review nor reads its findings.
-            </FieldDescription>
           </Field>
           {failure && (
             <p role="alert" className="text-sm text-destructive">

@@ -347,8 +347,7 @@ try {
   await pr(TRIAL, { pr_url: `https://github.com/${TRIAL_REPO}/pull/1` });
   github.pullDetail = async (url) => ({ state: "open", mergeable: "mergeable", headSha: heads.get(byUrl.get(url)!)!, baseRef: "main" });
   github.pullFiles = async () => [{ path: "src/a.ts", additions: 1, deletions: 1 }];
-  github.checkState = async () => ({ checks: "success", bugbot: { state: "reviewed" } });
-  github.bugbotFindings = async () => [];
+  github.checkState = async () => ({ checks: "success" });
   github.upsertComment = async () => "created";
   github.mergeCandidate = async () => ({ state: "open", headSha: "moved", baseRef: "main", title: "t", number: 1, commits: 1, mergeCommitSha: null, mergedByBot: false });
   ingestClient.post = async (e) => ingest(db, [eventSchema.parse(e)]);

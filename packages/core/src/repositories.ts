@@ -114,7 +114,6 @@ export const repositoryInputSchema = z.object({
   model: z.string().trim().min(1).nullable().default(null),
   review: reviewOverridesSchema.optional(),
   autonomy: autonomySchema,
-  requireBugbot: z.boolean({ error: "Say whether pull requests wait for Bugbot." }),
 });
 export type RepositoryInput = z.input<typeof repositoryInputSchema>;
 export type RepositoryChoice = z.output<typeof repositoryInputSchema>;
@@ -132,7 +131,6 @@ export async function writeRepository(database: Db, choice: RepositoryChoice, by
       model: choice.model,
       ...(choice.review !== undefined && { review: choice.review }),
       autonomy: choice.autonomy,
-      require_bugbot: choice.requireBugbot,
       updated_at: at,
       updated_by: by,
     })

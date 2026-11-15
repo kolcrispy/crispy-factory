@@ -30,7 +30,6 @@ const row = (repo: string, over: Partial<RepoRow> = {}): RepoRow => ({
   autonomy: "off",
   protected_paths: null,
   max_changed_lines: null,
-  require_bugbot: true,
   registration_status: "ready",
   registration_error: null,
   checkout_path: null,
@@ -74,7 +73,7 @@ const deps = (user: typeof owner | null = owner) => ({
   harnesses: async () => harnesses,
   save: async (choice: unknown) => void saved.push(choice),
 });
-const input = { repo: B, displayName: "Shop app", enabled: true, provider: "codex", autonomy: "trial", requireBugbot: true };
+const input = { repo: B, displayName: "Shop app", enabled: true, provider: "codex", autonomy: "trial" };
 for (const user of [null, { email: "x@example.com", emailVerified: true }, { email: OWNER, emailVerified: false }]) {
   assert.equal((await repos.saveRepository(deps(user), input)).ok, false, `${user?.email ?? "signed out"} cannot save`);
   assert.deepEqual(await repos.makeDefaultRepo({ ...deps(user), save: async () => void saved.push("default") }, { repo: B }), {
@@ -95,8 +94,6 @@ assert.equal(await refused({ displayName: "Factory-Demo" }), `400 ${A} is alread
 assert.equal(await refused({ displayName: "a, b" }), "400 The name can't contain commas or line breaks.");
 assert.equal(await refused({ provider: "off" }), "400 No machine reports an enabled harness off.");
 for (const bad of [{ autonomy: "always" }, { enabled: "yes" }]) assert.match(await refused(bad), /^400 /, `${JSON.stringify(bad)} is refused`);
-assert.equal(await refused({ requireBugbot: "no" }), "400 Say whether pull requests wait for Bugbot.", "Require Bugbot review is a yes or no");
-assert.equal(await refused({ requireBugbot: undefined }), "400 Say whether pull requests wait for Bugbot.", "and must be sent");
 assert.equal(saved.length, 0);
 const kept = { ...deps(), registry: async () => registry.map((r) => (r.repo === B ? { ...r, provider: "gone" } : r)) };
 assert.equal((await repos.saveRepository(kept, { ...input, provider: "gone", displayName: "Shop renamed" })).ok, true, "a stored harness no machine reports any more does not block other edits");
@@ -106,8 +103,6 @@ assert.equal(await refused({}), "saved");
 assert.equal(await refused({ provider: null }), "saved", "null means Settings");
 assert.equal(await refused({ protectedPaths: [" "], maxChangedLines: 0 }), "saved", "a form from before protected paths and the size limit went away still saves");
 assert.ok(!("protectedPaths" in (saved.at(-1) as object)) && !("maxChangedLines" in (saved.at(-1) as object)), "without them");
-assert.equal(await refused({ requireBugbot: false }), "saved");
-assert.equal((saved.at(-1) as { requireBugbot: boolean }).requireBugbot, false, "a repo without Bugbot saves as such");
 assert.equal(await refused({ model: "gpt-second" }), "saved", "a reported repository model saves");
 const savedModel = saved.at(-1);
 assert.ok(savedModel && typeof savedModel === "object" && "model" in savedModel);
@@ -192,9 +187,9 @@ try {
   assert.equal((await db.select().from(repoSettings).where(eq(repoSettings.repo, removable))).length, 0, "removal deletes the registry row");
   assert.equal((await db.select().from(intents).where(eq(intents.id, intentId))).length, 0, "and its pending registration");
 
-  await repos.writeRepository(db, { repo: B, displayName: "shop", enabled: true, provider: "codex", model: "gpt-second", autonomy: "trial", requireBugbot: false }, OWNER, new Date());
+  await repos.writeRepository(db, { repo: B, displayName: "shop", enabled: true, provider: "codex", model: "gpt-second", autonomy: "trial" }, OWNER, new Date());
   const [shopRow] = await db.select().from(repoSettings).where(eq(repoSettings.repo, B));
-  assert.deepEqual([shopRow!.display_name, shopRow!.autonomy, shopRow!.require_bugbot, shopRow!.model], [null, "trial", false, "gpt-second"], "repository model persists with its settings");
+  assert.deepEqual([shopRow!.display_name, shopRow!.autonomy, shopRow!.model], [null, "trial", "gpt-second"], "repository model persists with its settings");
 
 
   console.log("repositories regressions passed");

@@ -69,7 +69,7 @@ Newly claimed attempts default to independent review. Enabled, harness, and mode
 
 Builders implement, test, commit, report `verifying` with evidence, and stop. They do not self-review or publish PRs. A fresh reviewer evaluates the exact commit in an isolated checkout, without modifying source. PASS authorizes only that attempt and SHA. The runner pushes the approved SHA and creates the PR; merge also rechecks the approved SHA. Code changes require fresh review.
 
-For review-enabled attempts, an exact-attempt, exact-head independent PASS replaces the legacy builder merge assessment in automatic merge eligibility. Legacy and review-disabled attempts still require their builder assessment. PASS does not bypass required Bugbot, CI, trusted-check, verification, or conflict gates.
+For review-enabled attempts, an exact-attempt, exact-head independent PASS replaces the legacy builder merge assessment in automatic merge eligibility. Legacy and review-disabled attempts still require their builder assessment. PASS does not bypass CI, trusted-check, verification, or conflict gates.
 
 FIX requires substantive blocking findings and resumes the original builder. Automatic work is bounded to two repair cycles. BLOCKED, invalid results/configuration, failed sessions, uncertain delivery, and exhausted repairs hold the attempt in Needs you. Job detail or `jobs review` requests another review; `jobs review-changes` sends explicit owner changes. Owner recovery does not bypass PASS or reset the automatic repair allowance. Ambiguous launches reconcile only a uniquely identified original session and never launch a replacement blindly.
 
@@ -128,10 +128,12 @@ A failed registration keeps its error on the row; replaying the same request is 
 
 - **Off** performs no merge evaluation.
 - **Trial** evaluates and displays the decision but never merges.
-- **Merge when confident** merges PRs that clear hard limits: checks green at the exact head, no conflicts, no unresolved Bugbot findings when required, and valid runner evidence.
+- **Merge when confident** merges PRs that clear hard limits: checks green at the exact head, no conflicts, and valid runner evidence.
 - Every merge goes through `runner/merge-service.ts`.
 - A failing post-merge watch may revert the factory's merge.
 - Spend is measured, never capped.
+
+Bugbot integration has been removed. Its GitHub check runs are excluded from Factory CI gates; independent review, non-Bugbot CI, verification and conflict checks still apply. Migration `0057_melodic_nehzno` drops the repository setting, deletes Bugbot-specific decision/snapshot event and failure audit records, and clears affected job merge projections for reevaluation. Jobs, attempts and verification evidence remain intact. GitHub installation, comments and checks are unchanged.
 
 ## Evidence
 

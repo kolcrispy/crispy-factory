@@ -19,9 +19,8 @@ export const CHECKS_TIMEOUT_MS = 60 * 60_000;
 export const DEFAULT_NO_CI_GRACE_MS = 5 * 60_000;
 export const REVIEW_LABEL = "review";
 
-/** `requireBugbot` false means the repo has no Bugbot: its review is neither awaited nor read. */
-export type RepoPolicy = { autonomy: Autonomy; requireBugbot: boolean };
-export const DEFAULT_POLICY: RepoPolicy = { autonomy: "off", requireBugbot: true };
+export type RepoPolicy = { autonomy: Autonomy };
+export const DEFAULT_POLICY: RepoPolicy = { autonomy: "off" };
 
 export const MERGE_OUTCOMES = ["merge", "handover", "pending"] as const;
 export type MergeOutcome = (typeof MERGE_OUTCOMES)[number];
@@ -64,19 +63,11 @@ export type MergeWatch = z.infer<typeof watchSchema>;
 /** The most changed files a review summary lists; fileCount still counts them all. */
 export const REVIEW_FILE_LIMIT = 100;
 
-/** What the owner reviews in the inbox: the PR's changed files and Bugbot's findings at one head. */
+/** The PR's changed files at one head. */
 export const reviewSchema = z.object({
   headSha: z.string(),
   files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number() })),
   fileCount: z.number().int(),
-  bugbot: z.object({
-    state: z.enum(["pending", "reviewed", "failed"]),
-    /** Unresolved findings by severity. */
-    high: z.number().int(),
-    medium: z.number().int(),
-    low: z.number().int(),
-    resolved: z.number().int(),
-  }),
 });
 export type ReviewSummary = z.infer<typeof reviewSchema>;
 
@@ -126,18 +117,14 @@ export type MergeDecision = z.infer<typeof mergeDecisionSchema>;
 
 /** `none`: no check run or status reported on the head past the grace period, and the base branch requires none. */
 export type CheckState = "success" | "pending" | "failure" | "none";
-export type BugbotFinding = { severity: "high" | "medium" | "low"; resolved: boolean };
-/** Bugbot's run on the head: still running (or not started), reviewed, or ended without a review. */
-export type BugbotReview = { state: "pending" } | { state: "reviewed" } | { state: "failed"; conclusion: string };
 export type ChangedFile = { path: string; additions: number; deletions: number };
 
 /** What GitHub says about the PR head. */
 export type PrFacts = {
   headSha: string;
   mergeable: "mergeable" | "conflicting" | "unknown";
-  /** Every check run and commit status on the head, Bugbot's aside; pending also when none reported yet, none once the repo has no CI. */
+  /** Non-Bugbot CI checks and commit statuses at the head. */
   checks: CheckState;
-  bugbot: { review: BugbotReview; findings: readonly BugbotFinding[] };
   files: readonly ChangedFile[];
 };
 
@@ -172,11 +159,6 @@ function hardLimits(input: DecisionInput, pr: PrFacts) {
   if (input.labels.some((l) => l.toLowerCase() === REVIEW_LABEL)) reasons.push(`The issue has the "${REVIEW_LABEL}" label.`);
   if (pr.checks === "failure") reasons.push("A check failed on the latest commit.");
   if (pr.mergeable === "conflicting") reasons.push("The pull request conflicts with its base branch.");
-  if (input.policy.requireBugbot) {
-    if (pr.bugbot.review.state === "failed") reasons.push(`Bugbot didn't complete its review (${pr.bugbot.review.conclusion}).`);
-    const open = pr.bugbot.findings.filter((f) => !f.resolved && f.severity !== "low");
-    if (open.length > 0) reasons.push(`Bugbot has ${open.length} unresolved medium or high finding${open.length === 1 ? "" : "s"}.`);
-  }
   return reasons;
 }
 
@@ -239,7 +221,6 @@ const verificationWait = (pr: PrFacts) => `verification at ${shortSha(pr.headSha
 function waitingOn(input: DecisionInput, pr: PrFacts) {
   const waiting: string[] = [];
   if (pr.checks === "pending") waiting.push("checks");
-  if (input.policy.requireBugbot && pr.bugbot.review.state === "pending") waiting.push("Bugbot");
   if (pr.mergeable === "unknown") waiting.push("GitHub's mergeability check");
   if (evidenceReasons(input, pr).length === 0 && input.evidence.state !== "verified") waiting.push(verificationWait(pr));
   return waiting;
@@ -268,20 +249,17 @@ export function decideMerge(input: DecisionInput): Decision {
 /** Said on a merge where the factory's evidence at the head stood in for CI. */
 export const noCiReason = (headSha: string) => `No CI on this repo; relying on the factory's own checks at ${shortSha(headSha)}.`;
 
-export function reviewSummary(pr: Pick<PrFacts, "headSha" | "files" | "bugbot">): ReviewSummary {
-  const open = pr.bugbot.findings.filter((f) => !f.resolved);
-  const count = (severity: BugbotFinding["severity"]) => open.filter((f) => f.severity === severity).length;
+export function reviewSummary(pr: Pick<PrFacts, "headSha" | "files">): ReviewSummary {
   return {
     headSha: pr.headSha,
     files: pr.files.slice(0, REVIEW_FILE_LIMIT).map(({ path, additions, deletions }) => ({ path, additions, deletions })),
     fileCount: pr.files.length,
-    bugbot: { state: pr.bugbot.review.state, high: count("high"), medium: count("medium"), low: count("low"), resolved: pr.bugbot.findings.length - open.length },
   };
 }
 
 /**
  * What still stops a merge the owner approved. Only facts about the PR count: the agent's
- * reasons, the policy's limits and Bugbot's findings are the owner's to overrule.
+ * reasons and the policy's limits are the owner's to overrule.
  */
 export function approvalBlockers(pr: Pick<PrFacts, "checks" | "mergeable">): string[] {
   const reasons: string[] = [];

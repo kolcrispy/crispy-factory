@@ -81,7 +81,7 @@ try {
   const { intents } = await import("@factory/storage/schema");
   const sha = "a".repeat(40);
   const prUrl = "https://github.com/smoke/isolated/pull/1";
-  await db.update(jobs).set({ stage: "pr", pr_url: prUrl, github_snapshot: { prUrl, attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Isolated merge", headSha: sha, mergeable: "mergeable", review: { headSha: sha, files: [], fileCount: 0, bugbot: { state: "reviewed", high: 0, medium: 0, low: 0, resolved: 0 } } } }).where(eq(jobs.key, "JOB-9001"));
+  await db.update(jobs).set({ stage: "pr", pr_url: prUrl, github_snapshot: { prUrl, attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Isolated merge", headSha: sha, mergeable: "mergeable", review: { headSha: sha, files: [], fileCount: 0 } } }).where(eq(jobs.key, "JOB-9001"));
   await page.goto(origin + "/merge-smoke");
   await page.getByRole("button", { name: "Merge", exact: true }).click();
   const dialog = page.getByRole("alertdialog");

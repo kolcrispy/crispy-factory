@@ -353,8 +353,6 @@ export const repoSettings = pgTable(
     protected_paths: jsonb("protected_paths").$type<string[]>(),
     /** Most additions plus deletions a PR may have to merge on its own; null means the default. */
     max_changed_lines: integer("max_changed_lines"),
-    /** Whether a PR waits for and is held to Bugbot's review; false for a repo without Bugbot. */
-    require_bugbot: boolean("require_bugbot").notNull().default(true),
     /** Trusted recipe captured from the default branch during runner registration. */
     recipe: jsonb("recipe").$type<Recipe>(),
     updated_at: ts("updated_at").notNull(),

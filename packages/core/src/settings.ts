@@ -67,7 +67,6 @@ export function resolvePolicy(rows: readonly RepoSettingsRow[], repo: string): R
   if (!row) return DEFAULT_POLICY;
   return {
     autonomy: autonomySchema.catch("off").parse(row.autonomy),
-    requireBugbot: row.require_bugbot,
   };
 }
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ReviewComment } from "@factory/core/inbox";
-import { DEFAULT_NO_CI_GRACE_MS, type BugbotFinding, type BugbotReview, type ChangedFile, type CheckState, type MergeMethod } from "@factory/core/merge-decision";
+import { DEFAULT_NO_CI_GRACE_MS, type ChangedFile, type CheckState, type MergeMethod } from "@factory/core/merge-decision";
 import { GitHubError, ghRequest, type GithubRequest, type RepoName } from "./gh";
 
 export type PullState = "open" | "closed" | "merged";
@@ -71,16 +71,8 @@ const checkRunsSchema = z.object({ total_count: z.number(), check_runs: z.array(
 const combinedStatusSchema = z.object({ state: z.string(), total_count: z.number() });
 
 const PASSING = new Set(["success", "neutral", "skipped"]);
-/** Bugbot concludes neutral when it reviewed and posted findings, success when it found none. */
-const BUGBOT_REVIEWED = new Set(["success", "neutral"]);
 const isBugbot = (run: CheckRun) => /bugbot/i.test(run.name);
 
-function bugbotReviewOf(runs: readonly CheckRun[]): BugbotReview {
-  const bugbot = runs.filter(isBugbot);
-  if (bugbot.length === 0 || bugbot.some((run) => run.status !== "completed")) return { state: "pending" };
-  const failed = bugbot.find((run) => !BUGBOT_REVIEWED.has(run.conclusion ?? ""));
-  return failed ? { state: "failed", conclusion: failed.conclusion ?? "no conclusion" } : { state: "reviewed" };
-}
 
 /**
  * What tells a commit nothing reported on from one whose CI has not started yet: when it was pushed,
@@ -98,7 +90,7 @@ export function checkStateOf(
   status: z.infer<typeof combinedStatusSchema>,
   complete = true,
   noCi?: NoCiFacts,
-): { checks: CheckState; bugbot: BugbotReview } {
+): { checks: CheckState } {
   const others = runs.filter((run) => !isBugbot(run));
   const states: CheckState[] = others.map((run) =>
     run.status !== "completed" ? "pending" : PASSING.has(run.conclusion ?? "") ? "success" : "failure",
@@ -107,7 +99,7 @@ export function checkStateOf(
   if (!complete) states.push("pending");
   const unreported = states.length === 0 && noCi !== undefined && noCi.required.length === 0 && noCi.now - noCi.pushedAt >= noCi.graceMs;
   const checks: CheckState = states.includes("failure") ? "failure" : unreported ? "none" : states.length === 0 || states.includes("pending") ? "pending" : "success";
-  return { checks, bugbot: bugbotReviewOf(runs) };
+  return { checks };
 }
 
 /** Whether no check but Bugbot's reported on the commit; only then is it worth asking whether the repo has CI. */
@@ -150,43 +142,6 @@ export function mergeMethodOf(repo: Partial<Record<(typeof MERGE_METHOD_FLAGS)[M
   return allowed[0] ?? "squash";
 }
 
-const SEVERITY = /\*\*(High|Medium|Low) Severity\*\*/;
-const BUGBOT_LOGIN = /^cursor(\[bot\])?$/;
-
-const threadsSchema = z.object({
-  data: z.object({
-    repository: z.object({
-      pullRequest: z.object({
-        reviewThreads: z.object({
-          nodes: z.array(
-            z.object({
-              isResolved: z.boolean(),
-              comments: z.object({ nodes: z.array(z.object({ author: z.object({ login: z.string() }).nullable(), body: z.string() })) }),
-            }),
-          ),
-        }),
-      }),
-    }),
-  }),
-});
-
-/** Bugbot's findings: its review threads, each with the severity its first comment states. */
-export function bugbotFindingsOf(json: unknown): BugbotFinding[] {
-  const { nodes } = threadsSchema.parse(json).data.repository.pullRequest.reviewThreads;
-  return nodes.flatMap((thread) => {
-    const first = thread.comments.nodes[0];
-    const severity = first && BUGBOT_LOGIN.test(first.author?.login ?? "") ? SEVERITY.exec(first.body)?.[1] : undefined;
-    return severity ? [{ severity: severity.toLowerCase() as BugbotFinding["severity"], resolved: thread.isResolved }] : [];
-  });
-}
-
-const THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } body } } } }
-    }
-  }
-}`;
 
 const FILE_PAGES = 30;
 const CHECK_PAGES = 10;
@@ -319,22 +274,6 @@ export function pullsClient({ request: transport = ghRequest }: { request?: Gith
       return checkStateOf(report.runs, report.status, report.complete, { pushedAt: pushed, now, graceMs, required });
     },
 
-    /** Whether Bugbot has a check run on the PR's head, in any state. */
-    async bugbotRan(url: string): Promise<boolean> {
-      const { repo, number } = parsePullUrl(url);
-      const { json } = await request(repo, "GET", `/repos/${repo}/pulls/${number}`);
-      const head = pullSchema.parse(json).head.sha;
-      return (await commitReport(repo, head)).runs.some(isBugbot);
-    },
-
-    async bugbotFindings(url: string): Promise<BugbotFinding[]> {
-      const { repo, number } = parsePullUrl(url);
-      const [owner, name] = repo.split("/");
-      const { json } = await request(repo, "POST", "/graphql", { body: { query: THREADS_QUERY, variables: { owner, name, number } } });
-      const errors = z.object({ errors: z.array(z.object({ message: z.string() })) }).safeParse(json);
-      if (errors.success) throw new Error(`GitHub GraphQL: ${errors.data.errors.map((e) => e.message).join("; ")}`);
-      return bugbotFindingsOf(json);
-    },
 
     /** `sha` pins the head, so a push since the decision makes GitHub refuse the merge. */
     async mergePull(url: string, headSha: string, { method = "squash", title, message }: MergeOptions = {}): Promise<MergeResult> {

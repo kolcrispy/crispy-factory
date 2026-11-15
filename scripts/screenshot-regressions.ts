@@ -146,7 +146,7 @@ try {
     policy: { ...DEFAULT_POLICY, autonomy: "auto" },
     assessment: assessment(),
     labels: [],
-    pr: { headSha: "h1", mergeable: "mergeable", checks: "success", bugbot: { review: { state: "reviewed" }, findings: [] }, files: [{ path: "src/list.tsx", additions: 3, deletions: 1 }] },
+    pr: { headSha: "h1", mergeable: "mergeable", checks: "success", files: [{ path: "src/list.tsx", additions: 3, deletions: 1 }] },
     headSeenAt: 0,
     now: 1,
     evidence: { state: "verified", sha: "h1", passed: 1, total: 1, producer: "agent" },

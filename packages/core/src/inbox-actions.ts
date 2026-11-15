@@ -337,7 +337,7 @@ export async function intentOutcome(deps: Pick<InboxDeps, "db" | "user">, intent
 export type ReviewDeps = Pick<InboxDeps, "db" | "user">;
 
 /**
- * The changed files and Bugbot's findings the inbox shows: what the runner stored with its decision
+ * The changed files the inbox shows: what the runner stored with its decision
  * on this report, else read from GitHub here on the server, as when autonomy is off.
  */
 export async function inboxReview(deps: ReviewDeps, jobId: JobId): Promise<ReviewSummary | null> {

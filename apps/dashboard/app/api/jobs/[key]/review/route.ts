@@ -5,7 +5,7 @@ import { getOwner } from "../../../../../lib/auth/server";
 import { inboxReview } from "@factory/core/inbox-actions";
 import { parseJobKey } from "../../../../../lib/live-queries";
 
-/** The changed files and Bugbot's findings an inbox item shows. A read, so a route and not a server action. */
+/** The changed files an inbox item shows. A read, so a route and not a server action. */
 export async function GET(_request: Request, { params }: RouteContext<"/api/jobs/[key]/review">) {
   const key = parseJobKey((await params).key);
   if (!key) return Response.json({ error: "invalid job key" }, { status: 400 });

@@ -17,7 +17,7 @@ const registry = async (): Promise<Registry> => [{
   checkout_path: null, default_branch: "main", display_name: null, is_default: true,
   enabled: true, provider: null, model: null, autonomy: "off", protected_paths: null,
   review: null,
-  max_changed_lines: null, require_bugbot: false, recipe: null, updated_at: new Date(0), updated_by: OWNER,
+  max_changed_lines: null, recipe: null, updated_at: new Date(0), updated_by: OWNER,
 }];
 const draft = { title: "Show the item count", description: "On the weight sort button.", requestId };
 

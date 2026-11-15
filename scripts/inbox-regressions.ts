@@ -99,9 +99,8 @@ assert.deepEqual(
   reviewSummary({
     headSha: "h1",
     files: [{ path: "a.ts", additions: 3, deletions: 1 }],
-    bugbot: { review: { state: "reviewed" }, findings: [{ severity: "high", resolved: false }, { severity: "low", resolved: false }, { severity: "medium", resolved: true }] },
   }),
-  { headSha: "h1", files: [{ path: "a.ts", additions: 3, deletions: 1 }], fileCount: 1, bugbot: { state: "reviewed", high: 1, medium: 0, low: 1, resolved: 1 } },
+  { headSha: "h1", files: [{ path: "a.ts", additions: 3, deletions: 1 }], fileCount: 1 },
   "the summary keeps counts, not patches",
 );
 
@@ -334,7 +333,7 @@ try {
   assert.equal((await intentRows(DETAIL)).length, 0, "a non-owner records nothing from run detail");
   assert.deepEqual(await inbox.approveFromRunDetail(deps(), detailId, "not-a-uuid", "h20"), { ok: false, message: "The request is not valid." });
   assert.deepEqual(await inbox.approveFromRunDetail(deps(), detailId, id5, ""), { ok: false, message: "The request is not valid." }, "run detail always pins a head");
-  await db.update(jobs).set({ github_snapshot: { prUrl: prUrl(20), attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Title 20", headSha: "h20", mergeable: "mergeable", review: { headSha: "h20", files: [], fileCount: 0, bugbot: { state: "reviewed", high: 0, medium: 0, low: 0, resolved: 0 } } } }).where(eq(jobs.id, detailId));
+  await db.update(jobs).set({ github_snapshot: { prUrl: prUrl(20), attempt: 1, observedAt: new Date().toISOString(), state: "open", title: "Title 20", headSha: "h20", mergeable: "mergeable", review: { headSha: "h20", files: [], fileCount: 0 } } }).where(eq(jobs.id, detailId));
   assert.deepEqual(await inbox.mergeTarget(deps(), detailId), { title: "Title 20", headSha: "h20", repo: REPO, mergeable: "mergeable" }, "the dialog reads the runner snapshot without GitHub credentials");
   const detailApproval = await inbox.approveFromRunDetail(deps(), detailId, id5, "h20");
   assert.deepEqual(detailApproval, { ok: true, intentId: `panel:approve_merge:${id5}` }, "the same intent kind as the inbox's Approve");

@@ -194,7 +194,7 @@ function Assessment({ job }: { job: JobRow }) {
 
 type Loaded = { kind: "loading" } | { kind: "ready"; review: ReviewSummary | null } | { kind: "failed"; message: string };
 
-/** The PR's files and Bugbot's findings, read on the server so the browser never calls GitHub. */
+/** The PR's files, read on the server so the browser never calls GitHub. */
 function useReview(job: JobRow, wanted: boolean) {
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const head = job.stage_event_id;
@@ -210,29 +210,6 @@ function useReview(job: JobRow, wanted: boolean) {
     return () => controller.abort();
   }, [job.key, head, wanted]);
   return loaded;
-}
-
-function bugbotLine(bugbot: ReviewSummary["bugbot"]) {
-  switch (bugbot.state) {
-    case "pending":
-      return { text: "Bugbot hasn't finished its review.", tone: "text-muted-foreground" };
-    case "failed":
-      return { text: "Bugbot didn't complete its review.", tone: "text-warning" };
-    case "reviewed": {
-      const open = [
-        bugbot.high && `${bugbot.high} high`,
-        bugbot.medium && `${bugbot.medium} medium`,
-        bugbot.low && `${bugbot.low} low`,
-      ].filter(Boolean);
-      const resolved = bugbot.resolved ? ` · ${bugbot.resolved} resolved` : "";
-      if (open.length === 0) return { text: `No open findings${resolved}`, tone: "text-success" };
-      return { text: `${open.join(", ")} unresolved${resolved}`, tone: bugbot.high || bugbot.medium ? "text-destructive" : "text-muted-foreground" };
-    }
-    default: {
-      const never: never = bugbot.state;
-      throw new Error(`unknown Bugbot state ${String(never)}`);
-    }
-  }
 }
 
 function Review({ loaded, prUrl }: { loaded: Loaded; prUrl: string }) {
@@ -256,15 +233,11 @@ function Review({ loaded, prUrl }: { loaded: Loaded; prUrl: string }) {
   }
   const review = loaded.review;
   if (!review) return null;
-  const bugbot = bugbotLine(review.bugbot);
   const added = review.files.reduce((sum, f) => sum + f.additions, 0);
   const removed = review.files.reduce((sum, f) => sum + f.deletions, 0);
   const files = `${prUrl}/files`;
   return (
     <>
-      <Section title="Bugbot">
-        <p className={bugbot.tone}>{bugbot.text}</p>
-      </Section>
       <Section title={`Changed files · ${review.fileCount}`}>
         <p className="text-xs text-muted-foreground">
           <span className="text-success">+{added}</span> <span className="text-destructive">−{removed}</span> at{" "}
