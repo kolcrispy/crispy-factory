@@ -36,6 +36,17 @@ Install Chromium once with `bun x playwright install chromium`, then run `bun ru
 
 Run detail's Merge confirmation closes immediately after confirmation. The durable approval stays queued for the runner; the Merge trigger shows pending work and notifications report completion or refusal while the detail remains open. Closing the dialog does not authorize a different SHA or bypass merge checks.
 
+## Herdr native job controls
+
+Reinstall with `bun apps/herdr/install.ts` after updating the checkout. Factory offers native New job and detail actions: answer, changes, merge, stop, retry, close, held-review recovery, archive and unarchive. Repository, model and account administration remain CLI/dashboard operations. New jobs inherit repository/global builder and independent-review policy; the preview is informational and claim resolves current policy.
+
+Herdr invokes the trusted local CLI using structured argv and the configured checkout/Bun. It runs with the OS user's operator authority, not browser owner authentication. Do not share that OS account with untrusted users. SSE pairing remains read-only and grants no mutation permission. Briefs and feedback must not contain secrets.
+
+Merge confirms the displayed SHA; attempt-sensitive actions retain the displayed attempt and answers retain question identity. Runner merge/review/stop safeguards still apply. Offline acceptance means queued, not completed. Drafts are memory-only. Herdr home's `factory-pending-actions.json` retains only request/intent IDs and action metadata across reloads, outside the watched mod directory. Refresh inspects receipts without replaying mutations. For unknown outcomes, inspect CLI request status and job history before using Resolve inspected request and typing its UUID. Releasing a local hold neither cancels nor retries work; an original process can still finish. Never file a duplicate merely because a response was lost.
+
+
+## Agent operations
+
 The repository `.agents/skills/factory-jobs/` is authoritative. `bun run skills:sync` installs it to `~/.agents/skills/factory-jobs`; `--target <directory>` selects another installation. `bun run skills:check` proves a fresh installation is byte-identical; add `--target <directory>` to detect drift in an existing installation. Edit repository sources, then synchronize, rather than editing installed copies.
 
 For agent investigations, use bounded service log tails rather than full transcripts. Read a complete relevant source block before patching it. On polling UI, refresh the browser snapshot before each ref-based action, or use stable semantic selectors. Prefer the smoke command over rebuilding fixture/startup/auth setup for each UI check.

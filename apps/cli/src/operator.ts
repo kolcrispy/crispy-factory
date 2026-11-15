@@ -6,7 +6,12 @@ import { jobs, machines, jobEvidence, intents, events, auditLog, runs } from "@f
 import { trustedOperator } from "@factory/core/auth/owner";
 import { inboxDeps } from "@factory/core/inbox-deps";
 import * as inbox from "@factory/core/inbox-actions";
-import { inboxKind } from "@factory/core/inbox";
+import { allows, inboxKind } from "@factory/core/inbox";
+import { archiveRefusal } from "@factory/core/archive";
+import { resolveHarness } from "@factory/core/settings";
+import { withRepoDefaults } from "@factory/core/repositories";
+import { loadLimits } from "@factory/core/config";
+import { resolveReviewPolicy } from "@factory/core/review";
 import { archiveJobs, unarchiveJobs } from "@factory/core/archive-actions";
 import { newJobDeps } from "@factory/core/new-job-deps";
 import { createJob } from "@factory/core/new-job";
@@ -26,12 +31,42 @@ export async function operator(resource: string, action: string, raw: unknown, a
   const input = inputSchema.parse(raw);
   const user = async () => trustedOperator(actor);
   const deps = inboxDeps(user);
+  if (input.expectedAttempt !== undefined) deps.expected = { attempt: z.number().int().positive().parse(input.expectedAttempt), ...(input.expectedQuestionEventId !== undefined && { questionEventId: z.string().nullable().parse(input.expectedQuestionEventId) }) };
   const registry = () => readRegistry(db);
   const harnesses = async () => reportedHarnesses(await db.select().from(machines), Date.now());
   let result: Result;
   const key = `${resource} ${action}`;
   switch (key) {
     case "jobs list": result = { jobs: (await db.select().from(jobs).orderBy(desc(jobs.claimed_at)).limit(200)).map(job => ({ ...job, needs_human: inboxKind(job) !== null })) }; break;
+    case "jobs controls": {
+      const id = parseJobId(text(input, "jobId")).id;
+      const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
+      if (!job) return { ok: false, message: "No such job." };
+      const kind = inboxKind(job);
+      const target = await inbox.mergeTarget(deps, id);
+      const actions = [
+        ...(allows(kind, "answer") ? ["answer"] : []),
+        ...(allows(kind, "request_changes") ? ["changes"] : []),
+        ...(allows(kind, "retry") ? ["retry"] : []),
+        ...(allows(kind, "retry_stop") ? ["retry-stop"] : []),
+        ...(allows(kind, "close") ? ["close"] : []),
+        ...(target ? ["approve"] : []),
+        ...(!["done", "failed"].includes(job.stage) && !job.stop ? ["stop"] : []),
+        ...(kind === "review" ? ["review", "review-changes"] : []),
+        ...(job.archived_at ? ["unarchive"] : archiveRefusal(job) === null ? ["archive"] : []),
+      ];
+      result = { jobId: id, attempt: job.attempt, questionEventId: job.attention?.eventId ?? null, question: job.question, target, actions };
+      break;
+    }
+    case "jobs defaults": {
+      const [repositories, saved, inventory] = await Promise.all([registry(), readSettings(db), harnesses()]);
+      const base = { harness: resolveHarness(saved, loadLimits()) };
+      result = { repositories: repositories.filter(repo => repo.enabled && repo.registration_status === "ready").map(repo => {
+        const { defaults, problems } = withRepoDefaults(base, repo, inventory);
+        return { repo: repo.repo, is_default: repo.is_default, harness: defaults.harness, review: resolveReviewPolicy(defaults.harness, saved?.review, repo.review), problems };
+      }) };
+      break;
+    }
     case "jobs show": {
       const id = parseJobId(text(input, "jobId")).id;
       const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
@@ -71,7 +106,7 @@ export async function operator(resource: string, action: string, raw: unknown, a
         case "jobs answer": result = await inbox.answerQuestion(deps, id, requestId, body); break;
         case "jobs changes": result = await inbox.requestChanges(deps, id, requestId, body); break;
         case "jobs stop": result = await inbox.requestStop(deps, id, requestId, body); break;
-        case "jobs approve": result = await inbox.approveMerge(deps, id, requestId, typeof input.headSha === "string" ? input.headSha : null); break;
+        case "jobs approve": result = typeof input.headSha === "string" ? await inbox.approveFromRunDetail(deps, id, requestId, input.headSha) : await inbox.approveMerge(deps, id, requestId, null); break;
         case "jobs close": result = await inbox.closeJob(deps, id, requestId, body); break;
         case "jobs dismiss": result = await inbox.dismissJob(deps, id); break;
         case "jobs retry": result = await inbox.retryFailed(deps, id, requestId, body); break;
