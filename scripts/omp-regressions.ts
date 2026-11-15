@@ -51,6 +51,18 @@ try {
     await assert.rejects(recoverOmp(record.key, 1, id, "internal:new-job"), /another job/, "a reused display key must not recover a prior job's execution");
     assert.notEqual(ompIdentity("internal:old", 1), ompIdentity("internal:new", 1), "separate job UUIDs cannot share execution identity after a display-key reset");
     await assert.rejects(startOmp({ jobId: "internal:new-job", key: record.key, attempt: 1, repo: record.repo, branch: "factory/JOB-1", threadTitle: "New job", message: "new prompt", harness: { provider: "omp", model: "fixture" }, base: "main" }, root, root, { id, cwd: root }), /another job/, "launch cannot adopt another job's durable reservation or send its prompt");
+    const missing = { ...record, id: "omp:missing-worktree", cwd: join(root, "missing-worktree"), started: false, pendingMessage: "not delivered" };
+    writeFileSync(join(root, `${createHash("sha256").update(missing.id).digest("hex")}.json`), JSON.stringify(missing));
+    await assert.rejects(startOmp({ jobId: missing.jobId, key: missing.key, attempt: 1, repo: missing.repo, branch: missing.branch, threadTitle: "Missing checkout", message: "not delivered", harness: { provider: "omp", model: "fixture" }, base: "main" }, root, root, { id: missing.id, cwd: missing.cwd }), /worktree.*missing/, "an incomplete reviewer reservation must not spawn OMP in a missing checkout");
+    const checkout = join(root, "checkout");
+    for (const args of [["init", checkout], ["-C", checkout, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "baseline"], ["-C", checkout, "branch", "factory/collision"]]) {
+      const result = Bun.spawnSync(["git", ...args]);
+      assert.equal(result.exitCode, 0, result.stderr.toString());
+    }
+    const entry = { jobId: "internal:collision", key: "JOB-2", attempt: 1, repo: "fixture/repo", branch: "factory/collision", threadTitle: "Collision", message: "not delivered", harness: { provider: "omp" as const, model: "fixture" }, base: "HEAD" };
+    for (let retry = 0; retry < 2; retry++) {
+      await assert.rejects(startOmp(entry, checkout, root), error => error instanceof Error && /worktree preparation failed/.test(error.message) && "executionUncertain" in error && error.executionUncertain === true, "initial and reserved launches hold branch collisions without spawning OMP or recycling the queue");
+    }
   } finally { ompRuntime.root = originalRoot; }
   console.log("OMP RPC correlation, uncertain delivery, process exit and portable reporting schema regressions passed");
 } finally {

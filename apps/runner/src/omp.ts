@@ -191,7 +191,14 @@ export async function startOmp(entry: LaunchEntry, checkout: string, workRoot: s
     record = { id, jobId: entry.jobId, key: entry.key, attempt: entry.attempt, repo: entry.repo, branch: entry.branch, cwd, ...(review && { role: "reviewer" as const }),
       model: entry.harness.model, sessionDir: join(ompRuntime.root, "sessions", createHash("sha256").update(entry.jobId).digest("hex"), String(entry.attempt), ...(review ? [id.replaceAll(":", "-")] : [])), started: false, needsResume: false, children: {}, pendingMessage: entry.message };
     save(record);
-    if (!review) await exec("git", ["worktree", "add", "-b", entry.branch, cwd, entry.base], { cwd: checkout, timeoutMs: 120_000 });
+  }
+  if (!existsSync(record.cwd)) {
+    if (review || record.started || !record.pendingMessage) throw new Error(`OMP worktree ${record.cwd} is missing; inspect before recovery.`);
+    try {
+      await exec("git", ["worktree", "add", "-b", record.branch, record.cwd, entry.base], { cwd: checkout, timeoutMs: 120_000 });
+    } catch (error) {
+      throw Object.assign(new Error(`OMP worktree preparation failed; inspect reservation before retrying: ${String(error)}`), { executionUncertain: true });
+    }
   }
   const current = await owned(id);
   if (current.record.pendingMessage) {

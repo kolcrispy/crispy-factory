@@ -97,6 +97,8 @@ Install and authenticate OMP under the runner account; optionally set `FACTORY_O
 
 Factory creates a separate worktree and durable OMP session for every attempt under `~/.local/state/crispy-factory/omp`. Answers and feedback continue that session; retries create a different session. The runner checks process ownership and OMP session leases before reconnecting. Unknown ownership or uncertain prompt delivery holds recovery for inspection instead of creating duplicate work.
 New execution IDs and session/worktree directories are scoped by the immutable job ID plus attempt, with reviewer round identity included. Display keys such as JOB-1 can repeat after a database reset and must never select a prior session. Durable records must match job ID, key, attempt and repository before launch reuse; recovery refuses mismatched or legacy unproven ownership. Preserve old records/transcripts. For an already collided attempt, stop it through the CLI and retry on a fresh attempt; do not resume the unrelated transcript or fabricate a handoff. Existing Git branches remain protected by Git's refusal to overwrite them.
+Worktree preparation failures retain the launch reservation for inspection instead of cycling Building back to Queued. An undelivered reservation with no checkout retries Git preparation before any OMP spawn; an existing branch is never adopted or overwritten.
+
 
 
 A started session with a missing transcript cannot resume. Status observation reports it gone only after the recorded process is dead and any known OMP session lease is confirmed free; live or unknown ownership remains an error. For a held reviewer, `jobs review` can then request a new review round without discarding builder evidence or reusing the broken session.
